@@ -1,0 +1,11 @@
+[env]
+RUST_LOG = "info"
+GIT_CLIFF_OUTPUT = "CHANGELOG.md"
+
+[settings]
+experimental = true
+cargo = { binstall = true }
+
+[tools]
+"cargo:cargo-nextest" = "0.9"
+"cargo:git-cliff" = "2.8"

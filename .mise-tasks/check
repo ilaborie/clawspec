@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE description="Run checks (pre-push)"
+
+set -eux
+
+# Check formatting
+cargo fmt --all --check
+
+# Check no lint warning
+cargo clippy --locked --all-targets --all-features -- -D warnings
+
+# Run tests
+cargo nextest run  --locked
+
+# Check sqlx offline file
+cargo sqlx prepare --check -- --locked --all-features

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Run API tests"
+
+set -eux
+
+# Tests
+cargo nextest run --no-fail-fast
+
+# Tests in docs
+cargo test --doc
+

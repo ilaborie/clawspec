@@ -1,0 +1,8 @@
+# allow-dbg-in-tests = true
+allow-expect-in-tests = true
+# allow-unwrap-in-tests = true
+
+# `f` is used in `Display` implementation by the generator
+# `q` is used for query parameter
+allowed-idents-below-min-chars = ["s", "f", "q", ".."]
+

@@ -1,0 +1,148 @@
+[branch]
+name = "{{type}}/{{title | slugify }}"
+
+[branch.validation]
+pattern = "(main|develop|((feature|bugfix|hotfix|release|docs|explore)/[a-z-]+))"
+
+[[branch.fields]]
+name = "type"
+prompt = "What's the branch prefix?"
+required = true
+type = "list"
+allow_custom_value = false
+
+[[branch.fields.values]]
+value = "feature"
+description = "✨ new feature"
+
+[[branch.fields.values]]
+value = "bugfix"
+description = "🐛 bug fix"
+
+[[branch.fields.values]]
+value = "hotfix"
+description = "🚑 URGENT bug fix"
+
+[[branch.fields.values]]
+value = "release"
+description = "🏷️ release"
+
+[[branch.fields.values]]
+value = "docs"
+description = "📝 documentation"
+
+[[branch.fields.values]]
+value = "explore"
+description = "⚗️ experiment"
+
+[[branch.fields]]
+name = "title"
+prompt = "What's the branch description"
+required = true
+type = "text"
+
+[branch.fields.validation]
+min_length = 1
+
+[commit]
+title = """
+{{type}}
+{%- if scope -%}
+    ({{scope}})
+{%- endif -%}
+{%- if breaking -%}
+    !
+{%- endif -%}
+: {{subject | first_upper | trim_end_matches(pat='.') }}"""
+description = "{{description | wrap(size=72) }}"
+auto_signed = false
+auto_add = false
+
+[commit.validation]
+pattern = "^(feat|fix|docs|style|refactor|perf|test|build|chore|revert)!?: (.){1, 72}$"
+
+[[commit.fields]]
+name = "type"
+prompt = "Select the type of change that you're committing"
+required = true
+type = "list"
+allow_custom_value = false
+
+[[commit.fields.values]]
+value = "feat"
+description = "✨ a new feature"
+
+[[commit.fields.values]]
+value = "fix"
+description = "🐛 a bug fix"
+
+[[commit.fields.values]]
+value = "docs"
+description = "📝 documentation"
+
+[[commit.fields.values]]
+value = "style"
+description = "🎨 code-stylish change like formatting"
+
+[[commit.fields.values]]
+value = "refactor"
+description = "♻️ code refactoring"
+
+[[commit.fields.values]]
+value = "perf"
+description = "⚡️ performance improvements"
+
+[[commit.fields.values]]
+value = "test"
+description = "🧪 adding missing test or correct existing tests"
+
+[[commit.fields.values]]
+value = "build"
+description = "👷 changes related to project build"
+
+[[commit.fields.values]]
+value = "ci"
+description = "💚 changes related to CI/CD"
+
+[[commit.fields.values]]
+value = "chore"
+description = "🔧 other changes"
+
+[[commit.fields.values]]
+value = "revert"
+description = "⏪ revert a previous commit"
+
+[[commit.fields]]
+name = "breaking"
+prompt = "Are there any breaking changes?"
+default = false
+required = true
+type = "confirm"
+affirmative = "Yes 💥"
+negative = "No"
+
+[[commit.fields]]
+name = "scope"
+prompt = "What is the scope of this change?"
+description = "\te.g. component or file name"
+required = false
+type = "text"
+
+[commit.fields.validation]
+
+[[commit.fields]]
+name = "subject"
+prompt = "If applied, this commit will ..."
+description = "Short, imperative tense description of the change"
+required = true
+type = "text"
+
+[commit.fields.validation]
+
+[[commit.fields]]
+name = "description"
+prompt = "Description of the change"
+required = false
+type = "text"
+
+[commit.fields.validation]

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Format and apply clippy fix"
+
+set -eux
+
+# Format
+cargo fmt
+
+# Fix lint
+cargo fix --allow-dirty --allow-staged
