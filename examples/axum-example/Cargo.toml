@@ -1,0 +1,27 @@
+[package]
+name = "axum-example"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+
+[dependencies]
+
+anyhow = "1.0.98"
+axum = {version = "0.8.4", features = ["macros"]}
+derive_more = {version = "2.0.1", features = ["error", "display", "from", "deref", "deref_mut"]}
+pico-args = "0.5.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.45.1", features = ["macros", "rt-multi-thread"] }
+tower-http = { version = "0.6.6", features = ["trace"]}
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["fmt"] }
+utoipa = { workspace = true}
+
+[dev-dependencies]
+clawspec-utoipa= { path = "../../lib/clawspec-utoipa"}
+rstest = "0.25.0"
+utoipa = { workspace = true, features = ["yaml"]}
+
+[lints]
+workspace = true
