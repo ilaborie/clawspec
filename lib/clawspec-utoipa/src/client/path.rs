@@ -1,8 +1,8 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
+use indexmap::IndexMap;
 use percent_encoding::NON_ALPHANUMERIC;
 use regex::Regex;
 use serde::Serialize;
@@ -20,7 +20,7 @@ static RE: LazyLock<Regex> =
 #[display("{path}")]
 pub struct CallPath {
     pub(super) path: String,
-    args: HashMap<String, Box<dyn PathArg>>,
+    args: IndexMap<String, Box<dyn PathArg>>,
     schemas: Schemas,
 }
 
