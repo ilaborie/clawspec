@@ -1,4 +1,6 @@
 use std::any::type_name;
+use std::mem;
+use std::sync::Arc;
 
 use headers::{ContentType, Header};
 use http::header::CONTENT_TYPE;
@@ -6,6 +8,7 @@ use http::{Method, StatusCode};
 use indexmap::IndexMap;
 use reqwest::Response;
 use serde::de::DeserializeOwned;
+use tokio::sync::RwLock;
 use tracing::{error, warn};
 use utoipa::ToSchema;
 use utoipa::openapi::path::{Operation, Parameter, ParameterIn};
@@ -24,6 +27,10 @@ pub(super) struct Collectors {
 }
 
 impl Collectors {
+    pub(super) fn collect_schemas(&mut self, schemas: Schemas) {
+        self.schemas.merge(schemas);
+    }
+
     pub(super) fn collect_operation(
         &mut self,
         operation: CalledOperation,
@@ -47,7 +54,6 @@ impl Collectors {
             let item = result.entry(path.clone()).or_default();
             for call in calls {
                 let method = call.method.clone();
-                self.schemas.merge(call.schemas.clone());
                 match method {
                     Method::GET => {
                         item.get =
@@ -117,14 +123,155 @@ pub struct CalledOperation {
     path: String,
     operation: Operation,
     result: Option<CallResult>,
-    pub(super) schemas: Schemas,
 }
 
 #[derive(Debug, Clone)]
-struct CallResult {
+pub struct CallResult {
+    operation_id: String,
     status: StatusCode,
     content_type: ContentType,
     output: Output,
+    collectors: Arc<RwLock<Collectors>>,
+}
+
+impl CallResult {
+    pub(super) async fn new(
+        operation_id: String,
+        collectors: Arc<RwLock<Collectors>>,
+        response: Response,
+    ) -> Result<Self, ApiClientError> {
+        let status = response.status();
+
+        let content_type = response
+            .headers()
+            .get_all(CONTENT_TYPE)
+            .iter()
+            .collect::<Vec<_>>();
+        let content_type = ContentType::decode(&mut content_type.into_iter())?;
+
+        let output = if status == StatusCode::NO_CONTENT {
+            Output::Empty
+        } else if content_type == ContentType::json() {
+            let json = response.text().await?;
+            Output::Json(json)
+        } else if content_type == ContentType::octet_stream() {
+            let bytes = response.bytes().await?;
+            Output::Bytes(bytes.to_vec())
+        } else if content_type.to_string().starts_with("text/") {
+            let text = response.text().await?;
+            Output::Text(text)
+        } else {
+            let body = response.text().await?;
+            Output::Other { body }
+        };
+
+        Ok(Self {
+            operation_id,
+            status,
+            content_type,
+            output,
+            collectors,
+        })
+    }
+
+    async fn get_output(&self, schema: Option<RefOr<Schema>>) -> Result<&Output, ApiClientError> {
+        // Create content
+        let content = Content::builder().schema(schema).build();
+
+        // add operation response desc
+        let mut cs = self.collectors.write().await;
+        let Some(operation) = cs.operations.get_mut(&self.operation_id) else {
+            return Err(ApiClientError::MissingOperation {
+                id: self.operation_id.clone(),
+            });
+        };
+
+        let Some(operation) = operation.last_mut() else {
+            return Err(ApiClientError::MissingOperation {
+                id: self.operation_id.clone(),
+            });
+        };
+
+        operation.operation.responses.responses.insert(
+            self.status.as_u16().to_string(),
+            RefOr::T(
+                ResponseBuilder::new()
+                    .content(self.content_type.to_string(), content)
+                    .build(),
+            ),
+        );
+
+        Ok(&self.output)
+    }
+
+    pub async fn as_json<T>(&mut self) -> Result<T, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+    {
+        let mut cs = self.collectors.write().await;
+        let schema = cs.schemas.add::<T>();
+        mem::drop(cs);
+        let output = self.get_output(Some(schema)).await?;
+
+        let Output::Json(json) = output else {
+            return Err(ApiClientError::UnsupportedJsonOutput {
+                output: output.clone(),
+                name: type_name::<T>(),
+            });
+        };
+        let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
+        let result = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+            ApiClientError::JsonError {
+                path: err.path().to_string(),
+                error: err.into_inner(),
+                body: json.clone(),
+            }
+        })?;
+
+        if let Ok(example) = serde_json::to_value(json.as_str()) {
+            let mut cs = self.collectors.write().await;
+            cs.schemas.add_example::<T>(example);
+        }
+
+        Ok(result)
+    }
+
+    pub async fn as_text(&mut self) -> Result<&str, ApiClientError> {
+        let output = self.get_output(None).await?;
+
+        let Output::Text(text) = &output else {
+            return Err(ApiClientError::UnsupportedTextOutput {
+                output: output.clone(),
+            });
+        };
+
+        Ok(text)
+    }
+
+    pub async fn as_bytes(&mut self) -> Result<&[u8], ApiClientError> {
+        let output = self.get_output(None).await?;
+
+        let Output::Bytes(bytes) = &output else {
+            return Err(ApiClientError::UnsupportedBytesOutput {
+                output: output.clone(),
+            });
+        };
+
+        Ok(bytes.as_slice())
+    }
+
+    pub async fn as_raw(&mut self) -> Result<(ContentType, &str), ApiClientError> {
+        let content_type = self.content_type.clone();
+        let output = self.get_output(None).await?;
+
+        let body = match output {
+            Output::Empty => "",
+            Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => body.as_str(),
+            Output::Bytes(_bytes) => todo!("base64 encoding"),
+        };
+
+        Ok((content_type, body))
+    }
 }
 
 impl CalledOperation {
@@ -133,7 +280,7 @@ impl CalledOperation {
         method: http::Method,
         path: &str,
         path_params: &[PathParam],
-        query: Option<&CallQuery>,
+        query: &CallQuery,
         headers: Option<&CallHeaders>,
         request_body: Option<&CallBody>,
         // TODO cookie - https://github.com/ilaborie/clawspec/issues/18
@@ -152,9 +299,10 @@ impl CalledOperation {
             parameters.push(param);
         }
 
-        // TODO query - https://github.com/ilaborie/clawspec/issues/20
-        if let Some(_query) = query {
-            todo!("add query parameters");
+        // Add query parameters
+        if !query.is_empty() {
+            schemas.merge(query.schemas.clone());
+            parameters.extend(query.to_parameters());
         }
 
         // TODO headers - https://github.com/ilaborie/clawspec/issues/20
@@ -195,135 +343,11 @@ impl CalledOperation {
             path: path.to_string(),
             operation,
             result: None,
-            schemas,
         }
     }
 
-    pub(super) async fn add_response(&mut self, response: Response) -> Result<(), ApiClientError> {
-        let status = response.status();
-
-        let content_type = response
-            .headers()
-            .get_all(CONTENT_TYPE)
-            .iter()
-            .collect::<Vec<_>>();
-        let content_type = ContentType::decode(&mut content_type.into_iter())?;
-
-        let output = if status == StatusCode::NO_CONTENT {
-            Output::Empty
-        } else if content_type == ContentType::json() {
-            let json = response.text().await?;
-            Output::Json(json)
-        } else if content_type == ContentType::octet_stream() {
-            let bytes = response.bytes().await?;
-            Output::Bytes(bytes.to_vec())
-        } else if content_type.to_string().starts_with("text/") {
-            let text = response.text().await?;
-            Output::Text(text)
-        } else {
-            let body = response.text().await?;
-            Output::Other { body }
-        };
-
-        self.result = Some(CallResult {
-            status,
-            content_type,
-            output,
-        });
-
-        Ok(())
-    }
-
-    fn get_output(&mut self, schema: Option<RefOr<Schema>>) -> Result<&Output, ApiClientError> {
-        let Some(CallResult {
-            status,
-            content_type,
-            output,
-        }) = &self.result
-        else {
-            return Err(ApiClientError::CallResultRequired);
-        };
-
-        // Create content
-        let content = Content::builder().schema(schema).build();
-
-        // add operation response desc
-        self.operation.responses.responses.insert(
-            status.as_u16().to_string(),
-            RefOr::T(
-                ResponseBuilder::new()
-                    .content(content_type.to_string(), content)
-                    .build(),
-            ),
-        );
-
-        Ok(output)
-    }
-
-    pub fn as_json<T>(&mut self) -> Result<T, ApiClientError>
-    where
-        T: DeserializeOwned + ToSchema + 'static,
-    {
-        let schema = self.schemas.add::<T>();
-        let output = self.get_output(Some(schema))?;
-
-        let Output::Json(json) = output else {
-            return Err(ApiClientError::UnsupportedJsonOutput {
-                output: output.clone(),
-                name: type_name::<T>(),
-            });
-        };
-        let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-        let result = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-            ApiClientError::JsonError {
-                path: err.path().to_string(),
-                error: err.into_inner(),
-                body: json.clone(),
-            }
-        })?;
-
-        if let Ok(example) = serde_json::to_value(json.as_str()) {
-            self.schemas.add_example::<T>(example);
-        }
-
-        Ok(result)
-    }
-
-    pub fn as_text(&mut self) -> Result<&str, ApiClientError> {
-        let output = self.get_output(None)?;
-
-        let Output::Text(text) = &output else {
-            return Err(ApiClientError::UnsupportedTextOutput {
-                output: output.clone(),
-            });
-        };
-
-        Ok(text)
-    }
-
-    pub fn as_bytes(&mut self) -> Result<&[u8], ApiClientError> {
-        let output = self.get_output(None)?;
-
-        let Output::Bytes(bytes) = &output else {
-            return Err(ApiClientError::UnsupportedBytesOutput {
-                output: output.clone(),
-            });
-        };
-
-        Ok(bytes.as_slice())
-    }
-
-    pub fn as_raw(&mut self) -> Result<(ContentType, &str), ApiClientError> {
-        let content_type = self.result.as_ref().cloned().expect("exist").content_type;
-        let output = self.get_output(None)?;
-
-        let body = match output {
-            Output::Empty => "",
-            Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => body.as_str(),
-            Output::Bytes(_bytes) => todo!("base64 encoding"),
-        };
-
-        Ok((content_type, body))
+    pub(super) fn add_response(&mut self, call_result: CallResult) {
+        self.result = Some(call_result);
     }
 }
 

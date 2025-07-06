@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Context;
+use axum_example::observations::ListOption;
 use axum_example::observations::domain::{LngLat, PartialObservation};
 use rstest::rstest;
 
@@ -14,7 +15,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
 
     // List
     let _list = app
-        .list_observations()
+        .list_observations(None)
         .await
         .context("should list observation")?;
 
@@ -32,6 +33,15 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
         .create_observation(&new_observation)
         .await
         .context("should create observation");
+
+    // List2
+    let _list = app
+        .list_observations(Some(ListOption {
+            limit: 4,
+            ..Default::default()
+        }))
+        .await
+        .context("should list observation")?;
 
     app.write_openapi("./doc/openapi.yml")
         .await

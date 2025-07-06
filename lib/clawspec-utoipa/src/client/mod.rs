@@ -31,6 +31,9 @@ pub use self::error::*;
 
 mod collectors;
 
+#[cfg(test)]
+mod integration_tests;
+
 mod output;
 use collectors::*;
 

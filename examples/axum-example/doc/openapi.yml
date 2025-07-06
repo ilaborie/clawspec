@@ -6,7 +6,19 @@ paths:
   /api/observations:
     get:
       operationId: get-observations
-      parameters: []
+      parameters:
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: string
+        style: form
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: string
+        style: form
       responses: {}
     post:
       operationId: post-observations
@@ -23,24 +35,30 @@ paths:
               position:
                 lat: -25.1
                 lng: 12.4
-      responses: {}
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
 components:
   schemas:
-    PartialObservation:
+    ListObservations:
       type: object
       required:
-      - name
-      - position
+      - observations
       properties:
-        color:
-          type:
-          - string
-          - 'null'
-        name:
-          type: string
-        notes:
-          type:
-          - string
-          - 'null'
-        position:
-          $ref: '#/components/schemas/LngLat'
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Observation'
+    Observation:
+      allOf:
+      - $ref: '#/components/schemas/PartialObservation'
+      - type: object
+        required:
+        - id
+        properties:
+          id:
+            $ref: '#/components/schemas/ObservationId'

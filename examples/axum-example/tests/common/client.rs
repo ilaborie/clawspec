@@ -3,6 +3,9 @@ use anyhow::Context;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use clawspec_utoipa::{CallQuery, SerializableQuery};
+
+use axum_example::observations::ListOption;
 use axum_example::observations::domain::{Observation, PartialObservation};
 
 use super::TestApp;
@@ -13,8 +16,22 @@ pub struct ListObservations {
 }
 
 impl TestApp {
-    pub async fn list_observations(&mut self) -> anyhow::Result<ListObservations> {
-        let result = self.get("/observations")?.exchange().await?.as_json()?;
+    pub async fn list_observations(
+        &mut self,
+        option: Option<ListOption>,
+    ) -> anyhow::Result<ListObservations> {
+        let ListOption { offset, limit } = option.unwrap_or_default();
+        let query = CallQuery::new()
+            .add_param("offset", SerializableQuery::new(offset))
+            .add_param("limit", SerializableQuery::new(limit));
+
+        let result = self
+            .get("/observations")?
+            .query(query)
+            .exchange()
+            .await?
+            .as_json()
+            .await?;
         Ok(result)
     }
 
@@ -28,7 +45,8 @@ impl TestApp {
             .exchange()
             .await
             .context("create observation")?
-            .as_json()?;
+            .as_json()
+            .await?;
         Ok(result)
     }
 }
