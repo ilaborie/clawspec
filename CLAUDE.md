@@ -38,6 +38,7 @@ The project sets the following environment variables via mise:
 - `GIT_CLIFF_OUTPUT=CHANGELOG.md` - Changelog output file
 
 ### Installed Tools
+- `cargo-audit` - Security vulnerability scanner
 - `cargo-nextest` - Enhanced test runner
 - `git-cliff` - Changelog generator
 - `@anthropic-ai/claude-code` - Claude Code CLI
@@ -46,6 +47,9 @@ The project sets the following environment variables via mise:
 
 ### Mise Tasks (Recommended)
 ```bash
+# Run security audit with cargo audit
+mise run audit
+
 # Run comprehensive pre-push checks: format, lint, and test
 mise run check
 
