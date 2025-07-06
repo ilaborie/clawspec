@@ -8,6 +8,7 @@ pub enum ApiClientError {
     UrlError(url::ParseError),
     HeadersError(headers::Error),
     JsonValueError(serde_json::Error),
+    QuerySerializationError(serde_urlencoded::ser::Error),
 
     #[display("invalid state, expected a call result")]
     CallResultRequired,
@@ -49,6 +50,20 @@ pub enum ApiClientError {
     PathUnresolved {
         path: String,
         missings: Vec<String>,
+    },
+
+    #[display(
+        "unsupported query parameter value: objects are not supported for query parameters. Got: {value}"
+    )]
+    #[from(skip)]
+    UnsupportedQueryParameterValue {
+        value: serde_json::Value,
+    },
+
+    #[display("Missing operation {id}")]
+    #[from(skip)]
+    MissingOperation {
+        id: String,
     },
 
     #[display("having a 500 error with raw body: {raw_body}")]

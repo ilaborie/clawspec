@@ -15,6 +15,7 @@
       "Bash(git add:*)",
       "Bash(mise run lint:*)",
       "Bash(mise run:*)",
+      "Bash(mise check:*)",
       "Bash(git reset:*)",
       "Bash(gh issue view:*)",
       "Bash(gh issue edit:*)",
@@ -24,7 +25,9 @@
       "Bash(gh pr:*)",
       "Bash(gh issue create:*)",
       "Bash(gh api:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(rustc:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

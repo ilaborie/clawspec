@@ -11,8 +11,8 @@ use url::Url;
 use utoipa::ToSchema;
 
 use super::{
-    ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CalledOperation, Collectors,
-    PathResolved,
+    ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResult, CalledOperation,
+    Collectors, PathResolved,
 };
 
 // TODO: Add comprehensive documentation for all public APIs - https://github.com/ilaborie/clawspec/issues/34
@@ -26,7 +26,7 @@ pub struct ApiCall {
     operation_id: String,
     method: Method,
     path: (String, PathResolved),
-    query: Option<CallQuery>,
+    query: CallQuery,
     headers: Option<CallHeaders>,
 
     #[debug(ignore)]
@@ -54,7 +54,7 @@ impl ApiCall {
             operation_id,
             method,
             path: (initial, path_resolved),
-            query: None,
+            query: CallQuery::default(),
             headers: None,
             body: None,
         };
@@ -69,7 +69,7 @@ impl ApiCall {
         self
     }
 
-    pub fn query(mut self, query: Option<CallQuery>) -> Self {
+    pub fn query(mut self, query: CallQuery) -> Self {
         self.query = query;
         self
     }
@@ -98,7 +98,7 @@ impl ApiCall {
 // Call
 impl ApiCall {
     // XXX code to abstract if we want multiple client
-    pub async fn exchange(self) -> Result<CalledOperation, ApiClientError> {
+    pub async fn exchange(self) -> Result<CallResult, ApiClientError> {
         let Self {
             client,
             base_uri,
@@ -121,21 +121,24 @@ impl ApiCall {
 
         // Create opration
         let mut operation = CalledOperation::build(
-            operation_id,
+            operation_id.clone(),
             method.clone(),
             &path_name,
             &params,
-            query.as_ref(),
+            &query,
             headers.as_ref(),
             body.as_ref(),
         );
-        operation.schemas.merge(schemas);
 
         // Build URL
         let url = format!("{}/{}", base_uri, path.trim_start_matches('/'));
-        let url = url.parse::<Url>()?;
+        let mut url = url.parse::<Url>()?;
 
-        // TODO append query in url - https://github.com/ilaborie/clawspec/issues/20
+        // Append query parameters to URL
+        if !query.is_empty() {
+            let query_string = query.to_query_string()?;
+            url.set_query(Some(&query_string));
+        }
 
         // Build request
         let mut request = Request::new(method, url);
@@ -155,32 +158,15 @@ impl ApiCall {
         // TODO fail if status code is not accepted (default: 200-400) - https://github.com/ilaborie/clawspec/issues/22
 
         // Parse response
-        operation.add_response(response).await?;
+        let call_result = CallResult::new(operation_id, Arc::clone(&collectors), response).await?;
+        operation.add_response(call_result.clone());
 
-        // collect
+        // collect operation
         let mut cs = collectors.write().await;
-        cs.collect_operation(operation.clone());
+        cs.collect_schemas(schemas);
+        cs.collect_operation(operation);
         mem::drop(cs);
 
-        Ok(operation)
+        Ok(call_result)
     }
 }
-
-// mod fut {
-//     use std::pin::Pin;
-//     use std::task::{Context, Poll};
-
-//     use crate::ApiClientError;
-//     use crate::client::CalledOperation;
-
-//     use super::ApiCall;
-
-//     impl Future for ApiCall {
-//         type Output = Result<CalledOperation, ApiClientError>;
-
-//         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-//             self.exchange();
-//             todo!()
-//         }
-//     }
-// }

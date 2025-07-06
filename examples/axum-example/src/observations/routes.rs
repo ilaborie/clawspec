@@ -23,10 +23,11 @@ pub(crate) fn observation_router() -> Router<AppState> {
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
-struct ListOption {
-    offset: usize,
-    limit: usize,
+pub struct ListOption {
+    pub offset: usize,
+    pub limit: usize,
 }
+
 impl Default for ListOption {
     fn default() -> Self {
         Self {
