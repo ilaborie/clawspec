@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
+use percent_encoding::NON_ALPHANUMERIC;
 use regex::Regex;
 use serde::Serialize;
 use tracing::warn;
@@ -52,15 +53,6 @@ impl From<String> for CallPath {
         }
     }
 }
-
-// impl FromStr for CallPath {
-//     type Err = Infallible;
-
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         let result = Self::from(s.to_string());
-//         Ok(result)
-//     }
-// }
 
 #[derive(Debug, derive_more::Error, derive_more::Display)]
 pub enum PathError {
@@ -118,10 +110,10 @@ impl TryFrom<CallPath> for PathResolved {
 
             names.remove(idx);
 
-            // TODO explore [URI template](https://datatracker.ietf.org/doc/html/rfc6570)
+            // TODO explore [URI template](https://datatracker.ietf.org/doc/html/rfc6570) - https://github.com/ilaborie/clawspec/issues/21
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
-            let value = urlencoding::encode(&value);
-            path = path.replace(&format!("{{{name}}}"), &value);
+            let value = percent_encoding::utf8_percent_encode(&value, NON_ALPHANUMERIC).to_string();
+            path = path.replace(&format!("{{{name}}}"), &value); // TODO: Optimize string allocations - https://github.com/ilaborie/clawspec/issues/31
 
             params.push(PathParam(name.to_string()));
 
@@ -144,7 +136,7 @@ impl TryFrom<CallPath> for PathResolved {
 // Args
 
 pub trait PathArg: Debug {
-    fn as_path_value(&self) -> Option<String>; // TODO Result
+    fn as_path_value(&self) -> Option<String>; // TODO Result - https://github.com/ilaborie/clawspec/issues/22
 }
 
 #[derive(Debug)]
@@ -197,7 +189,7 @@ where
         };
 
         let serde_json::Value::String(value) = value else {
-            // TODO with URI template we could support array and object
+            // TODO with URI template we could support array and object - https://github.com/ilaborie/clawspec/issues/21
             warn!(?value, "expected serialization as String");
             return None;
         };
@@ -206,7 +198,7 @@ where
     }
 }
 
-// TODO dsl path!(""/ object / ""...)
+// TODO dsl path!(""/ object / ""...) - https://github.com/ilaborie/clawspec/issues/21
 
 #[cfg(test)]
 mod tests {
@@ -250,5 +242,87 @@ mod tests {
             ),
         }
         "#);
+    }
+
+    #[test]
+    fn test_path_resolved_with_multiple_parameters() {
+        let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
+        path.insert_arg("user_id", DisplayArg(123));
+        path.insert_arg("post_id", DisplayArg("abc"));
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+
+        insta::assert_debug_snapshot!(resolved, @r#"
+        PathResolved {
+            path: "/users/123/posts/abc",
+            params: [
+                PathParam(
+                    "user_id",
+                ),
+                PathParam(
+                    "post_id",
+                ),
+            ],
+            schemas: Schemas(
+                [
+                    "clawspec_utoipa::client::path::DisplayArg<i32>",
+                    "clawspec_utoipa::client::path::DisplayArg<&str>",
+                ],
+            ),
+        }
+        "#);
+    }
+
+    #[test]
+    fn test_path_resolved_with_missing_parameters() {
+        let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
+        path.insert_arg("user_id", DisplayArg(123));
+        // Missing post_id parameter
+
+        let result = PathResolved::try_from(path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_path_resolved_with_url_encoding() {
+        let mut path = CallPath::from("/search/{query}");
+        path.insert_arg("query", DisplayArg("hello world"));
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+
+        assert_eq!(resolved.path, "/search/hello%20world");
+    }
+
+    #[test]
+    fn test_path_resolved_with_special_characters() {
+        let mut path = CallPath::from("/items/{name}");
+        path.insert_arg("name", DisplayArg("test@example.com"));
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+
+        insta::assert_snapshot!(resolved.path, @"/items/test%40example%2Ecom");
+    }
+
+    #[test]
+    fn test_path_with_duplicate_parameter_names() {
+        let mut path = CallPath::from("/test/{id}/{id}");
+        path.insert_arg("id", DisplayArg(123));
+
+        // This will actually fail because the algorithm doesn't handle duplicates properly
+        // The replace() replaces all occurrences but names.remove() only removes one from the list
+        let result = PathResolved::try_from(path);
+
+        // This demonstrates the current behavior - should fail with missing parameter
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_insert_arg_overwrites_existing() {
+        let mut path = CallPath::from("/test/{id}");
+        path.insert_arg("id", DisplayArg(123));
+        path.insert_arg("id", DisplayArg(456)); // Overwrite
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/test/456");
     }
 }

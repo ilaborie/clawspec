@@ -15,6 +15,8 @@ use utoipa::openapi::{Content, PathItem, RefOr, Required, ResponseBuilder, Schem
 use super::output::Output;
 use super::{ApiClientError, CallBody, CallHeaders, CallQuery, PathParam, Schemas};
 
+// TODO: Add unit tests for all collector functionality - https://github.com/ilaborie/clawspec/issues/30
+// TODO: Optimize clone-heavy merge operations - https://github.com/ilaborie/clawspec/issues/31
 #[derive(Debug, Clone, Default)]
 pub(super) struct Collectors {
     operations: IndexMap<String, Vec<CalledOperation>>,
@@ -134,7 +136,7 @@ impl CalledOperation {
         query: Option<&CallQuery>,
         headers: Option<&CallHeaders>,
         request_body: Option<&CallBody>,
-        // TODO cookie
+        // TODO cookie - https://github.com/ilaborie/clawspec/issues/18
     ) -> Self {
         let mut schemas = Schemas::default();
 
@@ -150,12 +152,12 @@ impl CalledOperation {
             parameters.push(param);
         }
 
-        // TODO query
+        // TODO query - https://github.com/ilaborie/clawspec/issues/20
         if let Some(_query) = query {
             todo!("add query parameters");
         }
 
-        // TODO headers
+        // TODO headers - https://github.com/ilaborie/clawspec/issues/20
         if let Some(_headers) = headers {
             todo!("add headers parameters");
         }
@@ -342,10 +344,10 @@ fn merge_operation(id: &str, current: Option<Operation>, new: Operation) -> Opti
         .operation_id(Some(id))
         // external_docs
         .parameters(merge_parameters(current.parameters, new.parameters))
-        // TODO body
+        // TODO body - https://github.com/ilaborie/clawspec/issues/19
         .deprecated(current.deprecated.or(new.deprecated))
-        // TODO security
-        // TODO servers
+        // TODO security - https://github.com/ilaborie/clawspec/issues/23
+        // TODO servers - https://github.com/ilaborie/clawspec/issues/23
         // extension
         ;
     // resp

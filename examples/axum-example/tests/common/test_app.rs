@@ -19,7 +19,7 @@ pub struct TestApp {
 }
 
 impl TestApp {
-    // TODO params
+    // TODO params - https://github.com/ilaborie/clawspec/issues/14
     // launcher FnOnce(TcpListener) -> Future<Output=()> + Send + 'statuc
     // check healthy: Fn(port) -> bool
     // health check internval: Duration
@@ -40,13 +40,13 @@ impl TestApp {
             .await
             .with_context(|| format!("cannot connect to server {local_addr}"))?;
 
-        // TODO Wait until ready
+        // TODO Wait until ready - https://github.com/ilaborie/clawspec/issues/15
         // let health_check_timeout = Duration::from_secs(10);
 
         // Build client
         let client = ApiClient::builder()
             .port(local_addr.port())
-            .base_path("/api")
+            .base_path("/api")?
             .build();
 
         let result = Self {

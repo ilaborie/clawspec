@@ -20,7 +20,11 @@
       "Bash(gh issue edit:*)",
       "Bash(cargo:*)",
       "Bash(rustup toolchain:*)",
-      "Bash(rustup run nightly cargo update:*)"
+      "Bash(rustup run nightly cargo update:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue create:*)",
+      "Bash(gh api:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }

@@ -33,6 +33,51 @@ impl CallBody {
         Ok(result)
     }
 
-    // TODO form with serde_urlencoded
-    // TODO raw with content_type + bytes
+    // TODO form with serde_urlencoded - https://github.com/ilaborie/clawspec/issues/19
+    // TODO raw with content_type + bytes - https://github.com/ilaborie/clawspec/issues/19
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+    use utoipa::ToSchema;
+
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+    struct TestData {
+        name: String,
+        value: i32,
+    }
+
+    #[test]
+    fn test_call_body_json_creates_valid_body() {
+        let test_data = TestData {
+            name: "test".to_string(),
+            value: 42,
+        };
+
+        let body = CallBody::json(&test_data).expect("should create body");
+
+        insta::assert_debug_snapshot!(body, @r#"
+        CallBody {
+            content_type: ContentType(
+                "application/json",
+            ),
+            entry: SchemaEntry {
+                type_name: "clawspec_utoipa::client::body::tests::TestData",
+                name: "TestData",
+                examples: {
+                    Object {
+                        "name": String("test"),
+                        "value": Number(42),
+                    },
+                },
+                ..
+            },
+            ..
+        }
+        "#);
+        let parsed = serde_json::from_slice::<TestData>(&body.data).expect("should parse JSON");
+        assert_eq!(parsed, test_data);
+    }
 }

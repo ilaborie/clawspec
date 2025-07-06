@@ -98,6 +98,43 @@ This project follows strict Rust coding standards:
 - `missing_docs = "warn"`
 - Comprehensive clippy lints including `pedantic` level warnings
 - Tests allow `expect` usage via clippy configuration
+- **Type inference**: Prefer turbofish syntax (`::<T>()`) over variable type annotations for better readability
+- **Derive ordering**: Use this order: `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`, `Default`. Then for serde: `Serialize`, `Deserialize` (without `serde::` prefix). For other derives use fully qualified names like `sqlx::FromRow`, `derive_more::Debug`, or `clap::Parser`
+- **Testing**: Prefer inline insta snapshot testing over multiple assertions. Use external snapshots if they exceed 10 lines
+
+### TODO Comments and Issue Tracking
+When adding TODO comments to the codebase, always include a link to the corresponding GitHub issue:
+```rust
+// TODO: Description of what needs to be done - https://github.com/ilaborie/clawspec/issues/N
+```
+
+This practice ensures:
+- All TODOs are tracked and prioritized in GitHub issues
+- Context and implementation details are documented in the issue
+- Progress can be tracked and assigned to contributors
+- TODOs don't get lost or forgotten over time
+
+Before adding a new TODO, check if a relevant GitHub issue already exists, or create one with:
+- Clear description of the problem/improvement
+- Implementation guidance and acceptance criteria
+- Priority level and complexity estimate
+
+### Git Commit Policy
+**IMPORTANT**: Claude must ALWAYS ask for explicit user confirmation before creating any git commits or pushes.
+
+Never commit changes automatically, even if:
+- The changes seem minor or obvious
+- Tests are passing
+- The user requested changes to files
+
+Always follow this process:
+1. Make the requested changes to files
+2. Run any necessary tests or checks
+3. Show a summary of what was changed
+4. **ASK**: "Should I commit these changes?" or "Would you like me to create a commit?"
+5. Wait for explicit user confirmation before running `git commit`
+
+This ensures the user maintains full control over the git history and can review changes before they are committed.
 
 ## Development Workflow
 
@@ -129,3 +166,7 @@ The project primarily uses:
 - Uses conventional commits for changelog generation (git-cliff)
 - Rust edition 2024, minimum version 1.85
 - Workspace-level dependency management for consistent versions
+
+## Testing Guidelines
+
+- In Rust test, try to use inline insta snapshot testing instead of list of assertions. If the snapshot is above 10 lines long, the snapshot should not be inlined

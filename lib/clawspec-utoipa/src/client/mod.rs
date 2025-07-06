@@ -34,6 +34,7 @@ mod collectors;
 mod output;
 use collectors::*;
 
+// TODO: Add comprehensive documentation for all public APIs - https://github.com/ilaborie/clawspec/issues/34
 #[derive(Debug, Clone)]
 pub struct ApiClient {
     client: reqwest::Client,

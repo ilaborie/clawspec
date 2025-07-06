@@ -15,6 +15,8 @@ use super::{
     PathResolved,
 };
 
+// TODO: Add comprehensive documentation for all public APIs - https://github.com/ilaborie/clawspec/issues/34
+// TODO: Standardize builder patterns for consistency - https://github.com/ilaborie/clawspec/issues/33
 #[derive(derive_more::Debug)]
 pub struct ApiCall {
     client: reqwest::Client,
@@ -29,8 +31,8 @@ pub struct ApiCall {
 
     #[debug(ignore)]
     body: Option<CallBody>,
-    // TODO auth
-    // TODO cookiess
+    // TODO auth - https://github.com/ilaborie/clawspec/issues/17
+    // TODO cookiess - https://github.com/ilaborie/clawspec/issues/18
 }
 
 impl ApiCall {
@@ -90,7 +92,7 @@ impl ApiCall {
         self.body = Some(body);
         Ok(self)
     }
-    // TODO more generic bodies
+    // TODO more generic bodies - https://github.com/ilaborie/clawspec/issues/19
 }
 
 // Call
@@ -133,12 +135,12 @@ impl ApiCall {
         let url = format!("{}/{}", base_uri, path.trim_start_matches('/'));
         let url = url.parse::<Url>()?;
 
-        // TODO append query in url
+        // TODO append query in url - https://github.com/ilaborie/clawspec/issues/20
 
         // Build request
         let mut request = Request::new(method, url);
         let req_headers = request.headers_mut();
-        // TODO append headers
+        // TODO append headers - https://github.com/ilaborie/clawspec/issues/20
 
         // Set body
         if let Some(body) = body {
@@ -150,7 +152,7 @@ impl ApiCall {
         // Call
         let response = client.execute(request).await?;
 
-        // TODO fail if status code is not accepted (default: 200-400)
+        // TODO fail if status code is not accepted (default: 200-400) - https://github.com/ilaborie/clawspec/issues/22
 
         // Parse response
         operation.add_response(response).await?;

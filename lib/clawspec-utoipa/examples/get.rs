@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
     let mut client = ApiClient::builder()
         .scheme(Scheme::HTTP)
         .host("dog.ceo")
-        .base_path("/api")
+        .base_path("/api")?
         .build();
 
     // Simple get call with no parameters

@@ -16,16 +16,12 @@ We take security vulnerabilities seriously. If you discover a security vulnerabi
 
 **Do NOT create a public GitHub issue for security vulnerabilities.**
 
-Instead, please report security vulnerabilities privately using one of these methods:
+Instead, please report security vulnerabilities privately using this method:
 
 1. **GitHub Security Advisories** (Preferred)
    - Go to the [Security tab](https://github.com/ilaborie/clawspec/security)
    - Click "Report a vulnerability"
    - Fill out the vulnerability report form
-
-2. **Email**
-   - Send an email to: [security@clawspec.dev] (if available)
-   - Include "SECURITY" in the subject line
 
 ### What to Include
 

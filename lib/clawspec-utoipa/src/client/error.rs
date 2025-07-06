@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use super::output::Output;
 
 #[derive(Debug, derive_more::Error, derive_more::Display, derive_more::From)]
@@ -9,6 +11,11 @@ pub enum ApiClientError {
 
     #[display("invalid state, expected a call result")]
     CallResultRequired,
+
+    #[display("Invalid base path: error: {error:?}")]
+    InvalidBasePath {
+        error: String,
+    },
 
     #[display("fail to deserialize JSON at '{path}' because {error}\n{body}")]
     #[from(skip)]
@@ -49,4 +56,18 @@ pub enum ApiClientError {
     ServerFailure {
         raw_body: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_api_client_error_is_send_and_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<ApiClientError>();
+        assert_sync::<ApiClientError>();
+    }
 }

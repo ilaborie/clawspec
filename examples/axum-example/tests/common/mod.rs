@@ -7,7 +7,7 @@ pub use self::test_app::*;
 mod client;
 
 pub fn init_tracing() {
-    // XXX should be run once, fail otherwise, we skip that error
+    // should be run once, fail otherwise, we skip that error
     let _ = tracing_subscriber::fmt()
         .pretty()
         .with_max_level(tracing::Level::DEBUG)

@@ -1,3 +1,4 @@
+// TODO: Complete implementation - https://github.com/ilaborie/clawspec/issues/28
 #[derive(Debug, Clone)]
 pub struct CallHeaders {
     // Vec<(name, value)>
@@ -6,6 +7,6 @@ pub struct CallHeaders {
 
 impl CallHeaders {
     pub fn merge(self, _other: Self) -> Self {
-        todo!()
+        todo!() // TODO: Complete implementation - https://github.com/ilaborie/clawspec/issues/28
     }
 }
