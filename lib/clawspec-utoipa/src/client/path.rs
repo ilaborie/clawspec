@@ -225,15 +225,29 @@ mod tests {
                     "hound",
                 ),
             },
+            schemas: Schemas(
+                [
+                    "clawspec_utoipa::client::path::DisplayArg<&str>",
+                ],
+            ),
         }
         "#);
 
         let path_resolved = PathResolved::try_from(path).expect("full resolve");
 
         insta::assert_debug_snapshot!(path_resolved, @r#"
-        Done {
+        PathResolved {
             path: "/breed/hound/images",
-            params: [],
+            params: [
+                PathParam(
+                    "breed",
+                ),
+            ],
+            schemas: Schemas(
+                [
+                    "clawspec_utoipa::client::path::DisplayArg<&str>",
+                ],
+            ),
         }
         "#);
     }

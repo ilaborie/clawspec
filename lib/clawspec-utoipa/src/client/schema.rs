@@ -1,11 +1,23 @@
 use std::any::{TypeId, type_name};
+use std::fmt::Debug;
 
 use indexmap::{IndexMap, IndexSet};
 use utoipa::ToSchema;
 use utoipa::openapi::{Ref, RefOr, Schema};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Schemas(IndexMap<TypeId, SchemaEntry>);
+
+impl Debug for Schemas {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names = self
+            .0
+            .values()
+            .map(|it| it.type_name.as_str())
+            .collect::<Vec<_>>();
+        f.debug_tuple("Schemas").field(&names).finish()
+    }
+}
 
 impl Schemas {
     pub(crate) fn add_entry(&mut self, entry: SchemaEntry) -> RefOr<Schema> {

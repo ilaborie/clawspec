@@ -8,7 +8,7 @@ use crate::errors::RepositoryError;
 
 #[derive(Clone)]
 pub(crate) struct ObservationRepository {
-    // could be improve with [dashmap](https://crates.io/crates/dashmap)
+    // TODO could be improve with [dashmap](https://crates.io/crates/dashmap)
     data: Arc<RwLock<HashMap<ObservationId, PartialObservation>>>,
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Run API tests"
+#MISE description="Run clippy linting with strict warnings as errors"
 
 set -eux
 

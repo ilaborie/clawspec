@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Format and apply clippy fix"
+#MISE description="Auto-format code and apply clippy suggested fixes"
 
 set -eux
 

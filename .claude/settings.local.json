@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(mise tasks:*)",
+      "Bash(mkdir:*)",
+      "Bash(chmod:*)",
+      "Bash(mise run test:review:*)",
+      "Bash(ls:*)",
+      "Bash(mise run test_review:*)",
+      "Bash(mv:*)"
+    ],
+    "deny": []
+  }
+}

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run insta snapshot tests with nextest and review changes"
+
+cargo insta test --test-runner nextest --review

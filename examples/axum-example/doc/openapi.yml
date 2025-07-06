@@ -2,5 +2,45 @@ openapi: 3.1.0
 info:
   title: ''
   version: ''
-paths: {}
-components: {}
+paths:
+  /api/observations:
+    get:
+      operationId: get-observations
+      parameters: []
+      responses: {}
+    post:
+      operationId: post-observations
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialObservation'
+            example:
+              color: blue
+              name: Parrot
+              notes: null
+              position:
+                lat: -25.1
+                lng: 12.4
+      responses: {}
+components:
+  schemas:
+    PartialObservation:
+      type: object
+      required:
+      - name
+      - position
+      properties:
+        color:
+          type:
+          - string
+          - 'null'
+        name:
+          type: string
+        notes:
+          type:
+          - string
+          - 'null'
+        position:
+          $ref: '#/components/schemas/LngLat'
