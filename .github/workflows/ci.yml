@@ -13,166 +13,99 @@ env:
 
 jobs:
   check:
-    name: Check Code Quality
+    name: ✅ Check Code Quality
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Install mise
-        uses: jdx/mise-action@v2
+      - name: Setup Rust environment
+        uses: ./.github/actions/setup-rust
         with:
-          experimental: true
-          
-      - name: Setup Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup component add rustfmt clippy
-          
-      - name: Cache cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-            
-      - name: Install dependencies
-        run: mise install
+          rust-version: stable
+          cache-key-suffix: stable
         
       - name: Run comprehensive checks
         run: mise run check
 
   security:
-    name: Security Audit
+    name: 🔒 Security Audit
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Install mise
-        uses: jdx/mise-action@v2
+      - name: Setup Rust environment
+        uses: ./.github/actions/setup-rust
         with:
-          experimental: true
-          
-      - name: Setup Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          
-      - name: Install dependencies
-        run: mise install
+          rust-version: stable
+          components: ''
+          cache-key-suffix: security
         
       - name: Run security audit
         run: mise run audit
         continue-on-error: true
 
   msrv:
-    name: Minimum Supported Rust Version
+    name: 🦀 Minimum Supported Rust Version
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Install mise
-        uses: jdx/mise-action@v2
+      - name: Setup Rust environment
+        uses: ./.github/actions/setup-rust
         with:
-          experimental: true
-          
-      - name: Setup Rust toolchain (MSRV)
-        run: |
-          rustup toolchain install ${{ env.MSRV }} --profile minimal
-          rustup default ${{ env.MSRV }}
-          rustup component add rustfmt clippy
-          
-      - name: Cache cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-msrv-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-msrv-cargo-
-            
-      - name: Install dependencies
-        run: mise install
+          rust-version: ${{ env.MSRV }}
+          cache-key-suffix: msrv
         
       - name: Check compilation with MSRV
         run: cargo check --locked --all-targets --all-features
 
   minimal-versions:
-    name: Minimal Dependency Versions
+    name: 📦 Minimal Dependency Versions
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Install mise
-        uses: jdx/mise-action@v2
+      - name: Setup Rust environment (nightly)
+        uses: ./.github/actions/setup-rust
         with:
-          experimental: true
-          
-      - name: Setup Rust toolchain (nightly)
-        run: |
-          rustup toolchain install nightly --profile minimal
-          rustup default nightly
-          
-      - name: Install dependencies
-        run: mise install
+          rust-version: nightly
+          components: ''
+          cache-key-suffix: nightly
         
       - name: Generate Cargo.lock with minimal versions
         run: cargo +nightly update -Z minimal-versions
         
       - name: Setup Rust toolchain (MSRV)
-        run: |
-          rustup toolchain install ${{ env.MSRV }} --profile minimal
-          rustup default ${{ env.MSRV }}
+        uses: ./.github/actions/setup-rust
+        with:
+          rust-version: ${{ env.MSRV }}
+          components: ''
+          cache-key-suffix: minimal-msrv
           
       - name: Check compilation with minimal versions
         run: cargo check --locked --all-targets --all-features
 
   beta:
-    name: Beta Rust Channel
+    name: 🧪 Beta Rust Channel
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Install mise
-        uses: jdx/mise-action@v2
+      - name: Setup Rust environment
+        uses: ./.github/actions/setup-rust
         with:
-          experimental: true
-          
-      - name: Setup Rust toolchain (beta)
-        run: |
-          rustup toolchain install beta --profile minimal
-          rustup default beta
-          rustup component add rustfmt clippy
-          
-      - name: Cache cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-beta-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-beta-cargo-
-            
-      - name: Install dependencies
-        run: mise install
+          rust-version: beta
+          cache-key-suffix: beta
         
       - name: Run comprehensive checks with beta
         run: mise run check
