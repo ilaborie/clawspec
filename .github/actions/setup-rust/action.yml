@@ -1,0 +1,48 @@
+name: 'Setup Rust Environment'
+description: 'Reusable action to setup Rust toolchain, mise, and cache dependencies'
+
+inputs:
+  rust-version:
+    description: 'Rust version to install (stable, beta, nightly, or specific version like 1.85)'
+    required: true
+    default: 'stable'
+  components:
+    description: 'Rust components to install (space-separated)'
+    required: false
+    default: 'rustfmt clippy'
+  cache-key-suffix:
+    description: 'Suffix for cache key to distinguish between different setups'
+    required: false
+    default: 'default'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install mise
+      uses: jdx/mise-action@v2
+      with:
+        experimental: true
+        
+    - name: Setup Rust toolchain
+      shell: bash
+      run: |
+        rustup toolchain install ${{ inputs.rust-version }} --profile minimal
+        rustup default ${{ inputs.rust-version }}
+        if [ -n "${{ inputs.components }}" ]; then
+          rustup component add ${{ inputs.components }}
+        fi
+        
+    - name: Cache cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-${{ inputs.cache-key-suffix }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.cache-key-suffix }}-cargo-
+          
+    - name: Install mise dependencies
+      shell: bash
+      run: mise install

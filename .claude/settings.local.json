@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(mise tasks:*)",
+      "Bash(mkdir:*)",
+      "Bash(chmod:*)",
+      "Bash(mise run test:review:*)",
+      "Bash(ls:*)",
+      "Bash(mise run test_review:*)",
+      "Bash(mv:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(cat:*)",
+      "Bash(git add:*)",
+      "Bash(mise run lint:*)",
+      "Bash(mise run:*)",
+      "Bash(git reset:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(cargo:*)",
+      "Bash(rustup toolchain:*)",
+      "Bash(rustup run nightly cargo update:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue create:*)",
+      "Bash(gh api:*)",
+      "Bash(rg:*)"
+    ],
+    "deny": []
+  }
+}

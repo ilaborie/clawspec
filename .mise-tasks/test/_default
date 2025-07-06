@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Run API tests"
+#MISE description="Run all tests using nextest and include doctests"
 
 set -eux
 

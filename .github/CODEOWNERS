@@ -1,0 +1,29 @@
+# Global ownership
+* @ilaborie
+
+# Core library components
+/lib/clawspec-core/ @ilaborie
+/lib/clawspec-utoipa/ @ilaborie
+/lib/clawspec-macro/ @ilaborie
+/lib/clawspec-cli/ @ilaborie
+
+# Examples and documentation
+/examples/ @ilaborie
+/README.md @ilaborie
+/CLAUDE.md @ilaborie
+/CONTRIBUTING.md @ilaborie
+
+# CI/CD and automation
+/.github/ @ilaborie
+/.mise-tasks/ @ilaborie
+/.mise.toml @ilaborie
+/cliff.toml @ilaborie
+
+# Configuration files
+/Cargo.toml @ilaborie
+/clippy.toml @ilaborie
+
+# Security sensitive files
+/SECURITY.md @ilaborie
+/.github/workflows/ @ilaborie
+/.github/dependabot.yml @ilaborie

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Run security audit with cargo audit"
+
+set -eux
+
+# Run security audit
+cargo audit
