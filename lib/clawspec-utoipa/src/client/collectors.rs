@@ -151,7 +151,14 @@ impl CalledOperation {
         }
 
         // TODO query
+        if let Some(_query) = query {
+            todo!("add query parameters");
+        }
+
         // TODO headers
+        if let Some(_headers) = headers {
+            todo!("add headers parameters");
+        }
 
         let builder = Operation::builder()
             .operation_id(Some(&operation_id))

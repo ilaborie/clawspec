@@ -72,7 +72,7 @@ impl TestApp {
             openapi.to_pretty_json().context("create JSON")?
         };
 
-        fs::write(path, contents).with_context(|| format!("writing to {path:?}"))?;
+        fs::write(path, contents).with_context(|| format!("writing to {}", path.display()))?;
 
         Ok(())
     }

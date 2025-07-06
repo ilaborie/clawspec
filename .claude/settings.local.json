@@ -8,7 +8,11 @@
       "Bash(mise run test:review:*)",
       "Bash(ls:*)",
       "Bash(mise run test_review:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(cat:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
