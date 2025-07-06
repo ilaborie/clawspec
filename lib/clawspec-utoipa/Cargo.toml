@@ -9,7 +9,7 @@ utoipa = { workspace = true, features = ["debug"] }
 
 tokio = { workspace = true , features = ["sync"]}
 
-reqwest = { workspace = true, features = ["rustls-tls", "json"] }
+reqwest = { workspace = true }
 headers = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
