@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: info
+
+jobs:
+  check:
+    name: Check Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+          
+      - name: Setup Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+          
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+            
+      - name: Install dependencies
+        run: mise install
+        
+      - name: Check code formatting
+        run: cargo fmt --all --check
+        
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        
+      - name: Run tests
+        run: cargo nextest run --locked
+        
+      - name: Run doctests
+        run: cargo test --doc --locked
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+          
+      - name: Setup Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          
+      - name: Install dependencies
+        run: mise install
+        
+      - name: Run security audit
+        run: cargo audit --ignore RUSTSEC-0000-0000 || true
+        continue-on-error: true
+
+  msrv:
+    name: Minimum Supported Rust Version
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          experimental: true
+          
+      - name: Setup Rust toolchain (MSRV)
+        run: |
+          rustup toolchain install 1.85 --profile minimal
+          rustup default 1.85
+          rustup component add rustfmt clippy
+          
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-msrv-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-msrv-cargo-
+            
+      - name: Install dependencies
+        run: mise install
+        
+      - name: Check compilation with MSRV
+        run: cargo check --locked --all-targets --all-features
