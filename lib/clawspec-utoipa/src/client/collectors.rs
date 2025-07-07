@@ -280,7 +280,7 @@ impl CalledOperation {
         method: http::Method,
         path: &str,
         path_params: &[PathParam],
-        query: &CallQuery,
+        query: CallQuery,
         headers: Option<&CallHeaders>,
         request_body: Option<&CallBody>,
         // TODO cookie - https://github.com/ilaborie/clawspec/issues/18
@@ -301,8 +301,8 @@ impl CalledOperation {
 
         // Add query parameters
         if !query.is_empty() {
-            schemas.merge(query.schemas.clone());
             parameters.extend(query.to_parameters());
+            schemas.merge(query.schemas);
         }
 
         // TODO headers - https://github.com/ilaborie/clawspec/issues/20

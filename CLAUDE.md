@@ -170,3 +170,7 @@ The project primarily uses:
 ## Testing Guidelines
 
 - In Rust test, try to use inline insta snapshot testing instead of list of assertions. If the snapshot is above 10 lines long, the snapshot should not be inlined
+
+## Documentation Guidelines
+
+- Avoid mentioning the OpenAPI version in documentation

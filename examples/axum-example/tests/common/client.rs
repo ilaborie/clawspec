@@ -3,7 +3,7 @@ use anyhow::Context;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use clawspec_utoipa::{CallQuery, SerializableQuery};
+use clawspec_utoipa::CallQuery;
 
 use axum_example::observations::ListOption;
 use axum_example::observations::domain::{Observation, PartialObservation};
@@ -22,8 +22,8 @@ impl TestApp {
     ) -> anyhow::Result<ListObservations> {
         let ListOption { offset, limit } = option.unwrap_or_default();
         let query = CallQuery::new()
-            .add_param("offset", SerializableQuery::new(offset))
-            .add_param("limit", SerializableQuery::new(limit));
+            .add_param("offset", offset)
+            .add_param("limit", limit);
 
         let result = self
             .get("/observations")?

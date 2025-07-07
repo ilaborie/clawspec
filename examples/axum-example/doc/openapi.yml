@@ -11,13 +11,15 @@ paths:
         in: query
         required: false
         schema:
-          type: string
+          type: integer
+          minimum: 0
         style: form
       - name: limit
         in: query
         required: false
         schema:
-          type: string
+          type: integer
+          minimum: 0
         style: form
       responses: {}
     post:

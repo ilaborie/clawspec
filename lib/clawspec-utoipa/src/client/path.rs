@@ -218,9 +218,7 @@ mod tests {
                 ),
             },
             schemas: Schemas(
-                [
-                    "clawspec_utoipa::client::path::DisplayArg<&str>",
-                ],
+                [],
             ),
         }
         "#);
@@ -236,9 +234,7 @@ mod tests {
                 ),
             ],
             schemas: Schemas(
-                [
-                    "clawspec_utoipa::client::path::DisplayArg<&str>",
-                ],
+                [],
             ),
         }
         "#);
@@ -264,10 +260,7 @@ mod tests {
                 ),
             ],
             schemas: Schemas(
-                [
-                    "clawspec_utoipa::client::path::DisplayArg<i32>",
-                    "clawspec_utoipa::client::path::DisplayArg<&str>",
-                ],
+                [],
             ),
         }
         "#);

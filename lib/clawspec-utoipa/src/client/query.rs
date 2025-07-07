@@ -15,15 +15,18 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use clawspec_utoipa::{CallQuery, DisplayQuery, SerializableQuery, QueryStyle};
+//! use clawspec_utoipa::{CallQuery, QueryParam, QueryStyle};
 //!
-//! // Build a query with mixed parameter types
+//! // Ergonomic usage - pass values directly (uses From<T> trait)
 //! let query = CallQuery::new()
-//!     .add_param("search", DisplayQuery("hello world"))
-//!     .add_param("limit", DisplayQuery(10))
-//!     .add_param("active", DisplayQuery(true))
-//!     .add_param("tags", SerializableQuery::new(vec!["rust", "web", "api"]))
-//!     .add_param("categories", SerializableQuery::with_style(
+//!     .add_param("search", "hello world")
+//!     .add_param("limit", 10)
+//!     .add_param("active", true)
+//!     .add_param("tags", vec!["rust", "web", "api"]);
+//!
+//! // Explicit QueryParam usage for custom styles
+//! let query = CallQuery::new()
+//!     .add_param("categories", QueryParam::with_style(
 //!         vec!["tech", "programming"],
 //!         QueryStyle::SpaceDelimited
 //!     ));
@@ -34,27 +37,23 @@
 //!
 //! # Parameter Types
 //!
-//! ## DisplayQuery
+//! ## QueryParam
 //!
-//! Use [`DisplayQuery`] for simple types that implement [`std::fmt::Display`]:
-//!
-//! ```rust
-//! # use clawspec_utoipa::{CallQuery, DisplayQuery};
-//! let query = CallQuery::new()
-//!     .add_param("name", DisplayQuery("John Doe"))
-//!     .add_param("age", DisplayQuery(30))
-//!     .add_param("active", DisplayQuery(true));
-//! ```
-//!
-//! ## SerializableQuery
-//!
-//! Use [`SerializableQuery`] for complex types like arrays or custom structs:
+//! Use [`QueryParam`] for any type that implements `Serialize` and `ToSchema`.
+//! You can pass values directly or use explicit `QueryParam` wrappers:
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallQuery, SerializableQuery, QueryStyle};
+//! # use clawspec_utoipa::{CallQuery, QueryParam, QueryStyle};
+//! // Ergonomic usage - values are automatically wrapped
 //! let query = CallQuery::new()
-//!     .add_param("tags", SerializableQuery::new(vec!["rust", "web"]))
-//!     .add_param("ids", SerializableQuery::with_style(vec![1, 2, 3], QueryStyle::PipeDelimited));
+//!     .add_param("name", "John Doe")
+//!     .add_param("age", 30)
+//!     .add_param("active", true);
+//!
+//! // Explicit QueryParam for custom styles
+//! let query = CallQuery::new()
+//!     .add_param("tags", vec!["rust", "web"])  // Uses default Form style
+//!     .add_param("ids", QueryParam::with_style(vec![1, 2, 3], QueryStyle::PipeDelimited));
 //! ```
 //!
 //! # Query Styles
@@ -65,13 +64,12 @@
 //! - **SpaceDelimited**: Arrays are joined with spaces `?tags=a%20b%20c`
 //! - **PipeDelimited**: Arrays are joined with pipes `?tags=a|b|c`
 
-use std::fmt::{Debug, Display};
+use std::borrow::Cow;
+use std::fmt::Debug;
 
 use indexmap::IndexMap;
 use serde::Serialize;
-use std::borrow::Cow;
 use utoipa::openapi::path::{Parameter, ParameterIn, ParameterStyle};
-use utoipa::openapi::schema::{ObjectBuilder, Type};
 use utoipa::openapi::{RefOr, Required, Schema};
 use utoipa::{PartialSchema, ToSchema};
 
@@ -85,20 +83,20 @@ use super::{ApiClientError, Schemas};
 /// # Examples
 ///
 /// ```rust
-/// use clawspec_utoipa::{QueryStyle, SerializableQuery, CallQuery, QueryParam};
+/// use clawspec_utoipa::{QueryStyle, QueryParam, CallQuery};
 ///
 /// // Form style (default) - arrays are repeated: ?tags=rust&tags=web&tags=api
-/// let form_query = SerializableQuery::new(vec!["rust", "web", "api"]);
+/// let form_query = QueryParam::new(vec!["rust", "web", "api"]);
 /// assert_eq!(form_query.query_style(), QueryStyle::Form);
 ///
 /// // Space delimited - arrays are joined with spaces: ?tags=rust%20web%20api
-/// let space_query = SerializableQuery::with_style(
+/// let space_query = QueryParam::with_style(
 ///     vec!["rust", "web", "api"],
 ///     QueryStyle::SpaceDelimited
 /// );
 ///
 /// // Pipe delimited - arrays are joined with pipes: ?tags=rust|web|api
-/// let pipe_query = SerializableQuery::with_style(
+/// let pipe_query = QueryParam::with_style(
 ///     vec!["rust", "web", "api"],
 ///     QueryStyle::PipeDelimited
 /// );
@@ -141,12 +139,12 @@ impl From<QueryStyle> for ParameterStyle {
 /// ## Basic Usage
 ///
 /// ```rust
-/// use clawspec_utoipa::{CallQuery, DisplayQuery, SerializableQuery, QueryStyle};
+/// use clawspec_utoipa::{CallQuery, QueryParam, QueryStyle};
 ///
 /// let query = CallQuery::new()
-///     .add_param("search", DisplayQuery("hello world"))
-///     .add_param("limit", DisplayQuery(10))
-///     .add_param("active", DisplayQuery(true));
+///     .add_param("search", QueryParam::new("hello world"))
+///     .add_param("limit", QueryParam::new(10))
+///     .add_param("active", QueryParam::new(true));
 ///
 /// // This would generate: ?search=hello+world&limit=10&active=true
 /// ```
@@ -154,17 +152,17 @@ impl From<QueryStyle> for ParameterStyle {
 /// ## Array Parameters with Different Styles
 ///
 /// ```rust
-/// # use clawspec_utoipa::{CallQuery, SerializableQuery, QueryStyle};
+/// use clawspec_utoipa::{CallQuery, QueryParam, QueryStyle};
 /// let query = CallQuery::new()
 ///     // Form style (default): ?tags=rust&tags=web&tags=api
-///     .add_param("tags", SerializableQuery::new(vec!["rust", "web", "api"]))
+///     .add_param("tags", QueryParam::new(vec!["rust", "web", "api"]))
 ///     // Space delimited: ?categories=tech%20programming
-///     .add_param("categories", SerializableQuery::with_style(
+///     .add_param("categories", QueryParam::with_style(
 ///         vec!["tech", "programming"],
 ///         QueryStyle::SpaceDelimited
 ///     ))
 ///     // Pipe delimited: ?ids=1|2|3
-///     .add_param("ids", SerializableQuery::with_style(
+///     .add_param("ids", QueryParam::with_style(
 ///         vec![1, 2, 3],
 ///         QueryStyle::PipeDelimited
 ///     ));
@@ -174,11 +172,11 @@ impl From<QueryStyle> for ParameterStyle {
 ///
 /// The query system is type-safe and will prevent invalid parameter types:
 /// - Objects are not supported as query parameters (will return an error)
-/// - All parameters must implement the `QueryParam` trait
+/// - All parameters must implement `Serialize` and `ToSchema` traits
 /// - Parameters are automatically converted to appropriate string representations
 #[derive(Debug, Default)]
 pub struct CallQuery {
-    params: IndexMap<String, Box<dyn QueryParam>>,
+    params: IndexMap<String, (serde_json::Value, RefOr<Schema>, QueryStyle)>,
     pub(super) schemas: Schemas,
 }
 
@@ -200,35 +198,42 @@ impl CallQuery {
     /// Adds a query parameter with the given name and value using the builder pattern.
     ///
     /// This method consumes `self` and returns a new `CallQuery` with the parameter added,
-    /// allowing for method chaining. The parameter must implement both `QueryParam` and
+    /// allowing for method chaining. The parameter must implement both `Serialize` and
     /// `ToSchema` traits for proper serialization and OpenAPI schema generation.
     ///
     /// # Parameters
     ///
     /// - `name`: The parameter name (will be converted to `String`)
-    /// - `param`: The parameter value implementing `QueryParam + ToSchema`
+    /// - `param`: The parameter value that can be converted into `QueryParam<T>`
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::{CallQuery, DisplayQuery, SerializableQuery, QueryStyle};
+    /// use clawspec_utoipa::{CallQuery, QueryParam, QueryStyle};
     ///
+    /// // Ergonomic usage - pass values directly
     /// let query = CallQuery::new()
-    ///     .add_param("search", DisplayQuery("hello"))
-    ///     .add_param("limit", DisplayQuery(10))
-    ///     .add_param("tags", SerializableQuery::with_style(
+    ///     .add_param("search", "hello")
+    ///     .add_param("limit", 10)
+    ///     .add_param("active", true);
+    ///
+    /// // Explicit QueryParam usage for custom styles
+    /// let query = CallQuery::new()
+    ///     .add_param("tags", QueryParam::with_style(
     ///         vec!["rust", "web"],
     ///         QueryStyle::SpaceDelimited
     ///     ));
     /// ```
-    pub fn add_param<Q>(mut self, name: impl Into<String>, param: Q) -> Self
+    pub fn add_param<T>(mut self, name: impl Into<String>, param: impl Into<QueryParam<T>>) -> Self
     where
-        Q: QueryParam + ToSchema + 'static,
+        T: Serialize + ToSchema + Debug + Send + Sync + Clone + 'static,
     {
         let name = name.into();
-        let example = param.as_query_value();
-        self.params.insert(name, Box::new(param));
-        self.schemas.add_example::<Q>(example);
+        let param = param.into();
+        if let Some(value) = param.as_query_value() {
+            let schema_ref = self.schemas.add_example::<T>(value.clone());
+            self.params.insert(name, (value, schema_ref, param.style));
+        }
         self
     }
 
@@ -237,30 +242,18 @@ impl CallQuery {
         self.params.is_empty()
     }
 
-    /// Get query parameters with their styles for OpenAPI generation
-    pub(super) fn params_with_styles(&self) -> impl Iterator<Item = (&str, QueryStyle)> + '_ {
-        self.params
-            .iter()
-            .map(|(name, param)| (name.as_str(), param.query_style()))
-    }
-
     /// Convert query parameters to OpenAPI Parameters
     pub(super) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         // For query parameters, we need to create a schema for each parameter
-        // The current schema system is type-based, but for query parameters,
-        // we need to create individual parameter schemas
-        self.params_with_styles().map(|(param_name, param_style)| {
+        self.params.iter().map(|(name, (_, schema, style))| {
             // Create a simple string schema for the parameter
-            // In a more sophisticated implementation, we might want to
-            // extract the actual schema from the QueryParam trait
-            let schema = Schema::Object(ObjectBuilder::new().schema_type(Type::String).build());
 
             Parameter::builder()
-                .name(param_name)
+                .name(name)
                 .parameter_in(ParameterIn::Query)
                 .required(Required::False) // Query parameters are typically optional
-                .schema(Some(RefOr::T(schema)))
-                .style(Some(param_style.into()))
+                .schema(Some(schema.clone()))
+                .style(Some((*style).into()))
                 .build()
         })
     }
@@ -269,18 +262,16 @@ impl CallQuery {
     pub(super) fn to_query_string(&self) -> Result<String, ApiClientError> {
         let mut pairs = Vec::new();
 
-        for (name, param) in &self.params {
-            if let Some(value) = param.as_query_value() {
-                match param.query_style() {
-                    QueryStyle::Form => {
-                        self.encode_form_style(name, &value, &mut pairs)?;
-                    }
-                    QueryStyle::SpaceDelimited => {
-                        self.encode_delimited_style(name, &value, ' ', &mut pairs)?;
-                    }
-                    QueryStyle::PipeDelimited => {
-                        self.encode_delimited_style(name, &value, '|', &mut pairs)?;
-                    }
+        for (name, (value, _, style)) in &self.params {
+            match style {
+                QueryStyle::Form => {
+                    self.encode_form_style(name, value, &mut pairs)?;
+                }
+                QueryStyle::SpaceDelimited => {
+                    self.encode_delimited_style(name, value, ' ', &mut pairs)?;
+                }
+                QueryStyle::PipeDelimited => {
+                    self.encode_delimited_style(name, value, '|', &mut pairs)?;
                 }
             }
         }
@@ -365,163 +356,59 @@ impl CallQuery {
     }
 }
 
-/// Trait for types that can be used as query parameters.
+/// A query parameter with a typed value and configurable style.
 ///
-/// This trait defines the interface for converting Rust types into query string
-/// values that can be serialized according to OpenAPI 3.1 standards.
+/// This struct wraps any type that implements `Serialize` and `ToSchema` to be used
+/// as a query parameter with OpenAPI 3.1 support.
 ///
-/// # Implementation Notes
+/// # Type Parameters
 ///
-/// - The `as_query_value()` method should return `None` for parameters that
-///   shouldn't be included in the query string (e.g., when the value is `None`)
-/// - The `query_style()` method defaults to `QueryStyle::Form` but can be
-///   overridden for custom serialization behavior
-/// - All query parameters must be `Debug + Send + Sync` for thread safety
+/// - `T`: The underlying type that implements `Serialize` and `ToSchema`
 ///
 /// # Examples
 ///
 /// ```rust
 /// use clawspec_utoipa::{QueryParam, QueryStyle};
-/// use std::fmt::Debug;
-///
-/// #[derive(Debug)]
-/// struct CustomParam {
-///     value: String,
-///     style: QueryStyle,
-/// }
-///
-/// impl QueryParam for CustomParam {
-///     fn as_query_value(&self) -> Option<serde_json::Value> {
-///         Some(serde_json::Value::String(self.value.clone()))
-///     }
-///
-///     fn query_style(&self) -> QueryStyle {
-///         self.style
-///     }
-/// }
-/// ```
-pub trait QueryParam: Debug + Send + Sync {
-    /// Converts the parameter to a JSON value for query string serialization.
-    ///
-    /// Returns `None` if the parameter should not be included in the query string.
-    /// The returned JSON value will be converted to a string representation according
-    /// to the parameter's query style.
-    ///
-    /// # Supported JSON Types
-    ///
-    /// - `String`: Used as-is
-    /// - `Number`: Converted to string representation
-    /// - `Bool`: Converted to "true" or "false"
-    /// - `Null`: Converted to empty string
-    /// - `Array`: Serialized according to the query style (form/space/pipe delimited)
-    /// - `Object`: **Not supported** - will result in an error
-    fn as_query_value(&self) -> Option<serde_json::Value>;
-
-    /// Returns the query style for this parameter.
-    ///
-    /// The default implementation returns `QueryStyle::Form`. Override this method
-    /// to specify different serialization behavior for array values.
-    fn query_style(&self) -> QueryStyle {
-        QueryStyle::Form
-    }
-}
-
-/// A simple wrapper for types implementing `Display` to be used as query parameters.
-///
-/// This is the easiest way to convert basic types like strings, numbers, and booleans
-/// into query parameters. The wrapped value will be converted to a string using its
-/// `Display` implementation.
-///
-/// # Examples
-///
-/// ```rust
-/// use clawspec_utoipa::{CallQuery, DisplayQuery};
-///
-/// let query = CallQuery::new()
-///     .add_param("name", DisplayQuery("John Doe"))
-///     .add_param("age", DisplayQuery(30))
-///     .add_param("active", DisplayQuery(true));
-///
-/// // This generates: ?name=John+Doe&age=30&active=true
-/// ```
-///
-/// # Common Use Cases
-///
-/// - String literals: `DisplayQuery("hello")`
-/// - Numbers: `DisplayQuery(42)`, `DisplayQuery(3.14)`
-/// - Booleans: `DisplayQuery(true)`
-/// - Any type implementing `Display`
-#[derive(Debug, Clone)]
-pub struct DisplayQuery<T>(pub T);
-
-impl<T> QueryParam for DisplayQuery<T>
-where
-    T: Display + Debug + Send + Sync + Clone,
-{
-    fn as_query_value(&self) -> Option<serde_json::Value> {
-        Some(serde_json::Value::String(self.0.to_string()))
-    }
-}
-
-/// A wrapper for serializable types to be used as query parameters with configurable styles.
-///
-/// This wrapper is designed for complex types like arrays, vectors, and custom structs
-/// that implement `Serialize`. It allows you to specify the query parameter style,
-/// which is particularly useful for array serialization.
-///
-/// # Examples
-///
-/// ## Basic Usage with Arrays
-///
-/// ```rust
-/// use clawspec_utoipa::{CallQuery, SerializableQuery, QueryStyle};
-///
-/// let query = CallQuery::new()
-///     // Form style (default): ?tags=rust&tags=web&tags=api
-///     .add_param("tags", SerializableQuery::new(vec!["rust", "web", "api"]))
-///     // Space delimited: ?categories=tech%20programming
-///     .add_param("categories", SerializableQuery::with_style(
-///         vec!["tech", "programming"],
-///         QueryStyle::SpaceDelimited
-///     ))
-///     // Pipe delimited: ?ids=1|2|3
-///     .add_param("ids", SerializableQuery::with_style(
-///         vec![1, 2, 3],
-///         QueryStyle::PipeDelimited
-///     ));
-/// ```
-///
-/// ## Custom Serializable Types
-///
-/// ```rust
 /// use serde::Serialize;
-/// use clawspec_utoipa::{SerializableQuery, QueryStyle};
+/// use utoipa::ToSchema;
 ///
-/// #[derive(Serialize)]
-/// struct Filters {
-///     active: bool,
-///     category: String,
+/// // Simple string parameter
+/// let name_param = QueryParam::new("john");
+///
+/// // Array parameter with custom style
+/// let tags_param = QueryParam::with_style(vec!["rust", "web"], QueryStyle::SpaceDelimited);
+///
+/// // Custom type parameter
+/// #[derive(Debug, Clone, Serialize, ToSchema)]
+/// struct User {
+///     id: u32,
+///     name: String,
 /// }
 ///
-/// let filters = Filters { active: true, category: "tech".to_string() };
-/// let param = SerializableQuery::new(filters);
-/// // Note: Objects are not supported and will result in an error
+/// let user = User { id: 1, name: "John".to_string() };
+/// let user_param = QueryParam::new(user);
 /// ```
 #[derive(Debug, Clone)]
-pub struct SerializableQuery<T> {
+pub struct QueryParam<T>
+where
+    T: Serialize + ToSchema + Debug + Send + Sync + Clone,
+{
     pub value: T,
     pub style: QueryStyle,
 }
 
-impl<T> SerializableQuery<T> {
-    /// Creates a new serializable query parameter with the default form style.
+impl<T> QueryParam<T>
+where
+    T: Serialize + ToSchema + Debug + Send + Sync + Clone,
+{
+    /// Creates a new query parameter with the default form style.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::{SerializableQuery, QueryStyle, QueryParam};
+    /// use clawspec_utoipa::{QueryParam, QueryStyle};
     ///
-    /// let param = SerializableQuery::new(vec!["a", "b", "c"]);
+    /// let param = QueryParam::new("hello");
     /// assert_eq!(param.query_style(), QueryStyle::Form);
     /// ```
     pub fn new(value: T) -> Self {
@@ -531,57 +418,58 @@ impl<T> SerializableQuery<T> {
         }
     }
 
-    /// Creates a new serializable query parameter with the specified style.
+    /// Creates a new query parameter with the specified style.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::{SerializableQuery, QueryStyle, QueryParam};
+    /// use clawspec_utoipa::{QueryParam, QueryStyle};
     ///
-    /// let param = SerializableQuery::with_style(
-    ///     vec!["a", "b", "c"],
-    ///     QueryStyle::PipeDelimited
-    /// );
+    /// let param = QueryParam::with_style(vec!["a", "b"], QueryStyle::PipeDelimited);
     /// assert_eq!(param.query_style(), QueryStyle::PipeDelimited);
     /// ```
     pub fn with_style(value: T, style: QueryStyle) -> Self {
         Self { value, style }
     }
-}
 
-impl<T> QueryParam for SerializableQuery<T>
-where
-    T: Serialize + Debug + Send + Sync + Clone,
-{
-    fn as_query_value(&self) -> Option<serde_json::Value> {
-        serde_json::to_value(&self.value).ok()
+    /// Returns the query style for this parameter.
+    pub fn query_style(&self) -> QueryStyle {
+        self.style
     }
 
-    fn query_style(&self) -> QueryStyle {
-        self.style
+    /// Converts the parameter to a JSON value for query string serialization.
+    ///
+    /// Returns `None` if the parameter should not be included in the query string.
+    pub fn as_query_value(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(&self.value).ok()
+    }
+}
+
+impl<T> From<T> for QueryParam<T>
+where
+    T: Serialize + ToSchema + Debug + Send + Sync + Clone,
+{
+    /// Creates a `QueryParam` with the default form style from any compatible type.
+    ///
+    /// This allows for ergonomic usage where you can pass values directly to `add_param`
+    /// without explicitly wrapping them in `QueryParam::new()`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_utoipa::{CallQuery, QueryParam};
+    ///
+    /// // Both of these are equivalent:
+    /// let query1 = CallQuery::new().add_param("name", "john");
+    /// let query2 = CallQuery::new().add_param("name", QueryParam::new("john"));
+    /// ```
+    fn from(value: T) -> Self {
+        Self::new(value)
     }
 }
 
 // ToSchema implementations for generating OpenAPI schemas
-impl<T: ToSchema> ToSchema for DisplayQuery<T>
-where
-    T: Display + Debug + Send + Sync + Clone,
-{
-    fn name() -> Cow<'static, str> {
-        T::name()
-    }
-}
-
-impl<T: ToSchema> PartialSchema for DisplayQuery<T>
-where
-    T: Display + Debug + Send + Sync + Clone,
-{
-    fn schema() -> RefOr<Schema> {
-        T::schema()
-    }
-}
-
-impl<T: ToSchema> ToSchema for SerializableQuery<T>
+impl<T: ToSchema> ToSchema for QueryParam<T>
 where
     T: Serialize + ToSchema + Debug + Send + Sync + Clone,
 {
@@ -590,7 +478,7 @@ where
     }
 }
 
-impl<T: ToSchema> PartialSchema for SerializableQuery<T>
+impl<T: ToSchema> PartialSchema for QueryParam<T>
 where
     T: Serialize + ToSchema + Debug + Send + Sync + Clone,
 {
@@ -610,37 +498,71 @@ mod tests {
         assert!(query.is_empty());
 
         let query = query
-            .add_param("name", DisplayQuery("test"))
-            .add_param("age", DisplayQuery(25));
+            .add_param("name", QueryParam::new("test"))
+            .add_param("age", QueryParam::new(25));
 
         assert!(!query.is_empty());
     }
 
     #[test]
-    fn test_display_query_as_query_value() {
-        let query = DisplayQuery("hello world");
+    fn test_ergonomic_api_with_direct_values() {
+        // Test that we can pass values directly without wrapping in QueryParam::new()
+        let query = CallQuery::new()
+            .add_param("name", "test")
+            .add_param("age", 25)
+            .add_param("active", true)
+            .add_param("tags", vec!["rust", "web"]);
+
+        assert!(!query.is_empty());
+
+        let query_string = query.to_query_string().expect("should serialize");
+        insta::assert_debug_snapshot!(query_string, @r#""name=test&age=25&active=true&tags=rust&tags=web""#);
+    }
+
+    #[test]
+    fn test_mixed_ergonomic_and_explicit_api() {
+        // Test mixing direct values with explicit QueryParam wrappers
+        let query = CallQuery::new()
+            .add_param("name", "test") // Direct value
+            .add_param("limit", 10) // Direct value
+            .add_param(
+                "tags",
+                QueryParam::with_style(
+                    // Explicit QueryParam with custom style
+                    vec!["rust", "web"],
+                    QueryStyle::SpaceDelimited,
+                ),
+            );
+
+        let query_string = query.to_query_string().expect("should serialize");
+        insta::assert_debug_snapshot!(query_string, @r#""name=test&limit=10&tags=rust+web""#);
+    }
+
+    #[test]
+    fn test_query_param_as_query_value() {
+        let query = QueryParam::new("hello world");
         let value = query.as_query_value().expect("should have value");
 
         insta::assert_debug_snapshot!(value, @r#"String("hello world")"#);
     }
 
     #[test]
-    fn test_serializable_query_with_different_styles() {
-        let form_query = SerializableQuery::new("test");
-        assert_eq!(form_query.query_style(), QueryStyle::Form);
+    fn test_query_param_with_different_styles() {
+        let form_query = QueryParam::new("test");
+        assert_eq!(form_query.style, QueryStyle::Form);
 
-        let space_query = SerializableQuery::with_style("test", QueryStyle::SpaceDelimited);
-        assert_eq!(space_query.query_style(), QueryStyle::SpaceDelimited);
+        let space_query = QueryParam::with_style("test", QueryStyle::SpaceDelimited);
+        assert_eq!(space_query.style, QueryStyle::SpaceDelimited);
 
-        let pipe_query = SerializableQuery::with_style("test", QueryStyle::PipeDelimited);
-        assert_eq!(pipe_query.query_style(), QueryStyle::PipeDelimited);
+        let pipe_query = QueryParam::with_style("test", QueryStyle::PipeDelimited);
+        assert_eq!(pipe_query.style, QueryStyle::PipeDelimited);
     }
 
     #[test]
     fn test_query_string_serialization_form_style() {
         let query = CallQuery::new()
-            .add_param("name", DisplayQuery("john"))
-            .add_param("age", DisplayQuery(25));
+            .add_param("name", QueryParam::new("john"))
+            .add_param("age", QueryParam::new(25));
 
         let query_string = query.to_query_string().expect("should serialize");
         insta::assert_debug_snapshot!(query_string, @r#""name=john&age=25""#);
@@ -648,8 +570,7 @@ mod tests {
 
     #[test]
     fn test_query_string_serialization_with_arrays() {
-        let query =
-            CallQuery::new().add_param("tags", SerializableQuery::new(vec!["rust", "web", "api"]));
+        let query = CallQuery::new().add_param("tags", QueryParam::new(vec!["rust", "web", "api"]));
 
         let query_string = query.to_query_string().expect("should serialize");
         insta::assert_debug_snapshot!(query_string, @r#""tags=rust&tags=web&tags=api""#);
@@ -659,7 +580,7 @@ mod tests {
     fn test_query_string_serialization_space_delimited() {
         let query = CallQuery::new().add_param(
             "tags",
-            SerializableQuery::with_style(vec!["rust", "web", "api"], QueryStyle::SpaceDelimited),
+            QueryParam::with_style(vec!["rust", "web", "api"], QueryStyle::SpaceDelimited),
         );
 
         let query_string = query.to_query_string().expect("should serialize");
@@ -670,7 +591,7 @@ mod tests {
     fn test_query_string_serialization_pipe_delimited() {
         let query = CallQuery::new().add_param(
             "tags",
-            SerializableQuery::with_style(vec!["rust", "web", "api"], QueryStyle::PipeDelimited),
+            QueryParam::with_style(vec!["rust", "web", "api"], QueryStyle::PipeDelimited),
         );
 
         let query_string = query.to_query_string().expect("should serialize");
@@ -687,9 +608,9 @@ mod tests {
     #[test]
     fn test_mixed_parameter_types() {
         let query = CallQuery::new()
-            .add_param("name", DisplayQuery("john"))
-            .add_param("active", DisplayQuery(true))
-            .add_param("scores", SerializableQuery::new(vec![10, 20, 30]));
+            .add_param("name", QueryParam::new("john"))
+            .add_param("active", QueryParam::new(true))
+            .add_param("scores", QueryParam::new(vec![10, 20, 30]));
 
         let query_string = query.to_query_string().expect("should serialize");
         insta::assert_debug_snapshot!(query_string, @r#""name=john&active=true&scores=10&scores=20&scores=30""#);
@@ -699,8 +620,7 @@ mod tests {
     fn test_object_query_parameter_error() {
         use serde_json::json;
 
-        let query =
-            CallQuery::new().add_param("config", SerializableQuery::new(json!({"key": "value"})));
+        let query = CallQuery::new().add_param("config", QueryParam::new(json!({"key": "value"})));
 
         let result = query.to_query_string();
         assert!(matches!(
@@ -715,7 +635,7 @@ mod tests {
 
         let query = CallQuery::new().add_param(
             "items",
-            SerializableQuery::new(json!(["valid", {"nested": "object"}])),
+            QueryParam::new(json!(["valid", {"nested": "object"}])),
         );
 
         let result = query.to_query_string();
@@ -726,37 +646,16 @@ mod tests {
     }
 
     #[test]
-    fn test_params_with_styles_iterator() {
-        let query = CallQuery::new()
-            .add_param("name", DisplayQuery("test"))
-            .add_param(
-                "tags",
-                SerializableQuery::with_style(vec!["a", "b"], QueryStyle::SpaceDelimited),
-            )
-            .add_param(
-                "ids",
-                SerializableQuery::with_style(vec![1, 2], QueryStyle::PipeDelimited),
-            );
-
-        let styles: std::collections::HashMap<_, _> = query.params_with_styles().collect();
-
-        assert_eq!(styles.get("name"), Some(&QueryStyle::Form));
-        assert_eq!(styles.get("tags"), Some(&QueryStyle::SpaceDelimited));
-        assert_eq!(styles.get("ids"), Some(&QueryStyle::PipeDelimited));
-        assert_eq!(styles.len(), 3);
-    }
-
-    #[test]
     fn test_to_parameters_generates_correct_openapi_parameters() {
         let query = CallQuery::new()
-            .add_param("name", DisplayQuery("test"))
+            .add_param("name", QueryParam::new("test"))
             .add_param(
                 "tags",
-                SerializableQuery::with_style(vec!["a", "b"], QueryStyle::SpaceDelimited),
+                QueryParam::with_style(vec!["a", "b"], QueryStyle::SpaceDelimited),
             )
             .add_param(
                 "limit",
-                SerializableQuery::with_style(10, QueryStyle::PipeDelimited),
+                QueryParam::with_style(10, QueryStyle::PipeDelimited),
             );
 
         let parameters: Vec<_> = query.to_parameters().collect();
@@ -783,20 +682,17 @@ mod tests {
     fn test_comprehensive_query_serialization_snapshot() {
         // Test various data types with different styles
         let query = CallQuery::new()
-            .add_param("search", DisplayQuery("hello world"))
-            .add_param("active", DisplayQuery(true))
-            .add_param("count", DisplayQuery(42))
-            .add_param("tags", SerializableQuery::new(vec!["rust", "api", "web"]))
+            .add_param("search", QueryParam::new("hello world"))
+            .add_param("active", QueryParam::new(true))
+            .add_param("count", QueryParam::new(42))
+            .add_param("tags", QueryParam::new(vec!["rust", "api", "web"]))
             .add_param(
                 "categories",
-                SerializableQuery::with_style(
-                    vec!["tech", "programming"],
-                    QueryStyle::SpaceDelimited,
-                ),
+                QueryParam::with_style(vec!["tech", "programming"], QueryStyle::SpaceDelimited),
             )
             .add_param(
                 "ids",
-                SerializableQuery::with_style(vec![1, 2, 3], QueryStyle::PipeDelimited),
+                QueryParam::with_style(vec![1, 2, 3], QueryStyle::PipeDelimited),
             );
 
         let query_string = query
@@ -808,17 +704,14 @@ mod tests {
     #[test]
     fn test_query_parameters_openapi_generation_snapshot() {
         let query = CallQuery::new()
-            .add_param("q", DisplayQuery("search term"))
+            .add_param("q", QueryParam::new("search term"))
             .add_param(
                 "filters",
-                SerializableQuery::with_style(
-                    vec!["active", "verified"],
-                    QueryStyle::SpaceDelimited,
-                ),
+                QueryParam::with_style(vec!["active", "verified"], QueryStyle::SpaceDelimited),
             )
             .add_param(
                 "sort",
-                SerializableQuery::with_style(vec!["name", "date"], QueryStyle::PipeDelimited),
+                QueryParam::with_style(vec!["name", "date"], QueryStyle::PipeDelimited),
             );
 
         let parameters: Vec<_> = query.to_parameters().collect();
@@ -839,8 +732,8 @@ mod tests {
     #[test]
     fn test_empty_and_null_values_snapshot() {
         let query = CallQuery::new()
-            .add_param("empty", DisplayQuery(""))
-            .add_param("nullable", SerializableQuery::new(serde_json::Value::Null));
+            .add_param("empty", QueryParam::new(""))
+            .add_param("nullable", QueryParam::new(serde_json::Value::Null));
 
         let query_string = query
             .to_query_string()
@@ -851,9 +744,9 @@ mod tests {
     #[test]
     fn test_special_characters_encoding_snapshot() {
         let query = CallQuery::new()
-            .add_param("special", DisplayQuery("hello & goodbye"))
-            .add_param("unicode", DisplayQuery("café résumé"))
-            .add_param("symbols", DisplayQuery("100% guaranteed!"));
+            .add_param("special", QueryParam::new("hello & goodbye"))
+            .add_param("unicode", QueryParam::new("café résumé"))
+            .add_param("symbols", QueryParam::new("100% guaranteed!"));
 
         let query_string = query
             .to_query_string()

@@ -52,7 +52,16 @@ impl Schemas {
         let example = example.into();
         let entry = self.add_type::<T>();
         entry.examples.insert(example);
-        entry.as_schema_ref()
+        let schema_ref = entry.as_schema_ref();
+
+        // If this is a primitive type that should be inlined, remove it from the schema collection
+        // since it won't be referenced in components/schemas
+        if entry.should_inline_schema() {
+            let id = TypeId::of::<T>();
+            self.0.shift_remove(&id);
+        }
+
+        schema_ref
     }
 
     pub(super) fn merge(&mut self, other: Self) {
@@ -109,8 +118,39 @@ impl SchemaEntry {
     }
 
     fn as_schema_ref(&self) -> RefOr<Schema> {
-        let name = &self.name; // TODO maybe conflict - https://github.com/ilaborie/clawspec/issues/25
-        RefOr::Ref(Ref::from_schema_name(name))
+        if self.should_inline_schema() {
+            // Return the schema directly for primitive types
+            self.schema.clone()
+        } else {
+            // Return a reference for complex types
+            let name = &self.name; // TODO maybe conflict - https://github.com/ilaborie/clawspec/issues/25
+            RefOr::Ref(Ref::from_schema_name(name))
+        }
+    }
+
+    /// Determines if this schema should be inlined (for primitives) or referenced (for complex types)
+    fn should_inline_schema(&self) -> bool {
+        // Check for primitive types that should be inlined
+        matches!(
+            self.name.as_str(),
+            "bool"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "f32"
+                | "f64"
+                | "String"
+                | "str"
+        )
     }
 }
 
@@ -254,5 +294,58 @@ mod tests {
             },
         )
         "##);
+    }
+
+    #[test]
+    fn test_primitive_types_are_inlined() {
+        let mut schemas = Schemas::default();
+
+        // Add a primitive type (usize)
+        let usize_schema = schemas.add_example::<usize>(42);
+
+        // Should return inline schema, not a reference
+        assert!(matches!(usize_schema, RefOr::T(_)));
+
+        // Should NOT be in the components/schemas section
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 0);
+    }
+
+    #[test]
+    fn test_complex_types_are_referenced() {
+        let mut schemas = Schemas::default();
+
+        // Add a complex type
+        let complex_schema =
+            schemas.add_example::<TestType>(serde_json::json!({"name": "test", "value": 42}));
+
+        // Should return a reference
+        assert!(matches!(complex_schema, RefOr::Ref(_)));
+
+        // Should be in the components/schemas section
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 1);
+        assert_eq!(schema_vec[0].0, "TestType");
+    }
+
+    #[test]
+    fn test_mixed_primitive_and_complex_types() {
+        let mut schemas = Schemas::default();
+
+        // Add primitive and complex types
+        let usize_schema = schemas.add_example::<usize>(42);
+        let complex_schema =
+            schemas.add_example::<TestType>(serde_json::json!({"name": "test", "value": 42}));
+
+        // Primitive should be inlined
+        assert!(matches!(usize_schema, RefOr::T(_)));
+
+        // Complex should be referenced
+        assert!(matches!(complex_schema, RefOr::Ref(_)));
+
+        // Only complex type should be in components/schemas
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 1);
+        assert_eq!(schema_vec[0].0, "TestType");
     }
 }

@@ -119,17 +119,6 @@ impl ApiCall {
             schemas,
         } = path_resoloved;
 
-        // Create opration
-        let mut operation = CalledOperation::build(
-            operation_id.clone(),
-            method.clone(),
-            &path_name,
-            &params,
-            &query,
-            headers.as_ref(),
-            body.as_ref(),
-        );
-
         // Build URL
         let url = format!("{}/{}", base_uri, path.trim_start_matches('/'));
         let mut url = url.parse::<Url>()?;
@@ -139,6 +128,17 @@ impl ApiCall {
             let query_string = query.to_query_string()?;
             url.set_query(Some(&query_string));
         }
+
+        // Create opration
+        let mut operation = CalledOperation::build(
+            operation_id.clone(),
+            method.clone(),
+            &path_name,
+            &params,
+            query,
+            headers.as_ref(),
+            body.as_ref(),
+        );
 
         // Build request
         let mut request = Request::new(method, url);
