@@ -1,9 +1,19 @@
 use std::any::{TypeId, type_name};
+use std::collections::HashSet;
 use std::fmt::Debug;
+use std::sync::LazyLock;
 
 use indexmap::{IndexMap, IndexSet};
 use utoipa::ToSchema;
 use utoipa::openapi::{Ref, RefOr, Schema};
+
+/// Set of primitive type names that should be inlined rather than referenced
+static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        "bool", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
+        "usize", "f32", "f64", "String", "str",
+    ])
+});
 
 #[derive(Clone, Default)]
 pub struct Schemas(IndexMap<TypeId, SchemaEntry>);
@@ -64,9 +74,12 @@ impl Schemas {
     pub(super) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
         let mut result = vec![];
         for entry in self.0.values() {
-            let name = entry.name.clone(); // TODO conflict - https://github.com/ilaborie/clawspec/issues/25
-            let schema = entry.schema.clone();
-            result.push((name, schema));
+            // Only include non-primitive types in the components/schemas section
+            if !entry.should_inline_schema() {
+                let name = entry.name.clone(); // TODO conflict - https://github.com/ilaborie/clawspec/issues/25
+                let schema = entry.schema.clone();
+                result.push((name, schema));
+            }
         }
         result
     }
@@ -109,8 +122,22 @@ impl SchemaEntry {
     }
 
     fn as_schema_ref(&self) -> RefOr<Schema> {
-        let name = &self.name; // TODO maybe conflict - https://github.com/ilaborie/clawspec/issues/25
-        RefOr::Ref(Ref::from_schema_name(name))
+        if self.should_inline_schema() {
+            // Return the schema directly for primitive types
+            self.schema.clone()
+        } else {
+            // Return a reference for complex types
+            let name = &self.name; // TODO maybe conflict - https://github.com/ilaborie/clawspec/issues/25
+            RefOr::Ref(Ref::from_schema_name(name))
+        }
+    }
+
+    /// Determines if this schema should be inlined (for primitives) or referenced (for complex types)
+    fn should_inline_schema(&self) -> bool {
+        // Check if the schema name (from T::name()) is a primitive type
+        // This works for both direct primitives and wrapper types like DisplayArg<T>
+        // since DisplayArg<T> delegates T::name() to the inner type
+        PRIMITIVE_TYPES.contains(self.name.as_str())
     }
 }
 
@@ -254,5 +281,58 @@ mod tests {
             },
         )
         "##);
+    }
+
+    #[test]
+    fn test_primitive_types_are_inlined() {
+        let mut schemas = Schemas::default();
+
+        // Add a primitive type (usize)
+        let usize_schema = schemas.add_example::<usize>(42);
+
+        // Should return inline schema, not a reference
+        assert!(matches!(usize_schema, RefOr::T(_)));
+
+        // Should NOT be in the components/schemas section
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 0);
+    }
+
+    #[test]
+    fn test_complex_types_are_referenced() {
+        let mut schemas = Schemas::default();
+
+        // Add a complex type
+        let complex_schema =
+            schemas.add_example::<TestType>(serde_json::json!({"name": "test", "value": 42}));
+
+        // Should return a reference
+        assert!(matches!(complex_schema, RefOr::Ref(_)));
+
+        // Should be in the components/schemas section
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 1);
+        assert_eq!(schema_vec[0].0, "TestType");
+    }
+
+    #[test]
+    fn test_mixed_primitive_and_complex_types() {
+        let mut schemas = Schemas::default();
+
+        // Add primitive and complex types
+        let usize_schema = schemas.add_example::<usize>(42);
+        let complex_schema =
+            schemas.add_example::<TestType>(serde_json::json!({"name": "test", "value": 42}));
+
+        // Primitive should be inlined
+        assert!(matches!(usize_schema, RefOr::T(_)));
+
+        // Complex should be referenced
+        assert!(matches!(complex_schema, RefOr::Ref(_)));
+
+        // Only complex type should be in components/schemas
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 1);
+        assert_eq!(schema_vec[0].0, "TestType");
     }
 }

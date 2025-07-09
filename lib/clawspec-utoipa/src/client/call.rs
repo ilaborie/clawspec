@@ -25,7 +25,7 @@ pub struct ApiCall {
 
     operation_id: String,
     method: Method,
-    path: (String, PathResolved),
+    path: CallPath,
     query: CallQuery,
     headers: Option<CallHeaders>,
 
@@ -43,9 +43,7 @@ impl ApiCall {
         method: Method,
         path: CallPath,
     ) -> Result<Self, ApiClientError> {
-        let initial = path.path.clone();
-        let operation_id = slug::slugify(format!("{method} {initial}"));
-        let path_resolved = PathResolved::try_from(path)?;
+        let operation_id = slug::slugify(format!("{method} {}", path.path));
 
         let result = Self {
             client,
@@ -53,7 +51,7 @@ impl ApiCall {
             collectors,
             operation_id,
             method,
-            path: (initial, path_resolved),
+            path,
             query: CallQuery::default(),
             headers: None,
             body: None,
@@ -111,27 +109,16 @@ impl ApiCall {
             body,
         } = self;
 
-        // Handle path
-        let (path_name, path_resoloved) = path;
-        let PathResolved {
-            path,
-            params,
-            schemas,
-        } = path_resoloved;
-
-        // Create opration
-        let mut operation = CalledOperation::build(
-            operation_id.clone(),
-            method.clone(),
-            &path_name,
-            &params,
-            &query,
-            headers.as_ref(),
-            body.as_ref(),
-        );
+        // Resolve path for URL building
+        let path_name = path.path.clone();
+        let path_resolved = PathResolved::try_from(path.clone())?;
 
         // Build URL
-        let url = format!("{}/{}", base_uri, path.trim_start_matches('/'));
+        let url = format!(
+            "{}/{}",
+            base_uri,
+            path_resolved.path.trim_start_matches('/')
+        );
         let mut url = url.parse::<Url>()?;
 
         // Append query parameters to URL
@@ -139,6 +126,17 @@ impl ApiCall {
             let query_string = query.to_query_string()?;
             url.set_query(Some(&query_string));
         }
+
+        // Create operation using the original CallPath
+        let mut operation = CalledOperation::build(
+            operation_id.clone(),
+            method.clone(),
+            &path_name,
+            &path,
+            query,
+            headers.as_ref(),
+            body.as_ref(),
+        );
 
         // Build request
         let mut request = Request::new(method, url);
@@ -153,8 +151,9 @@ impl ApiCall {
         }
 
         // Call
+        debug!(?request, "sending...");
         let response = client.execute(request).await?;
-
+        debug!(?response, "...receiving");
         // TODO fail if status code is not accepted (default: 200-400) - https://github.com/ilaborie/clawspec/issues/22
 
         // Parse response
@@ -163,7 +162,7 @@ impl ApiCall {
 
         // collect operation
         let mut cs = collectors.write().await;
-        cs.collect_schemas(schemas);
+        cs.collect_schemas(path.schemas().clone());
         cs.collect_operation(operation);
         mem::drop(cs);
 

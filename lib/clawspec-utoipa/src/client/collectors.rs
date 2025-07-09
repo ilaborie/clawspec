@@ -11,12 +11,12 @@ use serde::de::DeserializeOwned;
 use tokio::sync::RwLock;
 use tracing::{error, warn};
 use utoipa::ToSchema;
-use utoipa::openapi::path::{Operation, Parameter, ParameterIn};
+use utoipa::openapi::path::{Operation, Parameter};
 use utoipa::openapi::request_body::RequestBody;
-use utoipa::openapi::{Content, PathItem, RefOr, Required, ResponseBuilder, Schema};
+use utoipa::openapi::{Content, PathItem, RefOr, ResponseBuilder, Schema};
 
 use super::output::Output;
-use super::{ApiClientError, CallBody, CallHeaders, CallQuery, PathParam, Schemas};
+use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, Schemas};
 
 // TODO: Add unit tests for all collector functionality - https://github.com/ilaborie/clawspec/issues/30
 // TODO: Optimize clone-heavy merge operations - https://github.com/ilaborie/clawspec/issues/31
@@ -115,6 +115,11 @@ impl Collectors {
     }
 }
 
+/// Represents a called operation with its metadata and potential result.
+///
+/// This struct stores information about an API operation that has been called,
+/// including its identifier, HTTP method, path, and the actual operation definition.
+/// It can optionally contain a result if the operation has been executed.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CalledOperation {
@@ -125,11 +130,16 @@ pub struct CalledOperation {
     result: Option<CallResult>,
 }
 
+/// Represents the result of an API call with response processing capabilities.
+///
+/// This struct contains the response from an HTTP request along with methods to
+/// process the response in various formats (JSON, text, bytes, etc.) while
+/// automatically collecting OpenAPI schema information.
 #[derive(Debug, Clone)]
 pub struct CallResult {
     operation_id: String,
     status: StatusCode,
-    content_type: ContentType,
+    content_type: Option<ContentType>,
     output: Output,
     collectors: Arc<RwLock<Collectors>>,
 }
@@ -141,28 +151,36 @@ impl CallResult {
         response: Response,
     ) -> Result<Self, ApiClientError> {
         let status = response.status();
-
         let content_type = response
             .headers()
             .get_all(CONTENT_TYPE)
             .iter()
             .collect::<Vec<_>>();
-        let content_type = ContentType::decode(&mut content_type.into_iter())?;
-
-        let output = if status == StatusCode::NO_CONTENT {
-            Output::Empty
-        } else if content_type == ContentType::json() {
-            let json = response.text().await?;
-            Output::Json(json)
-        } else if content_type == ContentType::octet_stream() {
-            let bytes = response.bytes().await?;
-            Output::Bytes(bytes.to_vec())
-        } else if content_type.to_string().starts_with("text/") {
-            let text = response.text().await?;
-            Output::Text(text)
+        let content_type = if content_type.is_empty() {
+            None
         } else {
-            let body = response.text().await?;
-            Output::Other { body }
+            let ct = ContentType::decode(&mut content_type.into_iter())?;
+            Some(ct)
+        };
+
+        let output = if let Some(content_type) = content_type.clone()
+            && status != StatusCode::NO_CONTENT
+        {
+            if content_type == ContentType::json() {
+                let json = response.text().await?;
+                Output::Json(json)
+            } else if content_type == ContentType::octet_stream() {
+                let bytes = response.bytes().await?;
+                Output::Bytes(bytes.to_vec())
+            } else if content_type.to_string().starts_with("text/") {
+                let text = response.text().await?;
+                Output::Text(text)
+            } else {
+                let body = response.text().await?;
+                Output::Other { body }
+            }
+        } else {
+            Output::Empty
         };
 
         Ok(Self {
@@ -175,9 +193,6 @@ impl CallResult {
     }
 
     async fn get_output(&self, schema: Option<RefOr<Schema>>) -> Result<&Output, ApiClientError> {
-        // Create content
-        let content = Content::builder().schema(schema).build();
-
         // add operation response desc
         let mut cs = self.collectors.write().await;
         let Some(operation) = cs.operations.get_mut(&self.operation_id) else {
@@ -192,18 +207,64 @@ impl CallResult {
             });
         };
 
-        operation.operation.responses.responses.insert(
-            self.status.as_u16().to_string(),
-            RefOr::T(
-                ResponseBuilder::new()
-                    .content(self.content_type.to_string(), content)
-                    .build(),
-            ),
-        );
+        let response = if let Some(content_type) = &self.content_type {
+            // Create content
+            let content = Content::builder().schema(schema).build();
+            ResponseBuilder::new()
+                .content(content_type.to_string(), content)
+                .build()
+        } else {
+            // Empty response
+            ResponseBuilder::new().build()
+        };
+
+        operation
+            .operation
+            .responses
+            .responses
+            .insert(self.status.as_u16().to_string(), RefOr::T(response));
 
         Ok(&self.output)
     }
 
+    /// Processes the response as JSON and deserializes it to the specified type.
+    ///
+    /// This method automatically records the response schema in the OpenAPI specification
+    /// and processes the response body as JSON. The type parameter must implement
+    /// `DeserializeOwned` and `ToSchema` for proper JSON parsing and schema generation.
+    ///
+    /// # Type Parameters
+    ///
+    /// - `T`: The target type for deserialization, must implement `DeserializeOwned`, `ToSchema`, and `'static`
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(T)`: The deserialized response object
+    /// - `Err(ApiClientError)`: If the response is not JSON or deserialization fails
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct User {
+    ///     id: u32,
+    ///     name: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build();
+    /// let user: User = client
+    ///     .get("/users/123")?
+    ///     .exchange()
+    ///     .await?
+    ///     .as_json()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn as_json<T>(&mut self) -> Result<T, ApiClientError>
     where
         T: DeserializeOwned + ToSchema + 'static,
@@ -236,6 +297,31 @@ impl CallResult {
         Ok(result)
     }
 
+    /// Processes the response as plain text.
+    ///
+    /// This method records the response in the OpenAPI specification and returns
+    /// the response body as a string slice. The response must have a text content type.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(&str)`: The response body as a string slice
+    /// - `Err(ApiClientError)`: If the response is not text
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build();
+    /// let text = client
+    ///     .get("/api/status")?
+    ///     .exchange()
+    ///     .await?
+    ///     .as_text()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn as_text(&mut self) -> Result<&str, ApiClientError> {
         let output = self.get_output(None).await?;
 
@@ -248,6 +334,31 @@ impl CallResult {
         Ok(text)
     }
 
+    /// Processes the response as binary data.
+    ///
+    /// This method records the response in the OpenAPI specification and returns
+    /// the response body as a byte slice. The response must have a binary content type.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(&[u8])`: The response body as a byte slice
+    /// - `Err(ApiClientError)`: If the response is not binary
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build();
+    /// let bytes = client
+    ///     .get("/api/download")?
+    ///     .exchange()
+    ///     .await?
+    ///     .as_bytes()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn as_bytes(&mut self) -> Result<&[u8], ApiClientError> {
         let output = self.get_output(None).await?;
 
@@ -260,8 +371,41 @@ impl CallResult {
         Ok(bytes.as_slice())
     }
 
-    pub async fn as_raw(&mut self) -> Result<(ContentType, &str), ApiClientError> {
-        let content_type = self.content_type.clone();
+    /// Processes the response as raw content with content type information.
+    ///
+    /// This method records the response in the OpenAPI specification and returns
+    /// the response body as a string along with its content type. If the response
+    /// has no content type, returns `None`.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some((ContentType, &str)))`: The content type and response body
+    /// - `Ok(None)`: If the response has no content type
+    /// - `Err(ApiClientError)`: If processing fails
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build();
+    /// if let Some((content_type, body)) = client
+    ///     .get("/api/data")?
+    ///     .exchange()
+    ///     .await?
+    ///     .as_raw()
+    ///     .await?
+    /// {
+    ///     println!("Content-Type: {}", content_type);
+    ///     println!("Body: {}", body);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_raw(&mut self) -> Result<Option<(ContentType, &str)>, ApiClientError> {
+        let Some(content_type) = self.content_type.clone() else {
+            return Ok(None);
+        };
         let output = self.get_output(None).await?;
 
         let body = match output {
@@ -270,7 +414,33 @@ impl CallResult {
             Output::Bytes(_bytes) => todo!("base64 encoding"),
         };
 
-        Ok((content_type, body))
+        Ok(Some((content_type, body)))
+    }
+
+    /// Records this response as an empty response in the OpenAPI specification.
+    ///
+    /// This method should be used for endpoints that return no content (e.g., DELETE operations,
+    /// PUT operations that don't return a response body).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build();
+    ///
+    /// client
+    ///     .delete("/items/123")?
+    ///     .exchange()
+    ///     .await?
+    ///     .as_empty()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_empty(&mut self) -> Result<(), ApiClientError> {
+        self.get_output(None).await?;
+        Ok(())
     }
 }
 
@@ -278,31 +448,22 @@ impl CalledOperation {
     pub(super) fn build(
         operation_id: String,
         method: http::Method,
-        path: &str,
-        path_params: &[PathParam],
-        query: &CallQuery,
+        path_name: &str,
+        path: &CallPath,
+        query: CallQuery,
         headers: Option<&CallHeaders>,
         request_body: Option<&CallBody>,
         // TODO cookie - https://github.com/ilaborie/clawspec/issues/18
     ) -> Self {
-        let mut schemas = Schemas::default();
-
         // Build parameters
-        let mut parameters = vec![];
-        for path_param in path_params {
-            let PathParam(name) = path_param;
-            let param = Parameter::builder()
-                .name(name)
-                .required(Required::True)
-                .parameter_in(ParameterIn::Path)
-                .build();
-            parameters.push(param);
-        }
+        let mut parameters: Vec<_> = path.to_parameters().collect();
+
+        let mut schemas = path.schemas().clone();
 
         // Add query parameters
         if !query.is_empty() {
-            schemas.merge(query.schemas.clone());
             parameters.extend(query.to_parameters());
+            schemas.merge(query.schemas);
         }
 
         // TODO headers - https://github.com/ilaborie/clawspec/issues/20
@@ -340,7 +501,7 @@ impl CalledOperation {
         Self {
             operation_id,
             method,
-            path: path.to_string(),
+            path: path_name.to_string(),
             operation,
             result: None,
         }
@@ -373,8 +534,7 @@ fn merge_operation(id: &str, current: Option<Operation>, new: Operation) -> Opti
         // TODO security - https://github.com/ilaborie/clawspec/issues/23
         // TODO servers - https://github.com/ilaborie/clawspec/issues/23
         // extension
-        ;
-    // resp
+        .responses(merge_responses(current.responses, new.responses));
     Some(operation.build())
 }
 
@@ -407,4 +567,30 @@ fn merge_parameters(
 
     let result = result.into_values().collect();
     Some(result)
+}
+
+fn merge_responses(
+    current: utoipa::openapi::Responses,
+    new: utoipa::openapi::Responses,
+) -> utoipa::openapi::Responses {
+    use utoipa::openapi::ResponsesBuilder;
+
+    let mut merged_responses = IndexMap::new();
+
+    // Add responses from new operation first
+    for (status, response) in new.responses {
+        merged_responses.insert(status, response);
+    }
+
+    // Add responses from current operation, preferring new ones
+    for (status, response) in current.responses {
+        merged_responses.entry(status).or_insert(response);
+    }
+
+    let mut builder = ResponsesBuilder::new();
+    for (status, response) in merged_responses {
+        builder = builder.response(status, response);
+    }
+
+    builder.build()
 }

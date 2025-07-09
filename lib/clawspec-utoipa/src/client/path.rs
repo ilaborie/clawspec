@@ -1,4 +1,117 @@
-use std::borrow::Cow;
+//! Path parameter handling for HTTP requests with OpenAPI 3.1 support.
+//!
+//! This module provides a type-safe system for building HTTP paths with parameterized
+//! segments that comply with the OpenAPI 3.1 specification. It supports parameter
+//! substitution, URL encoding, and automatic OpenAPI schema generation.
+//!
+//! # Key Features
+//!
+//! - **Type Safety**: Compile-time guarantees that parameters implement required traits
+//! - **OpenAPI Compliance**: Supports different parameter styles for arrays
+//! - **URL Encoding**: Proper percent-encoding of parameter values
+//! - **Parameter Substitution**: Template-based path building with `{param}` syntax
+//! - **Automatic Schema Generation**: Integrates with utoipa for OpenAPI documentation
+//! - **Error Handling**: Robust validation and error reporting
+//!
+//! # Quick Start
+//!
+//! ```rust
+//! use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//!
+//! // Basic path with single parameter
+//! let mut path = CallPath::from("/users/{user_id}");
+//! path.add_param("user_id", ParamValue::new(123));
+//!
+//! // Path with multiple parameters
+//! let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
+//! path.add_param("user_id", ParamValue::new(456));
+//! path.add_param("post_id", ParamValue::new("hello-world"));
+//!
+//! // Array parameter with custom style
+//! let mut path = CallPath::from("/search/{tags}");
+//! path.add_param("tags", ParamValue::with_style(
+//!     vec!["rust", "web", "api"],
+//!     ParamStyle::PipeDelimited
+//! ));
+//! // Results in: /search/rust%7Cweb%7Capi
+//! ```
+//!
+//! # Parameter Types
+//!
+//! ## ParamValue
+//!
+//! Use [`ParamValue`] for any type that implements `Serialize` and `ToSchema`.
+//! The parameter value is automatically converted to a string representation
+//! suitable for URL path substitution.
+//!
+//! ```rust
+//! # use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! let mut path = CallPath::from("/api/items/{id}");
+//!
+//! // String parameter
+//! path.add_param("id", ParamValue::new("item-123"));
+//!
+//! // Numeric parameter
+//! path.add_param("id", ParamValue::new(42));
+//!
+//! // Boolean parameter
+//! path.add_param("id", ParamValue::new(true));
+//!
+//! // Array parameter (comma-separated by default)
+//! path.add_param("id", ParamValue::new(vec![1, 2, 3]));
+//! ```
+//!
+//! # Array Parameter Styles
+//!
+//! Path parameters support different array serialization styles:
+//!
+//! - **Simple/Default**: `value1,value2,value3` (comma-separated)
+//! - **SpaceDelimited**: `value1 value2 value3` (space-separated)
+//! - **PipeDelimited**: `value1|value2|value3` (pipe-separated)
+//!
+//! ```rust
+//! # use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! let mut path = CallPath::from("/filter/{categories}");
+//!
+//! // Simple style (default): tech,programming,rust
+//! path.add_param("categories", ParamValue::new(vec!["tech", "programming", "rust"]));
+//!
+//! // Space delimited: tech%20programming%20rust
+//! path.add_param("categories", ParamValue::with_style(
+//!     vec!["tech", "programming", "rust"],
+//!     ParamStyle::SpaceDelimited
+//! ));
+//!
+//! // Pipe delimited: tech%7Cprogramming%7Crust
+//! path.add_param("categories", ParamValue::with_style(
+//!     vec!["tech", "programming", "rust"],
+//!     ParamStyle::PipeDelimited
+//! ));
+//! ```
+//!
+//! # URL Encoding
+//!
+//! All parameter values are automatically percent-encoded according to RFC 3986
+//! to ensure URL safety:
+//!
+//! ```rust
+//! # use clawspec_utoipa::{CallPath, ParamValue};
+//! let mut path = CallPath::from("/search/{query}");
+//! path.add_param("query", ParamValue::new("hello world & more"));
+//! // Results in: /search/hello%20world%20%26%20more
+//! ```
+//!
+//! # Error Handling
+//!
+//! The path system provides robust error handling for common issues:
+//!
+//! - **Missing Parameters**: Paths with unresolved `{param}` placeholders
+//! - **Invalid Values**: Object or nested array parameters
+//! - **Type Errors**: Parameters that don't implement required traits
+//!
+//! Path resolution occurs when converting `CallPath` to `PathResolved`,
+//! which validates that all parameters have been provided.
+
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
@@ -7,31 +120,119 @@ use percent_encoding::NON_ALPHANUMERIC;
 use regex::Regex;
 use serde::Serialize;
 use tracing::warn;
-use utoipa::openapi::RefOr;
-use utoipa::openapi::schema::Schema;
-use utoipa::{PartialSchema, ToSchema};
+use utoipa::ToSchema;
 
-use super::{ApiClientError, Schemas};
+use super::{ApiClientError, ParamValue, ResolvedParamValue, Schemas};
+use utoipa::openapi::Required;
+use utoipa::openapi::path::{Parameter, ParameterIn};
 
+/// Regular expression for matching path parameters in the format `{param_name}`.
 static RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\{(?<name>\w*)}").expect("a valid regex"));
 
-#[derive(Debug, Default, derive_more::Display)]
+/// A parameterized HTTP path with type-safe parameter substitution.
+///
+/// `CallPath` represents an HTTP path template with named parameters that can be
+/// substituted with typed values. It supports OpenAPI 3.1 parameter styles and
+/// automatic schema generation.
+///
+/// # Examples
+///
+/// ```rust
+/// use clawspec_utoipa::{CallPath, ParamValue};
+///
+/// // Create a path template
+/// let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
+///
+/// // Add typed parameters
+/// path.add_param("user_id", ParamValue::new(123));
+/// path.add_param("post_id", ParamValue::new("my-post"));
+///
+/// // Path is now ready for resolution to: /users/123/posts/my-post
+/// ```
+///
+/// # Path Template Syntax
+///
+/// Path templates use `{parameter_name}` syntax for parameter placeholders.
+/// Parameter names must be valid identifiers (alphanumeric + underscore).
+///
+/// ```rust
+/// # use clawspec_utoipa::{CallPath, ParamValue};
+/// let mut path = CallPath::from("/api/v1/users/{user_id}/documents/{doc_id}");
+/// path.add_param("user_id", ParamValue::new(456));
+/// path.add_param("doc_id", ParamValue::new("report-2023"));
+/// ```
+#[derive(Debug, Clone, Default, derive_more::Display)]
 #[display("{path}")]
 pub struct CallPath {
+    /// The path template with parameter placeholders
     pub(super) path: String,
-    args: IndexMap<String, Box<dyn PathArg>>,
+    /// Resolved parameter values indexed by parameter name
+    args: IndexMap<String, ResolvedParamValue>,
+    /// OpenAPI schemas for the parameters
     schemas: Schemas,
 }
 
 impl CallPath {
-    pub fn insert_arg<A>(&mut self, name: impl Into<String>, arg: A)
+    /// Adds a path parameter with the given name and value.
+    ///
+    /// This method accepts any value that can be converted into a `ParamValue<T>`,
+    /// allowing for ergonomic usage where you can pass values directly or use
+    /// explicit `ParamValue` wrappers for custom styles.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: The parameter name (will be converted to `String`)
+    /// - `param`: The parameter value that can be converted into `ParamValue<T>`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+    ///
+    /// let mut path = CallPath::from("/users/{id}");
+    ///
+    /// // Ergonomic usage - pass values directly
+    /// path.add_param("id", 123);
+    ///
+    /// // Explicit ParamValue usage for custom styles
+    /// path.add_param("id", ParamValue::with_style(456, ParamStyle::Simple));
+    /// ```
+    pub fn add_param<T>(&mut self, name: impl Into<String>, param: impl Into<ParamValue<T>>)
     where
-        A: PathArg + ToSchema + 'static,
+        T: Serialize + ToSchema + Debug + Send + Sync + Clone + 'static,
     {
-        let example = arg.as_path_value();
-        self.args.insert(name.into(), Box::new(arg));
-        self.schemas.add_example::<A>(example);
+        let name = name.into();
+        let param = param.into();
+        if let Some(resolved) = param.resolve(|value| self.schemas.add_example::<T>(value)) {
+            self.args.insert(name, resolved);
+        }
+    }
+
+    /// Creates an iterator over OpenAPI parameters for path parameters.
+    ///
+    /// This method converts the internal path parameter representation into
+    /// OpenAPI Parameter objects suitable for inclusion in the OpenAPI specification.
+    /// All path parameters are marked as required according to the OpenAPI specification.
+    ///
+    /// # Returns
+    ///
+    /// An iterator over `Parameter` objects representing path parameters.
+    pub(super) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
+        self.args.iter().map(|(name, value)| {
+            Parameter::builder()
+                .name(name)
+                .parameter_in(ParameterIn::Path)
+                .required(Required::True) // Path parameters are always required
+                .schema(Some(value.schema.clone()))
+                .style(value.style.into())
+                .build()
+        })
+    }
+
+    /// Get the schemas collected from path parameters.
+    pub(super) fn schemas(&self) -> &Schemas {
+        &self.schemas
     }
 }
 
@@ -61,13 +262,8 @@ pub enum PathError {
 }
 
 #[derive(Debug)]
-pub(super) struct PathParam(pub(super) String);
-
-#[derive(Debug)]
 pub(super) struct PathResolved {
     pub(super) path: String,
-    pub(super) params: Vec<PathParam>,
-    pub(super) schemas: Schemas,
 }
 
 // Build concrete
@@ -78,7 +274,7 @@ impl TryFrom<CallPath> for PathResolved {
         let CallPath {
             mut path,
             args,
-            schemas,
+            schemas: _,
         } = value;
 
         let mut names = RE
@@ -87,42 +283,35 @@ impl TryFrom<CallPath> for PathResolved {
             .map(|m| m.as_str().to_string())
             .collect::<Vec<_>>();
 
-        let mut params = vec![];
-
         if names.is_empty() {
-            return Ok(Self {
-                path,
-                params,
-                schemas,
-            });
+            return Ok(Self { path });
         }
 
-        for (name, arg) in args {
+        for (name, resolved) in args {
             let Some(idx) = names.iter().position(|it| it == &name) else {
                 warn!(?name, "argument name not found");
                 continue;
             };
 
-            let Some(value) = arg.as_path_value() else {
-                warn!("cannot provide argument value");
-                continue;
-            };
-
             names.remove(idx);
+
+            // Convert JSON value to string for path substitution
+            let path_value = match resolved.to_string_value() {
+                Ok(value) => value,
+                Err(err) => {
+                    warn!(?resolved.value, error = %err, "failed to serialize path parameter value");
+                    continue;
+                }
+            };
 
             // TODO explore [URI template](https://datatracker.ietf.org/doc/html/rfc6570) - https://github.com/ilaborie/clawspec/issues/21
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
-            let value = percent_encoding::utf8_percent_encode(&value, NON_ALPHANUMERIC).to_string();
-            path = path.replace(&format!("{{{name}}}"), &value); // TODO: Optimize string allocations - https://github.com/ilaborie/clawspec/issues/31
-
-            params.push(PathParam(name.to_string()));
+            let encoded_value =
+                percent_encoding::utf8_percent_encode(&path_value, NON_ALPHANUMERIC).to_string();
+            path = path.replace(&format!("{{{name}}}"), &encoded_value); // TODO: Optimize string allocations - https://github.com/ilaborie/clawspec/issues/31
 
             if names.is_empty() {
-                return Ok(Self {
-                    path,
-                    params,
-                    schemas,
-                });
+                return Ok(Self { path });
             }
         }
 
@@ -133,93 +322,67 @@ impl TryFrom<CallPath> for PathResolved {
     }
 }
 
-// Args
-
-pub trait PathArg: Debug {
-    fn as_path_value(&self) -> Option<String>; // TODO Result - https://github.com/ilaborie/clawspec/issues/22
-}
-
-#[derive(Debug)]
-pub struct DisplayArg<T>(pub T);
-impl<T: ToSchema> ToSchema for DisplayArg<T> {
-    fn name() -> Cow<'static, str> {
-        T::name()
-    }
-}
-impl<T: ToSchema> PartialSchema for DisplayArg<T> {
-    fn schema() -> RefOr<Schema> {
-        T::schema()
-    }
-}
-
-impl<T> PathArg for DisplayArg<T>
-where
-    T: ToString + Debug,
-{
-    fn as_path_value(&self) -> Option<String> {
-        Some(self.0.to_string())
-    }
-}
-
-#[derive(Debug)]
-pub struct StringSerializeArg<T>(pub T);
-
-impl<T: ToSchema> ToSchema for StringSerializeArg<T> {
-    fn name() -> Cow<'static, str> {
-        T::name()
-    }
-}
-impl<T: ToSchema> PartialSchema for StringSerializeArg<T> {
-    fn schema() -> RefOr<Schema> {
-        T::schema()
-    }
-}
-
-impl<T> PathArg for StringSerializeArg<T>
-where
-    T: Serialize + Debug,
-{
-    fn as_path_value(&self) -> Option<String> {
-        let value = match serde_json::to_value(&self.0) {
-            Ok(value) => value,
-            Err(error) => {
-                warn!(?error, "fail to serialize value");
-                return None;
-            }
-        };
-
-        let serde_json::Value::String(value) = value else {
-            // TODO with URI template we could support array and object - https://github.com/ilaborie/clawspec/issues/21
-            warn!(?value, "expected serialization as String");
-            return None;
-        };
-
-        Some(value)
-    }
-}
-
 // TODO dsl path!(""/ object / ""...) - https://github.com/ilaborie/clawspec/issues/21
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ParamStyle;
 
     #[test]
     fn should_build_call_path() {
         let mut path = CallPath::from("/breed/{breed}/images");
-        path.insert_arg("breed", DisplayArg("hound"));
+        path.add_param("breed", ParamValue::new("hound"));
 
         insta::assert_debug_snapshot!(path, @r#"
         CallPath {
             path: "/breed/{breed}/images",
             args: {
-                "breed": DisplayArg(
-                    "hound",
-                ),
+                "breed": ResolvedParamValue {
+                    value: String("hound"),
+                    schema: T(
+                        Object(
+                            Object {
+                                schema_type: Type(
+                                    String,
+                                ),
+                                title: None,
+                                format: None,
+                                description: None,
+                                default: None,
+                                enum_values: None,
+                                required: [],
+                                properties: {},
+                                additional_properties: None,
+                                property_names: None,
+                                deprecated: None,
+                                example: None,
+                                examples: [],
+                                write_only: None,
+                                read_only: None,
+                                xml: None,
+                                multiple_of: None,
+                                maximum: None,
+                                minimum: None,
+                                exclusive_maximum: None,
+                                exclusive_minimum: None,
+                                max_length: None,
+                                min_length: None,
+                                pattern: None,
+                                max_properties: None,
+                                min_properties: None,
+                                extensions: None,
+                                content_encoding: "",
+                                content_media_type: "",
+                            },
+                        ),
+                    ),
+                    style: Default,
+                },
             },
             schemas: Schemas(
                 [
-                    "clawspec_utoipa::client::path::DisplayArg<&str>",
+                    "&str",
                 ],
             ),
         }
@@ -230,16 +393,6 @@ mod tests {
         insta::assert_debug_snapshot!(path_resolved, @r#"
         PathResolved {
             path: "/breed/hound/images",
-            params: [
-                PathParam(
-                    "breed",
-                ),
-            ],
-            schemas: Schemas(
-                [
-                    "clawspec_utoipa::client::path::DisplayArg<&str>",
-                ],
-            ),
         }
         "#);
     }
@@ -247,28 +400,14 @@ mod tests {
     #[test]
     fn test_path_resolved_with_multiple_parameters() {
         let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
-        path.insert_arg("user_id", DisplayArg(123));
-        path.insert_arg("post_id", DisplayArg("abc"));
+        path.add_param("user_id", ParamValue::new(123));
+        path.add_param("post_id", ParamValue::new("abc"));
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
 
         insta::assert_debug_snapshot!(resolved, @r#"
         PathResolved {
             path: "/users/123/posts/abc",
-            params: [
-                PathParam(
-                    "user_id",
-                ),
-                PathParam(
-                    "post_id",
-                ),
-            ],
-            schemas: Schemas(
-                [
-                    "clawspec_utoipa::client::path::DisplayArg<i32>",
-                    "clawspec_utoipa::client::path::DisplayArg<&str>",
-                ],
-            ),
         }
         "#);
     }
@@ -276,7 +415,7 @@ mod tests {
     #[test]
     fn test_path_resolved_with_missing_parameters() {
         let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
-        path.insert_arg("user_id", DisplayArg(123));
+        path.add_param("user_id", ParamValue::new(123));
         // Missing post_id parameter
 
         let result = PathResolved::try_from(path);
@@ -286,7 +425,7 @@ mod tests {
     #[test]
     fn test_path_resolved_with_url_encoding() {
         let mut path = CallPath::from("/search/{query}");
-        path.insert_arg("query", DisplayArg("hello world"));
+        path.add_param("query", ParamValue::new("hello world"));
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
 
@@ -296,7 +435,7 @@ mod tests {
     #[test]
     fn test_path_resolved_with_special_characters() {
         let mut path = CallPath::from("/items/{name}");
-        path.insert_arg("name", DisplayArg("test@example.com"));
+        path.add_param("name", ParamValue::new("test@example.com"));
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
 
@@ -306,7 +445,7 @@ mod tests {
     #[test]
     fn test_path_with_duplicate_parameter_names() {
         let mut path = CallPath::from("/test/{id}/{id}");
-        path.insert_arg("id", DisplayArg(123));
+        path.add_param("id", ParamValue::new(123));
 
         // This will actually fail because the algorithm doesn't handle duplicates properly
         // The replace() replaces all occurrences but names.remove() only removes one from the list
@@ -317,12 +456,69 @@ mod tests {
     }
 
     #[test]
-    fn test_insert_arg_overwrites_existing() {
+    fn test_add_param_overwrites_existing() {
         let mut path = CallPath::from("/test/{id}");
-        path.insert_arg("id", DisplayArg(123));
-        path.insert_arg("id", DisplayArg(456)); // Overwrite
+        path.add_param("id", ParamValue::new(123));
+        path.add_param("id", ParamValue::new(456)); // Overwrite
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
         assert_eq!(resolved.path, "/test/456");
+    }
+
+    #[test]
+    fn test_path_with_array_simple_style() {
+        let mut path = CallPath::from("/search/{tags}");
+        path.add_param(
+            "tags",
+            ParamValue::with_style(vec!["rust", "web", "api"], ParamStyle::Simple),
+        );
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/search/rust%2Cweb%2Capi");
+    }
+
+    #[test]
+    fn test_path_with_array_default_style() {
+        let mut path = CallPath::from("/search/{tags}");
+        path.add_param("tags", ParamValue::new(vec!["rust", "web", "api"])); // Default style
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/search/rust%2Cweb%2Capi"); // Default is Simple for paths
+    }
+
+    #[test]
+    fn test_path_with_array_space_delimited_style() {
+        let mut path = CallPath::from("/search/{tags}");
+        path.add_param(
+            "tags",
+            ParamValue::with_style(vec!["rust", "web", "api"], ParamStyle::SpaceDelimited),
+        );
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/search/rust%20web%20api");
+    }
+
+    #[test]
+    fn test_path_with_array_pipe_delimited_style() {
+        let mut path = CallPath::from("/search/{tags}");
+        path.add_param(
+            "tags",
+            ParamValue::with_style(vec!["rust", "web", "api"], ParamStyle::PipeDelimited),
+        );
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/search/rust%7Cweb%7Capi");
+    }
+
+    #[test]
+    fn test_path_with_mixed_array_types() {
+        let mut path = CallPath::from("/items/{values}");
+        path.add_param(
+            "values",
+            ParamValue::with_style(vec![1, 2, 3], ParamStyle::Simple),
+        );
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/items/1%2C2%2C3");
     }
 }
