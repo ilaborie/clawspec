@@ -32,7 +32,8 @@
       "Bash(INSTA_UPDATE=always cargo test -p clawspec-utoipa client::path::tests)",
       "Bash(INSTA_FORCE_UPDATE_SNAPSHOTS=1 cargo test -p clawspec-utoipa client::path::tests::should_build_call_path)",
       "Bash(INSTA_UPDATE=force cargo test -p clawspec-utoipa client::path::tests)",
-      "Bash(RUST_BACKTRACE=1 cargo test --package axum-example generate_openapi)"
+      "Bash(RUST_BACKTRACE=1 cargo test --package axum-example generate_openapi)",
+      "Bash(fd:*)"
     ],
     "deny": []
   }
