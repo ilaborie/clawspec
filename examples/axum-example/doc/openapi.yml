@@ -13,15 +13,19 @@ paths:
         schema:
           type: integer
           minimum: 0
-        style: form
       - name: limit
         in: query
         required: false
         schema:
           type: integer
           minimum: 0
-        style: form
-      responses: {}
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListObservations'
     post:
       operationId: post-observations
       parameters: []
@@ -39,6 +43,68 @@ paths:
                 lng: 12.4
       responses:
         '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationId'
+  /api/observations/{observation_id}:
+    put:
+      operationId: put-observations-observation-id
+      parameters:
+      - name: observation_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ObservationId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialObservation'
+            example:
+              color: green
+              name: Updated Parrot
+              notes: Updated via API
+              position:
+                lat: -26.2
+                lng: 13.5
+      responses:
+        '200':
+          description: ''
+    delete:
+      operationId: delete-observations-observation-id
+      parameters:
+      - name: observation_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ObservationId'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json: {}
+    patch:
+      operationId: patch-observations-observation-id
+      parameters:
+      - name: observation_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ObservationId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchObservation'
+            example:
+              color: red
+              name: Partially Updated Parrot
+              notes: null
+              position: null
+      responses:
+        '200':
           description: ''
           content:
             application/json:
@@ -64,3 +130,6 @@ components:
         properties:
           id:
             $ref: '#/components/schemas/ObservationId'
+    ObservationId:
+      type: integer
+      minimum: 0

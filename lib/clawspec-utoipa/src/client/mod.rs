@@ -11,6 +11,9 @@ pub use self::builder::*;
 mod call;
 pub use self::call::*;
 
+mod param;
+pub use self::param::*;
+
 mod path;
 pub use self::path::*;
 

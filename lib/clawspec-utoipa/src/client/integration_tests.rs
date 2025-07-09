@@ -3,33 +3,37 @@
 //! These tests verify the complete integration of query parameters
 //! from creation through URL serialization and OpenAPI generation.
 
-use super::{CallQuery, QueryParam, QueryStyle};
+use super::{CallQuery, ParamStyle, ParamValue};
 
 #[cfg(test)]
 mod tests {
+    use utoipa::openapi::path::ParameterStyle;
+
+    use crate::client::ApiClientError;
+
     use super::*;
 
     #[test]
     fn test_query_parameter_full_integration() {
         // Simulate a real-world API query with multiple parameter types
         let query = CallQuery::new()
-            .add_param("search", QueryParam::new("machine learning"))
-            .add_param("page", QueryParam::new(1))
-            .add_param("per_page", QueryParam::new(20))
-            .add_param("active", QueryParam::new(true))
-            .add_param("tags", QueryParam::new(vec!["ai", "ml", "data"]))
+            .add_param("search", ParamValue::new("machine learning"))
+            .add_param("page", ParamValue::new(1))
+            .add_param("per_page", ParamValue::new(20))
+            .add_param("active", ParamValue::new(true))
+            .add_param("tags", ParamValue::new(vec!["ai", "ml", "data"]))
             .add_param(
                 "categories",
-                QueryParam::with_style(
+                ParamValue::with_style(
                     vec!["research", "applications"],
-                    QueryStyle::SpaceDelimited,
+                    ParamStyle::SpaceDelimited,
                 ),
             )
             .add_param(
                 "include_fields",
-                QueryParam::with_style(
+                ParamValue::with_style(
                     vec!["title", "summary", "author"],
-                    QueryStyle::PipeDelimited,
+                    ParamStyle::PipeDelimited,
                 ),
             );
 
@@ -47,7 +51,13 @@ mod tests {
         // Create a summary for snapshot testing
         let param_summary: Vec<_> = parameters
             .iter()
-            .map(|p| format!("{}: {:?}", p.name, p.style.as_ref().unwrap()))
+            .map(|p| {
+                format!(
+                    "{}: {:?}",
+                    p.name,
+                    p.style.as_ref().unwrap_or(&ParameterStyle::Form)
+                )
+            })
             .collect();
 
         insta::assert_debug_snapshot!(param_summary, @r#"
@@ -67,12 +77,12 @@ mod tests {
     fn test_edge_cases_comprehensive() {
         // Test various edge cases
         let query = CallQuery::new()
-            .add_param("empty_string", QueryParam::new(""))
-            .add_param("zero", QueryParam::new(0))
-            .add_param("false_bool", QueryParam::new(false))
-            .add_param("null_value", QueryParam::new(serde_json::Value::Null))
-            .add_param("empty_array", QueryParam::new(Vec::<String>::new()))
-            .add_param("single_item_array", QueryParam::new(vec!["single"]));
+            .add_param("empty_string", ParamValue::new(""))
+            .add_param("zero", ParamValue::new(0))
+            .add_param("false_bool", ParamValue::new(false))
+            .add_param("null_value", ParamValue::new(serde_json::Value::Null))
+            .add_param("empty_array", ParamValue::new(Vec::<String>::new()))
+            .add_param("single_item_array", ParamValue::new(vec!["single"]));
 
         let query_string = query
             .to_query_string()
@@ -85,11 +95,11 @@ mod tests {
     fn test_url_encoding_compliance() {
         // Test characters that require URL encoding
         let query = CallQuery::new()
-            .add_param("spaces", QueryParam::new("hello world"))
-            .add_param("special_chars", QueryParam::new("a&b=c?d#e"))
-            .add_param("unicode", QueryParam::new("José's café"))
-            .add_param("reserved", QueryParam::new("100% guaranteed!"))
-            .add_param("mixed_array", QueryParam::new(vec!["a&b", "c=d", "e?f"]));
+            .add_param("spaces", ParamValue::new("hello world"))
+            .add_param("special_chars", ParamValue::new("a&b=c?d#e"))
+            .add_param("unicode", ParamValue::new("José's café"))
+            .add_param("reserved", ParamValue::new("100% guaranteed!"))
+            .add_param("mixed_array", ParamValue::new(vec!["a&b", "c=d", "e?f"]));
 
         let query_string = query
             .to_query_string()
@@ -103,14 +113,14 @@ mod tests {
         let items = vec!["apple", "banana", "cherry"];
         // Same data with different styles
         let query = CallQuery::new()
-            .add_param("form_style", QueryParam::new(items.clone()))
+            .add_param("form_style", ParamValue::new(items.clone()))
             .add_param(
                 "space_style",
-                QueryParam::with_style(items.clone(), QueryStyle::SpaceDelimited),
+                ParamValue::with_style(items.clone(), ParamStyle::SpaceDelimited),
             )
             .add_param(
                 "pipe_style",
-                QueryParam::with_style(items.clone(), QueryStyle::PipeDelimited),
+                ParamValue::with_style(items.clone(), ParamStyle::PipeDelimited),
             );
 
         let query_string = query
@@ -126,12 +136,12 @@ mod tests {
 
         // This should work - simple values
         let query = CallQuery::new()
-            .add_param("simple", QueryParam::new("hello"))
-            .add_param("number", QueryParam::new(42))
+            .add_param("simple", ParamValue::new("hello"))
+            .add_param("number", ParamValue::new(42))
             // This should fail - nested object
             .add_param(
                 "complex",
-                QueryParam::new(json!({
+                ParamValue::new(json!({
                     "nested": {
                         "data": "value"
                     }
@@ -143,10 +153,10 @@ mod tests {
 
         // Verify the error type
         match result {
-            Err(crate::client::ApiClientError::UnsupportedQueryParameterValue { .. }) => {
+            Err(ApiClientError::UnsupportedParameterValue { .. }) => {
                 // Expected error type
             }
-            _ => panic!("Expected UnsupportedQueryParameterValue error"),
+            _ => panic!("Expected UnsupportedParameterValue error"),
         }
     }
 }

@@ -4,7 +4,7 @@
 //! clawspec HTTP client library, including various parameter styles and types
 //! that comply with OpenAPI 3.1 specifications.
 
-use clawspec_utoipa::client::query::{CallQuery, DisplayQuery, SerializableQuery, QueryStyle};
+use clawspec_utoipa::{CallQuery, ParamValue, ParamStyle};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -58,10 +58,10 @@ fn basic_query_parameters() {
     println!("========================");
 
     let query = CallQuery::new()
-        .add_param("search", DisplayQuery("hello world"))
-        .add_param("page", DisplayQuery(1))
-        .add_param("limit", DisplayQuery(20))
-        .add_param("active", DisplayQuery(true));
+        .add_param("search", ParamValue::new("hello world"))
+        .add_param("page", ParamValue::new(1))
+        .add_param("limit", ParamValue::new(20))
+        .add_param("active", ParamValue::new(true));
 
     // In a real application, you would call query.to_query_string()
     // This would generate: ?search=hello+world&page=1&limit=20&active=true
@@ -77,7 +77,7 @@ fn array_parameter_styles() {
 
     // Form style (default) - parameters are repeated
     let form_query = CallQuery::new()
-        .add_param("tags", SerializableQuery::new(vec!["rust", "web", "api"]));
+        .add_param("tags", ParamValue::new(vec!["rust", "web", "api"]));
     
     println!("Form style (default):");
     println!("  Input: vec![\"rust\", \"web\", \"api\"]");
@@ -85,9 +85,9 @@ fn array_parameter_styles() {
 
     // Space delimited style - values joined with spaces
     let space_query = CallQuery::new()
-        .add_param("categories", SerializableQuery::with_style(
+        .add_param("categories", ParamValue::with_style(
             vec!["tech", "programming", "tutorial"], 
-            QueryStyle::SpaceDelimited
+            ParamStyle::SpaceDelimited
         ));
     
     println!("\nSpace delimited style:");
@@ -96,9 +96,9 @@ fn array_parameter_styles() {
 
     // Pipe delimited style - values joined with pipes
     let pipe_query = CallQuery::new()
-        .add_param("ids", SerializableQuery::with_style(
+        .add_param("ids", ParamValue::with_style(
             vec![1, 2, 3, 4, 5], 
-            QueryStyle::PipeDelimited
+            ParamStyle::PipeDelimited
         ));
     
     println!("\nPipe delimited style:");
@@ -113,19 +113,19 @@ fn mixed_parameter_types() {
 
     let query = CallQuery::new()
         // Simple display parameters
-        .add_param("q", DisplayQuery("search term"))
-        .add_param("limit", DisplayQuery(50))
-        .add_param("offset", DisplayQuery(0))
+        .add_param("q", ParamValue::new("search term"))
+        .add_param("limit", ParamValue::new(50))
+        .add_param("offset", ParamValue::new(0))
         
         // Array parameters with different styles
-        .add_param("tags", SerializableQuery::new(vec!["rust", "web"]))
-        .add_param("categories", SerializableQuery::with_style(
+        .add_param("tags", ParamValue::new(vec!["rust", "web"]))
+        .add_param("categories", ParamValue::with_style(
             vec!["tech", "programming"], 
-            QueryStyle::SpaceDelimited
+            ParamStyle::SpaceDelimited
         ))
-        .add_param("exclude_ids", SerializableQuery::with_style(
+        .add_param("exclude_ids", ParamValue::with_style(
             vec![10, 20, 30], 
-            QueryStyle::PipeDelimited
+            ParamStyle::PipeDelimited
         ));
 
     println!("Complex query combining multiple parameter types:");
@@ -144,11 +144,11 @@ fn custom_types_example() {
 
     let query = CallQuery::new()
         // Using a custom enum with Display
-        .add_param("sort", DisplayQuery(SortOrder::Desc))
-        .add_param("order", DisplayQuery(SortOrder::Asc))
+        .add_param("sort", ParamValue::new(SortOrder::Desc))
+        .add_param("order", ParamValue::new(SortOrder::Asc))
         
         // Using arrays of custom types
-        .add_param("sort_fields", SerializableQuery::new(vec!["name", "created_at"]));
+        .add_param("sort_fields", ParamValue::new(vec!["name", "created_at"]));
 
     println!("Custom enum parameters:");
     println!("  - sort: SortOrder::Desc -> 'desc'");
@@ -164,8 +164,8 @@ fn error_handling_example() {
 
     // This would work fine - arrays of primitives are supported
     let valid_query = CallQuery::new()
-        .add_param("numbers", SerializableQuery::new(vec![1, 2, 3]))
-        .add_param("strings", SerializableQuery::new(vec!["a", "b", "c"]));
+        .add_param("numbers", ParamValue::new(vec![1, 2, 3]))
+        .add_param("strings", ParamValue::new(vec!["a", "b", "c"]));
 
     println!("✅ Valid parameters:");
     println!("  - Arrays of numbers: vec![1, 2, 3]");
@@ -178,8 +178,9 @@ fn error_handling_example() {
     println!("  - Complex nested structures");
     
     println!("\nBest practices:");
-    println!("  - Use DisplayQuery for simple types (strings, numbers, booleans)");
-    println!("  - Use SerializableQuery for arrays and simple structs");
+    println!("  - Use ParamValue::new() for simple types (strings, numbers, booleans)");
+    println!("  - Use ParamValue::new() for arrays and simple structs");
+    println!("  - Use ParamValue::with_style() for custom parameter styles");
     println!("  - Avoid complex nested objects in query parameters");
     println!("  - Test serialization with your data types before deployment\n");
 }

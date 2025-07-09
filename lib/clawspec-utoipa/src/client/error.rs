@@ -60,6 +60,13 @@ pub enum ApiClientError {
         value: serde_json::Value,
     },
 
+    #[display("unsupported parameter value: {message}. Got: {value}")]
+    #[from(skip)]
+    UnsupportedParameterValue {
+        message: String,
+        value: serde_json::Value,
+    },
+
     #[display("Missing operation {id}")]
     #[from(skip)]
     MissingOperation {

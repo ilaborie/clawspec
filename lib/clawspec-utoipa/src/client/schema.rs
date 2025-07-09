@@ -1,9 +1,19 @@
 use std::any::{TypeId, type_name};
+use std::collections::HashSet;
 use std::fmt::Debug;
+use std::sync::LazyLock;
 
 use indexmap::{IndexMap, IndexSet};
 use utoipa::ToSchema;
 use utoipa::openapi::{Ref, RefOr, Schema};
+
+/// Set of primitive type names that should be inlined rather than referenced
+static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        "bool", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
+        "usize", "f32", "f64", "String", "str",
+    ])
+});
 
 #[derive(Clone, Default)]
 pub struct Schemas(IndexMap<TypeId, SchemaEntry>);
@@ -52,16 +62,7 @@ impl Schemas {
         let example = example.into();
         let entry = self.add_type::<T>();
         entry.examples.insert(example);
-        let schema_ref = entry.as_schema_ref();
-
-        // If this is a primitive type that should be inlined, remove it from the schema collection
-        // since it won't be referenced in components/schemas
-        if entry.should_inline_schema() {
-            let id = TypeId::of::<T>();
-            self.0.shift_remove(&id);
-        }
-
-        schema_ref
+        entry.as_schema_ref()
     }
 
     pub(super) fn merge(&mut self, other: Self) {
@@ -73,9 +74,12 @@ impl Schemas {
     pub(super) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
         let mut result = vec![];
         for entry in self.0.values() {
-            let name = entry.name.clone(); // TODO conflict - https://github.com/ilaborie/clawspec/issues/25
-            let schema = entry.schema.clone();
-            result.push((name, schema));
+            // Only include non-primitive types in the components/schemas section
+            if !entry.should_inline_schema() {
+                let name = entry.name.clone(); // TODO conflict - https://github.com/ilaborie/clawspec/issues/25
+                let schema = entry.schema.clone();
+                result.push((name, schema));
+            }
         }
         result
     }
@@ -130,27 +134,10 @@ impl SchemaEntry {
 
     /// Determines if this schema should be inlined (for primitives) or referenced (for complex types)
     fn should_inline_schema(&self) -> bool {
-        // Check for primitive types that should be inlined
-        matches!(
-            self.name.as_str(),
-            "bool"
-                | "i8"
-                | "i16"
-                | "i32"
-                | "i64"
-                | "i128"
-                | "isize"
-                | "u8"
-                | "u16"
-                | "u32"
-                | "u64"
-                | "u128"
-                | "usize"
-                | "f32"
-                | "f64"
-                | "String"
-                | "str"
-        )
+        // Check if the schema name (from T::name()) is a primitive type
+        // This works for both direct primitives and wrapper types like DisplayArg<T>
+        // since DisplayArg<T> delegates T::name() to the inner type
+        PRIMITIVE_TYPES.contains(self.name.as_str())
     }
 }
 

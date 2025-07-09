@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use clawspec_utoipa::{ApiClient, CallPath, DisplayArg};
+use clawspec_utoipa::{ApiClient, CallPath, ParamValue};
 use http::uri::Scheme;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Get call with a parameter
     let mut path = CallPath::from("/breed/{breed}/images");
-    path.insert_arg("breed", DisplayArg("hound"));
+    path.add_param("breed", ParamValue::new("hound"));
 
     let _result = client
         .get(path)?
