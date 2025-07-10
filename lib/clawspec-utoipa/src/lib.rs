@@ -6,5 +6,5 @@ mod client;
 // Public API - only expose user-facing types and functions
 pub use self::client::{
     ApiCall, ApiClient, ApiClientBuilder, ApiClientError, CallBody, CallHeaders, CallPath,
-    CallQuery, CallResult, ParamStyle, ParamValue, ParameterValue,
+    CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue, ParameterValue,
 };

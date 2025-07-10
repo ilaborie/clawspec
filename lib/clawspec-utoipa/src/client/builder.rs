@@ -16,7 +16,7 @@ pub struct ApiClientBuilder {
 }
 
 impl ApiClientBuilder {
-    pub fn build(self) -> ApiClient {
+    pub fn build(self) -> Result<ApiClient, ApiClientError> {
         let Self {
             client,
             scheme,
@@ -34,7 +34,7 @@ impl ApiClientBuilder {
             builder.path_and_query("/")
         };
 
-        let base_uri = builder.build().expect("a valid URI"); // TODO: Replace expect with proper error handling - https://github.com/ilaborie/clawspec/issues/32
+        let base_uri = builder.build()?;
         let base_path = base_path
             .as_ref()
             .map(|it| it.path().to_string())
@@ -42,12 +42,12 @@ impl ApiClientBuilder {
 
         let collectors = Default::default();
 
-        ApiClient {
+        Ok(ApiClient {
             client,
             base_uri,
             base_path,
             collectors,
-        }
+        })
     }
 
     pub fn scheme(mut self, scheme: Scheme) -> Self {
@@ -99,7 +99,9 @@ mod tests {
 
     #[test]
     fn test_default_builder_creates_localhost_http_client() {
-        let client = ApiClientBuilder::default().build();
+        let client = ApiClientBuilder::default()
+            .build()
+            .expect("should build client");
 
         let uri = client.base_uri.to_string();
         insta::assert_snapshot!(uri, @"http://127.0.0.1:80/");
@@ -107,7 +109,10 @@ mod tests {
 
     #[test]
     fn test_builder_with_custom_scheme() {
-        let client = ApiClientBuilder::default().scheme(Scheme::HTTPS).build();
+        let client = ApiClientBuilder::default()
+            .scheme(Scheme::HTTPS)
+            .build()
+            .expect("should build client");
 
         let uri = client.base_uri.to_string();
         insta::assert_snapshot!(uri, @"https://127.0.0.1:80/");
@@ -115,7 +120,10 @@ mod tests {
 
     #[test]
     fn test_builder_with_custom_host() {
-        let client = ApiClientBuilder::default().host("api.example.com").build();
+        let client = ApiClientBuilder::default()
+            .host("api.example.com")
+            .build()
+            .expect("should build client");
 
         let uri = client.base_uri.to_string();
         insta::assert_snapshot!(uri, @"http://api.example.com:80/");
@@ -123,7 +131,10 @@ mod tests {
 
     #[test]
     fn test_builder_with_custom_port() {
-        let client = ApiClientBuilder::default().port(8080).build();
+        let client = ApiClientBuilder::default()
+            .port(8080)
+            .build()
+            .expect("should build client");
 
         let uri = client.base_uri.to_string();
         insta::assert_snapshot!(uri, @"http://127.0.0.1:8080/");
@@ -134,7 +145,8 @@ mod tests {
         let client = ApiClientBuilder::default()
             .base_path("/api/v1")
             .expect("valid base path")
-            .build();
+            .build()
+            .expect("should build client");
 
         insta::assert_debug_snapshot!(client.base_path, @r#""/api/v1""#);
     }

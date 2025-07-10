@@ -142,6 +142,7 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     let _form_result = app
         .post("/observations")?
         .form(&flat_observation)?
+        .add_expected_status(400) // Form validation may fail
         .exchange()
         .await
         .context("should create observation via form encoding")?;

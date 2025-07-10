@@ -39,9 +39,12 @@ impl CallHeaders {
     /// ```rust
     /// use clawspec_utoipa::CallHeaders;
     ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let headers = CallHeaders::new()
-    ///     .add_header("Authorization", "Bearer token123")
-    ///     .add_header("X-Request-ID", "abc-123-def");
+    ///     .add_header("Authorization", "Bearer token123")?
+    ///     .add_header("X-Request-ID", "abc-123-def")?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn add_header<T: ParameterValue>(
         mut self,

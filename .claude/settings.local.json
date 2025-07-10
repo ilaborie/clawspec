@@ -37,7 +37,10 @@
       "Bash(gh issue list:*)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:docs.rs)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git branch:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh issue comment:*)"
     ],
     "deny": []
   }

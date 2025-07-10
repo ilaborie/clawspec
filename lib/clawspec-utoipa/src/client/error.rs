@@ -87,6 +87,13 @@ pub enum ApiClientError {
     SerializationError {
         message: String,
     },
+
+    #[display("unexpected status code {status_code}: {body}")]
+    #[from(skip)]
+    UnexpectedStatusCode {
+        status_code: u16,
+        body: String,
+    },
 }
 
 #[cfg(test)]
