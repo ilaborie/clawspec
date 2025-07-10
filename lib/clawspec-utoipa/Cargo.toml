@@ -25,6 +25,8 @@ derive_more = { workspace = true, features = ["full"] }
 tracing = {workspace = true }
 indexmap = {workspace = true }
 slug = { workspace = true }
+uuid = { workspace = true }
+mime = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

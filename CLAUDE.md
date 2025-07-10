@@ -174,3 +174,7 @@ The project primarily uses:
 ## Documentation Guidelines
 
 - Avoid mentioning the OpenAPI version in documentation
+
+## CI/Development Best Practices
+
+- Always fix issues provided by `mise check` after your work

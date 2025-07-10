@@ -55,19 +55,31 @@ paths:
                 $ref: '#/components/schemas/ListObservations'
     post:
       operationId: post-observations
-      parameters: []
+      parameters:
+      - name: X-Test-Case
+        in: header
+        required: false
+        schema:
+          type: string
+      - name: X-Expected-Status
+        in: header
+        required: false
+        schema:
+          type: string
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PartialObservation'
-            example:
-              color: blue
-              name: Parrot
-              notes: null
-              position:
-                lat: -25.1
-                lng: 12.4
+              $ref: '#/components/schemas/binary'
+          application/pdf:
+            schema:
+              $ref: '#/components/schemas/binary'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FlatObservation'
+          text/xml:
+            schema:
+              $ref: '#/components/schemas/binary'
       responses:
         '201':
           description: ''
@@ -75,6 +87,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ObservationId'
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestClientError'
+        '415':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestClientError'
+  /api/observations/import:
+    post:
+      operationId: post-observations-import
+      parameters: []
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              $ref: '#/components/schemas/binary'
+      responses: {}
+  /api/observations/upload:
+    post:
+      operationId: post-observations-upload
+      parameters: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/binary'
+      responses: {}
   /api/observations/{observation_id}:
     put:
       operationId: put-observations-observation-id
@@ -160,3 +204,18 @@ components:
     ObservationId:
       type: integer
       minimum: 0
+    TestClientError:
+      type: object
+      required:
+      - status
+      - timestamp
+      - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ExtractorError'
+        status:
+          type: integer
+          format: int32
+          minimum: 0
+        timestamp:
+          type: string

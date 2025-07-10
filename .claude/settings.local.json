@@ -35,7 +35,9 @@
       "Bash(RUST_BACKTRACE=1 cargo test --package axum-example generate_openapi)",
       "Bash(fd:*)",
       "Bash(gh issue list:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

@@ -86,6 +86,34 @@ impl ApiCall {
         self.headers(Some(headers))
     }
 
+    /// Sets the request body to JSON.
+    ///
+    /// This method serializes the provided data as JSON and sets the
+    /// Content-Type header to `application/json`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # use serde::Serialize;
+    /// # use utoipa::ToSchema;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Serialize, ToSchema)]
+    /// struct CreateUser {
+    ///     name: String,
+    ///     email: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build();
+    /// let user_data = CreateUser {
+    ///     name: "John Doe".to_string(),
+    ///     email: "john@example.com".to_string(),
+    /// };
+    ///
+    /// let call = client.post("/users")?.json(&user_data)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn json<T>(mut self, t: &T) -> Result<Self, ApiClientError>
     where
         T: Serialize + ToSchema + 'static,
@@ -94,7 +122,121 @@ impl ApiCall {
         self.body = Some(body);
         Ok(self)
     }
-    // TODO more generic bodies - https://github.com/ilaborie/clawspec/issues/19
+
+    /// Sets the request body to form-encoded data.
+    ///
+    /// This method serializes the provided data as `application/x-www-form-urlencoded`
+    /// and sets the appropriate Content-Type header.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # use serde::Serialize;
+    /// # use utoipa::ToSchema;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Serialize, ToSchema)]
+    /// struct LoginForm {
+    ///     username: String,
+    ///     password: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build();
+    /// let form_data = LoginForm {
+    ///     username: "user@example.com".to_string(),
+    ///     password: "secret".to_string(),
+    /// };
+    ///
+    /// let call = client.post("/login")?.form(&form_data)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn form<T>(mut self, t: &T) -> Result<Self, ApiClientError>
+    where
+        T: Serialize + ToSchema + 'static,
+    {
+        let body = CallBody::form(t)?;
+        self.body = Some(body);
+        Ok(self)
+    }
+
+    /// Sets the request body to raw binary data with a custom content type.
+    ///
+    /// This method allows you to send arbitrary binary data with a specified
+    /// content type. This is useful for sending data that doesn't fit into
+    /// the standard JSON or form categories.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # use headers::ContentType;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build();
+    /// // Send XML data
+    /// let xml_data = r#"<?xml version="1.0"?><user><name>John</name></user>"#;
+    /// let call = client.post("/import")?
+    ///     .raw(xml_data.as_bytes().to_vec(), ContentType::xml());
+    ///
+    /// // Send binary file
+    /// let binary_data = vec![0xFF, 0xFE, 0xFD];
+    /// let call = client.post("/upload")?
+    ///     .raw(binary_data, ContentType::octet_stream());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn raw(mut self, data: Vec<u8>, content_type: headers::ContentType) -> Self {
+        let body = CallBody::raw(data, content_type);
+        self.body = Some(body);
+        self
+    }
+
+    /// Sets the request body to plain text.
+    ///
+    /// This is a convenience method for sending plain text data with
+    /// `text/plain` content type.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build();
+    /// let call = client.post("/notes")?.text("This is a plain text note");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn text(mut self, text: &str) -> Self {
+        let body = CallBody::text(text);
+        self.body = Some(body);
+        self
+    }
+
+    /// Sets the request body to multipart/form-data.
+    ///
+    /// This method creates a multipart body with a generated boundary and supports
+    /// both text fields and file uploads. This is commonly used for file uploads
+    /// or when combining different types of data in a single request.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build();
+    /// let parts = vec![
+    ///     ("title", "My Document"),
+    ///     ("file", "file content here"),
+    /// ];
+    /// let call = client.post("/upload")?.multipart(parts);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn multipart(mut self, parts: Vec<(&str, &str)>) -> Self {
+        let body = CallBody::multipart(parts);
+        self.body = Some(body);
+        self
+    }
 }
 
 // Call
