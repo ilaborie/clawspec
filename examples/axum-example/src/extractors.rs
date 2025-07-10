@@ -268,7 +268,8 @@ where
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|ct| ct.to_str().ok())
-            .unwrap_or("");
+            .filter(|ct| !ct.is_empty())
+            .unwrap_or("application/octet-stream");
 
         match content_type {
             ct if ct.starts_with("application/json") => axum::Json::<T>::from_request(req, state)
@@ -338,7 +339,7 @@ where
                 Some(Err(err)) => {
                     return Err(ExtractorError::json_error_with_location(
                         format!("Error at byte {offset_before}: {err}"),
-                        "stream_content",
+                        format!("stream_content[{}]", data.len()),
                     ));
                 }
                 None => break,
