@@ -19,6 +19,33 @@ paths:
         schema:
           type: integer
           minimum: 0
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          type: string
+      - name: X-Request-ID
+        in: header
+        required: false
+        schema:
+          type: string
+      - name: X-User-ID
+        in: header
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          type: string
+      - name: Accept
+        in: header
+        required: false
+        schema:
+          type: string
       responses:
         '200':
           description: ''

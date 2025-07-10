@@ -55,6 +55,19 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
         .await
         .context("should list observations with larger limit")?;
 
+    info!("List observations with headers to demonstrate header parameter collection");
+    let _list_with_headers = app
+        .list_observations_with_headers(
+            Some(ListOption {
+                offset: 0,
+                limit: 10,
+            }),
+            12345,
+            "req-abc-123-def",
+        )
+        .await
+        .context("should list observations with custom headers")?;
+
     info!("Update observation");
     let updated_observation = PartialObservation {
         name: "Updated Parrot".to_string(),

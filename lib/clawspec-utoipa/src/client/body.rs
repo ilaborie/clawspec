@@ -2,7 +2,8 @@ use headers::ContentType;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use super::{ApiClientError, SchemaEntry};
+use super::ApiClientError;
+use super::schema::SchemaEntry;
 
 #[derive(Clone, derive_more::Debug)]
 pub struct CallBody {
