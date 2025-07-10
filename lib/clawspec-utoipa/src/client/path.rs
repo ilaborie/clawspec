@@ -257,13 +257,6 @@ impl From<String> for CallPath {
     }
 }
 
-#[derive(Debug, derive_more::Error, derive_more::Display)]
-pub enum PathError {
-    #[display("missing parameters: {names:?}")]
-    #[allow(dead_code)] // TODO: Will be used when implementing parameter validation
-    MissingParameters { path: String, names: Vec<String> },
-}
-
 #[derive(Debug)]
 pub(super) struct PathResolved {
     pub(super) path: String,
