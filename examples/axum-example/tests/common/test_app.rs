@@ -1,4 +1,4 @@
-#![allow(clippy::missing_errors_doc, dead_code)]
+#![allow(clippy::missing_errors_doc, dead_code, missing_docs)]
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;

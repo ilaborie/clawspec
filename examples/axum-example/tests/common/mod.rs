@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use rstest::fixture;
 use tracing::info;
 
@@ -5,6 +7,7 @@ mod test_app;
 pub use self::test_app::*;
 
 mod client;
+pub use self::client::*;
 
 pub fn init_tracing() {
     // should be run once, fail otherwise, we skip that error

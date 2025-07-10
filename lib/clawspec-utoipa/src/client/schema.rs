@@ -117,6 +117,35 @@ impl SchemaEntry {
         }
     }
 
+    /// Creates a generic schema entry for raw binary data.
+    ///
+    /// This is used when we don't have a specific Rust type to generate
+    /// a schema from, such as when sending raw bytes with custom content types.
+    pub(crate) fn raw_binary() -> Self {
+        use utoipa::openapi::{KnownFormat, ObjectBuilder, Schema, SchemaFormat, Type};
+
+        // Create a unique TypeId for raw binary data
+        let id = TypeId::of::<Vec<u8>>();
+        let type_name = "Vec<u8>";
+        let name = "binary";
+
+        // Create a binary schema
+        let schema = RefOr::T(Schema::Object(
+            ObjectBuilder::new()
+                .schema_type(Type::String)
+                .format(Some(SchemaFormat::KnownFormat(KnownFormat::Binary)))
+                .build(),
+        ));
+
+        Self {
+            id,
+            type_name: type_name.to_string(),
+            name: name.to_string(),
+            schema,
+            examples: IndexSet::default(),
+        }
+    }
+
     pub(crate) fn add_example(&mut self, example: serde_json::Value) {
         self.examples.insert(example);
     }
