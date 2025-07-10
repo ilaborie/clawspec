@@ -6,39 +6,39 @@ use tokio::sync::RwLock;
 use utoipa::openapi::{Components, OpenApi, Paths};
 
 mod builder;
-pub use self::builder::*;
+pub use self::builder::ApiClientBuilder;
 
 mod call;
-pub use self::call::*;
+pub use self::call::ApiCall;
 
 mod param;
-pub use self::param::*;
+pub use self::param::{ParamStyle, ParamValue, ParameterValue};
 
 mod path;
-pub use self::path::*;
+pub use self::path::CallPath;
 
 mod query;
-pub use self::query::*;
+pub use self::query::CallQuery;
 
 mod headers;
-pub use self::headers::*;
+pub use self::headers::CallHeaders;
 
 mod body;
-pub use self::body::*;
+pub use self::body::CallBody;
 
 mod schema;
-pub use self::schema::*;
 
 mod error;
-pub use self::error::*;
+pub use self::error::ApiClientError;
 
 mod collectors;
+// CallResult is public API, but CalledOperation and Collectors are internal
+pub use self::collectors::CallResult;
 
 #[cfg(test)]
 mod integration_tests;
 
 mod output;
-use collectors::*;
 
 // TODO: Add comprehensive documentation for all public APIs - https://github.com/ilaborie/clawspec/issues/34
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ pub struct ApiClient {
     client: reqwest::Client,
     base_uri: Uri,
     base_path: String,
-    collectors: Arc<RwLock<Collectors>>,
+    collectors: Arc<RwLock<collectors::Collectors>>,
 }
 
 // Create

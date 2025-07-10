@@ -16,7 +16,7 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 });
 
 #[derive(Clone, Default)]
-pub struct Schemas(IndexMap<TypeId, SchemaEntry>);
+pub(super) struct Schemas(IndexMap<TypeId, SchemaEntry>);
 
 impl Debug for Schemas {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -90,7 +90,7 @@ impl Schemas {
 
 #[derive(Clone, derive_more::Display, derive_more::Debug)]
 #[display("[{id:?}] {name}")]
-pub struct SchemaEntry {
+pub(super) struct SchemaEntry {
     #[debug(ignore)]
     pub(super) id: TypeId,
     pub(super) type_name: String,

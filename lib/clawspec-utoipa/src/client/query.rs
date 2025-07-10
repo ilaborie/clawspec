@@ -67,12 +67,13 @@
 use std::fmt::Debug;
 
 use indexmap::IndexMap;
-use serde::Serialize;
-use utoipa::ToSchema;
 use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterIn};
 
-use super::{ApiClientError, ParamStyle, ParamValue, ResolvedParamValue, Schemas};
+use super::param::ParameterValue;
+use super::param::ResolvedParamValue;
+use super::schema::Schemas;
+use super::{ApiClientError, ParamStyle, ParamValue};
 
 /// A collection of query parameters for HTTP requests with OpenAPI 3.1 support.
 ///
@@ -120,7 +121,7 @@ use super::{ApiClientError, ParamStyle, ParamValue, ResolvedParamValue, Schemas}
 /// - Objects are not supported as query parameters (will return an error)
 /// - All parameters must implement `Serialize` and `ToSchema` traits
 /// - Parameters are automatically converted to appropriate string representations
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CallQuery {
     params: IndexMap<String, ResolvedParamValue>,
     pub(super) schemas: Schemas,
@@ -170,10 +171,11 @@ impl CallQuery {
     ///         ParamStyle::SpaceDelimited
     ///     ));
     /// ```
-    pub fn add_param<T>(mut self, name: impl Into<String>, param: impl Into<ParamValue<T>>) -> Self
-    where
-        T: Serialize + ToSchema + Debug + Send + Sync + Clone + 'static,
-    {
+    pub fn add_param<T: ParameterValue>(
+        mut self,
+        name: impl Into<String>,
+        param: impl Into<ParamValue<T>>,
+    ) -> Self {
         let name = name.into();
         let param = param.into();
         if let Some(resolved) = param.resolve(|value| self.schemas.add_example::<T>(value)) {

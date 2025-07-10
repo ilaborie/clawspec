@@ -1,7 +1,7 @@
-use std::mem;
 use std::sync::Arc;
 
 use headers::HeaderMapExt;
+use http::header::{HeaderName, HeaderValue};
 use http::{Method, Uri};
 use reqwest::{Body, Request};
 use serde::Serialize;
@@ -10,10 +10,9 @@ use tracing::debug;
 use url::Url;
 use utoipa::ToSchema;
 
-use super::{
-    ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResult, CalledOperation,
-    Collectors, PathResolved,
-};
+use super::collectors::{CalledOperation, Collectors};
+use super::path::PathResolved;
+use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResult};
 
 // TODO: Add comprehensive documentation for all public APIs - https://github.com/ilaborie/clawspec/issues/34
 // TODO: Standardize builder patterns for consistency - https://github.com/ilaborie/clawspec/issues/33
@@ -73,13 +72,18 @@ impl ApiCall {
     }
 
     pub fn headers(mut self, headers: Option<CallHeaders>) -> Self {
-        let headers = match (self.headers.clone(), headers) {
-            (Some(h1), Some(h2)) => Some(h1.merge(h2)),
-            (Some(h), None) | (None, Some(h)) => Some(h),
-            (None, None) => None,
+        self.headers = match (self.headers.take(), headers) {
+            (Some(existing), Some(new)) => Some(existing.merge(new)),
+            (existing, new) => existing.or(new),
         };
-        self.headers = headers;
         self
+    }
+
+    /// Adds headers to the API call, merging with any existing headers.
+    ///
+    /// This is a convenience method that automatically wraps the headers in Some().
+    pub fn with_headers(self, headers: CallHeaders) -> Self {
+        self.headers(Some(headers))
     }
 
     pub fn json<T>(mut self, t: &T) -> Result<Self, ApiClientError>
@@ -109,63 +113,111 @@ impl ApiCall {
             body,
         } = self;
 
-        // Resolve path for URL building
-        let path_name = path.path.clone();
-        let path_resolved = PathResolved::try_from(path.clone())?;
+        // Build URL and request
+        let url = Self::build_url(&base_uri, &path, &query)?;
+        let request = Self::build_request(method.clone(), url, &headers, &body)?;
 
-        // Build URL
-        let url = format!(
-            "{}/{}",
-            base_uri,
-            path_resolved.path.trim_start_matches('/')
-        );
-        let mut url = url.parse::<Url>()?;
-
-        // Append query parameters to URL
-        if !query.is_empty() {
-            let query_string = query.to_query_string()?;
-            url.set_query(Some(&query_string));
-        }
-
-        // Create operation using the original CallPath
-        let mut operation = CalledOperation::build(
-            operation_id.clone(),
-            method.clone(),
-            &path_name,
+        // Create operation for OpenAPI documentation
+        let mut operation = Self::build_operation(
+            &operation_id,
+            &method,
             &path,
-            query,
-            headers.as_ref(),
-            body.as_ref(),
+            query.clone(),
+            &headers,
+            &body,
         );
 
-        // Build request
-        let mut request = Request::new(method, url);
-        let req_headers = request.headers_mut();
-        // TODO append headers - https://github.com/ilaborie/clawspec/issues/20
-
-        // Set body
-        if let Some(body) = body {
-            req_headers.typed_insert(body.content_type.clone());
-            let req_body = request.body_mut();
-            *req_body = Some(Body::from(body.data));
-        }
-
-        // Call
+        // Execute HTTP request
         debug!(?request, "sending...");
         let response = client.execute(request).await?;
         debug!(?response, "...receiving");
         // TODO fail if status code is not accepted (default: 200-400) - https://github.com/ilaborie/clawspec/issues/22
 
-        // Parse response
+        // Process response and collect schemas
         let call_result = CallResult::new(operation_id, Arc::clone(&collectors), response).await?;
         operation.add_response(call_result.clone());
 
-        // collect operation
-        let mut cs = collectors.write().await;
-        cs.collect_schemas(path.schemas().clone());
-        cs.collect_operation(operation);
-        mem::drop(cs);
+        Self::collect_schemas_and_operation(collectors, &path, &headers, operation).await;
 
         Ok(call_result)
+    }
+
+    fn build_url(
+        base_uri: &Uri,
+        path: &CallPath,
+        query: &CallQuery,
+    ) -> Result<Url, ApiClientError> {
+        let path_resolved = PathResolved::try_from(path.clone())?;
+        let url = format!("{base_uri}/{}", path_resolved.path.trim_start_matches('/'));
+        let mut url = url.parse::<Url>()?;
+
+        if !query.is_empty() {
+            let query_string = query.to_query_string()?;
+            url.set_query(Some(&query_string));
+        }
+
+        Ok(url)
+    }
+
+    fn build_request(
+        method: Method,
+        url: Url,
+        headers: &Option<CallHeaders>,
+        body: &Option<CallBody>,
+    ) -> Result<Request, ApiClientError> {
+        let mut request = Request::new(method, url);
+        let req_headers = request.headers_mut();
+
+        // Add custom headers
+        if let Some(headers) = headers {
+            for (name, value) in headers.to_http_headers()? {
+                req_headers.insert(
+                    HeaderName::from_bytes(name.as_bytes())?,
+                    HeaderValue::from_str(&value)?,
+                );
+            }
+        }
+
+        // Set body
+        if let Some(body) = body {
+            req_headers.typed_insert(body.content_type.clone());
+            let req_body = request.body_mut();
+            *req_body = Some(Body::from(body.data.clone()));
+        }
+
+        Ok(request)
+    }
+
+    fn build_operation(
+        operation_id: &str,
+        method: &Method,
+        path: &CallPath,
+        query: CallQuery,
+        headers: &Option<CallHeaders>,
+        body: &Option<CallBody>,
+    ) -> CalledOperation {
+        CalledOperation::build(
+            operation_id.to_string(),
+            method.clone(),
+            &path.path,
+            path,
+            query,
+            headers.as_ref(),
+            body.as_ref(),
+        )
+    }
+
+    async fn collect_schemas_and_operation(
+        collectors: Arc<RwLock<Collectors>>,
+        path: &CallPath,
+        headers: &Option<CallHeaders>,
+        operation: CalledOperation,
+    ) {
+        let mut cs = collectors.write().await;
+        cs.collect_schemas(path.schemas().clone());
+        if let Some(headers) = headers {
+            cs.collect_schemas(headers.schemas().clone());
+        }
+        cs.collect_operation(operation);
     }
 }

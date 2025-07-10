@@ -8,6 +8,15 @@ use utoipa::{PartialSchema, ToSchema};
 
 use super::ApiClientError;
 
+/// A trait alias for types that can be used as parameter values.
+///
+/// This simplifies the generic constraints that are repeated throughout the codebase.
+/// All parameter values must be serializable, provide OpenAPI schemas, and be thread-safe.
+pub trait ParameterValue: Serialize + ToSchema + Debug + Send + Sync + Clone + 'static {}
+
+// Blanket implementation for all types that satisfy the constraints
+impl<T> ParameterValue for T where T: Serialize + ToSchema + Debug + Send + Sync + Clone + 'static {}
+
 /// Parameter styles supported by OpenAPI 3.1 specification.
 ///
 /// These styles define how array values and complex parameters are serialized
@@ -126,6 +135,21 @@ where
     /// Returns `None` if the parameter should not be included in the query string.
     pub fn as_query_value(&self) -> Option<serde_json::Value> {
         serde_json::to_value(&self.value).ok()
+    }
+
+    /// Get the actual style to use for header parameters
+    pub fn header_style(&self) -> ParamStyle {
+        match self.style {
+            ParamStyle::Default => ParamStyle::Simple,
+            style => style,
+        }
+    }
+
+    /// Converts the parameter to a JSON value for header serialization.
+    pub fn as_header_value(&self) -> Result<serde_json::Value, ApiClientError> {
+        serde_json::to_value(&self.value).map_err(|e| ApiClientError::SerializationError {
+            message: format!("Failed to serialize header value: {e}"),
+        })
     }
 
     /// Resolves this parameter value into a complete parameter with schema reference.

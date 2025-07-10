@@ -118,11 +118,12 @@ use std::sync::LazyLock;
 use indexmap::IndexMap;
 use percent_encoding::NON_ALPHANUMERIC;
 use regex::Regex;
-use serde::Serialize;
 use tracing::warn;
-use utoipa::ToSchema;
 
-use super::{ApiClientError, ParamValue, ResolvedParamValue, Schemas};
+use super::param::ParameterValue;
+use super::param::ResolvedParamValue;
+use super::schema::Schemas;
+use super::{ApiClientError, ParamValue};
 use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterIn};
 
@@ -198,10 +199,11 @@ impl CallPath {
     /// // Explicit ParamValue usage for custom styles
     /// path.add_param("id", ParamValue::with_style(456, ParamStyle::Simple));
     /// ```
-    pub fn add_param<T>(&mut self, name: impl Into<String>, param: impl Into<ParamValue<T>>)
-    where
-        T: Serialize + ToSchema + Debug + Send + Sync + Clone + 'static,
-    {
+    pub fn add_param<T: ParameterValue>(
+        &mut self,
+        name: impl Into<String>,
+        param: impl Into<ParamValue<T>>,
+    ) {
         let name = name.into();
         let param = param.into();
         if let Some(resolved) = param.resolve(|value| self.schemas.add_example::<T>(value)) {
@@ -258,6 +260,7 @@ impl From<String> for CallPath {
 #[derive(Debug, derive_more::Error, derive_more::Display)]
 pub enum PathError {
     #[display("missing parameters: {names:?}")]
+    #[allow(dead_code)] // TODO: Will be used when implementing parameter validation
     MissingParameters { path: String, names: Vec<String> },
 }
 
@@ -296,7 +299,7 @@ impl TryFrom<CallPath> for PathResolved {
             names.remove(idx);
 
             // Convert JSON value to string for path substitution
-            let path_value = match resolved.to_string_value() {
+            let path_value: String = match resolved.to_string_value() {
                 Ok(value) => value,
                 Err(err) => {
                     warn!(?resolved.value, error = %err, "failed to serialize path parameter value");

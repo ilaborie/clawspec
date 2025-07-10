@@ -16,7 +16,8 @@ use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::{Content, PathItem, RefOr, ResponseBuilder, Schema};
 
 use super::output::Output;
-use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, Schemas};
+use super::schema::Schemas;
+use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery};
 
 // TODO: Add unit tests for all collector functionality - https://github.com/ilaborie/clawspec/issues/30
 // TODO: Optimize clone-heavy merge operations - https://github.com/ilaborie/clawspec/issues/31
@@ -122,7 +123,7 @@ impl Collectors {
 /// It can optionally contain a result if the operation has been executed.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct CalledOperation {
+pub(super) struct CalledOperation {
     pub(super) operation_id: String,
     method: http::Method,
     path: String,
@@ -466,9 +467,10 @@ impl CalledOperation {
             schemas.merge(query.schemas);
         }
 
-        // TODO headers - https://github.com/ilaborie/clawspec/issues/20
-        if let Some(_headers) = headers {
-            todo!("add headers parameters");
+        // Add header parameters
+        if let Some(headers) = headers {
+            parameters.extend(headers.to_parameters());
+            schemas.merge(headers.schemas().clone());
         }
 
         let builder = Operation::builder()

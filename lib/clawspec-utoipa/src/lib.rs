@@ -2,4 +2,9 @@
 // TODO: Add comprehensive unit tests for all modules - https://github.com/ilaborie/clawspec/issues/30
 
 mod client;
-pub use self::client::*;
+
+// Public API - only expose user-facing types and functions
+pub use self::client::{
+    ApiCall, ApiClient, ApiClientBuilder, ApiClientError, CallBody, CallHeaders, CallPath,
+    CallQuery, CallResult, ParamStyle, ParamValue, ParameterValue,
+};

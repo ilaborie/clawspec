@@ -7,6 +7,9 @@ pub enum ApiClientError {
     ReqwestError(reqwest::Error),
     UrlError(url::ParseError),
     HeadersError(headers::Error),
+    HttpError(http::Error),
+    InvalidHeaderName(http::header::InvalidHeaderName),
+    InvalidHeaderValue(http::header::InvalidHeaderValue),
     JsonValueError(serde_json::Error),
     QuerySerializationError(serde_urlencoded::ser::Error),
 
@@ -77,6 +80,12 @@ pub enum ApiClientError {
     #[from(skip)]
     ServerFailure {
         raw_body: String,
+    },
+
+    #[display("serialization error: {message}")]
+    #[from(skip)]
+    SerializationError {
+        message: String,
     },
 }
 
