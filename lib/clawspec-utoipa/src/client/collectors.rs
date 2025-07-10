@@ -19,6 +19,75 @@ use super::output::Output;
 use super::schema::Schemas;
 use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery};
 
+/// Normalizes content types for OpenAPI specification by removing parameters
+/// that are implementation details (like multipart boundaries, charset, etc.).
+fn normalize_content_type(content_type: &ContentType) -> String {
+    let content_type_str = content_type.to_string();
+
+    // Strip all parameters by truncating at the first semicolon
+    if let Some(semicolon_pos) = content_type_str.find(';') {
+        content_type_str[..semicolon_pos].to_string()
+    } else {
+        content_type_str
+    }
+}
+
+#[cfg(test)]
+mod content_type_tests {
+    use super::*;
+    use headers::ContentType;
+
+    #[test]
+    fn test_normalize_json_content_type() {
+        let content_type = ContentType::json();
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/json");
+    }
+
+    #[test]
+    fn test_normalize_multipart_content_type() {
+        // Create a multipart content type with boundary
+        let content_type_str = "multipart/form-data; boundary=----formdata-clawspec-12345";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "multipart/form-data");
+    }
+
+    #[test]
+    fn test_normalize_form_urlencoded_content_type() {
+        let content_type = ContentType::form_url_encoded();
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/x-www-form-urlencoded");
+    }
+
+    #[test]
+    fn test_normalize_content_type_with_charset() {
+        // Test content type with charset parameter
+        let content_type_str = "application/json; charset=utf-8";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/json");
+    }
+
+    #[test]
+    fn test_normalize_content_type_with_multiple_parameters() {
+        // Test content type with multiple parameters
+        let content_type_str = "text/html; charset=utf-8; boundary=something";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "text/html");
+    }
+
+    #[test]
+    fn test_normalize_content_type_without_parameters() {
+        // Test content type without parameters (should remain unchanged)
+        let content_type_str = "application/xml";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/xml");
+    }
+}
+
 // TODO: Add unit tests for all collector functionality - https://github.com/ilaborie/clawspec/issues/30
 // TODO: Optimize clone-heavy merge operations - https://github.com/ilaborie/clawspec/issues/31
 #[derive(Debug, Clone, Default)]
@@ -480,7 +549,7 @@ impl CalledOperation {
         // Request body
         let builder = if let Some(body) = request_body {
             let schema_ref = schemas.add_entry(body.entry.clone());
-            let content_type = body.content_type.to_string();
+            let content_type = normalize_content_type(&body.content_type);
             let example = if body.content_type == ContentType::json() {
                 serde_json::from_slice(&body.data).ok()
             } else {
