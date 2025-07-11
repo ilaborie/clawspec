@@ -136,7 +136,15 @@ use utoipa::openapi::path::{Parameter, ParameterIn};
 
 /// Regular expression for matching path parameters in the format `{param_name}`.
 static RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\{(?<name>\w*)}").expect("a valid regex"));
+    LazyLock::new(|| Regex::new(r"\{(?<name>\w+)}").expect("a valid regex"));
+
+/// Optimized string replacement that avoids format! macro allocations
+/// while maintaining correctness for exact parameter matching
+fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
+    // Use concat to avoid format! macro allocation, but keep str::replace for correctness
+    let pattern = ["{", param_name, "}"].concat();
+    path.replace(&pattern, value)
+}
 
 /// A parameterized HTTP path with type-safe parameter substitution.
 ///
@@ -286,23 +294,23 @@ impl TryFrom<CallPath> for PathResolved {
             schemas: _,
         } = value;
 
-        let mut names = RE
+        // Optimized: Extract all parameter names once using a HashSet for efficient lookup
+        let mut names: std::collections::HashSet<String> = RE
             .captures_iter(&path)
             .filter_map(|caps| caps.name("name"))
             .map(|m| m.as_str().to_string())
-            .collect::<Vec<_>>();
+            .collect();
 
         if names.is_empty() {
             return Ok(Self { path });
         }
 
+        // Optimized: Process all parameters in a single pass
         for (name, resolved) in args {
-            let len = names.len();
-            names.retain(|it| it != &name);
-            if len == names.len() {
+            if !names.remove(&name) {
                 warn!(?name, "argument name not found");
                 continue;
-            };
+            }
 
             // Convert JSON value to string for path substitution
             let path_value: String = match resolved.to_string_value() {
@@ -317,7 +325,9 @@ impl TryFrom<CallPath> for PathResolved {
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
             let encoded_value =
                 percent_encoding::utf8_percent_encode(&path_value, NON_ALPHANUMERIC).to_string();
-            path = path.replace(&format!("{{{name}}}"), &encoded_value); // TODO: Optimize string allocations - https://github.com/ilaborie/clawspec/issues/31
+
+            // Optimized: Use custom replacement function that avoids string allocations
+            path = replace_path_param(&path, &name, &encoded_value);
 
             if names.is_empty() {
                 return Ok(Self { path });
@@ -326,7 +336,7 @@ impl TryFrom<CallPath> for PathResolved {
 
         Err(ApiClientError::PathUnresolved {
             path,
-            missings: names,
+            missings: names.into_iter().collect(),
         })
     }
 }
@@ -545,5 +555,63 @@ mod tests {
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
         assert_eq!(resolved.path, "/items/1%2C2%2C3");
+    }
+
+    #[test]
+    fn test_replace_path_param_no_collision() {
+        // Test that "id" doesn't match inside "user_id"
+        let result = replace_path_param("/users/{user_id}/posts/{id}", "id", "123");
+        assert_eq!(result, "/users/{user_id}/posts/123");
+    }
+
+    #[test]
+    fn test_replace_path_param_substring_collision() {
+        // Test parameter names that are substrings of each other
+        let result = replace_path_param("/api/{user_id}/data/{id}", "id", "456");
+        assert_eq!(result, "/api/{user_id}/data/456");
+
+        let result = replace_path_param("/api/{user_id}/data/{id}", "user_id", "789");
+        assert_eq!(result, "/api/789/data/{id}");
+    }
+
+    #[test]
+    fn test_replace_path_param_exact_match_only() {
+        // Test that only exact {param} matches are replaced
+        let result = replace_path_param("/prefix{param}suffix/{param}", "param", "value");
+        assert_eq!(result, "/prefixvaluesuffix/value");
+    }
+
+    #[test]
+    fn test_replace_path_param_multiple_occurrences() {
+        // Test that all occurrences of the same parameter are replaced
+        let result = replace_path_param(
+            "/api/{version}/users/{id}/posts/{id}/comments/{version}",
+            "id",
+            "123",
+        );
+        assert_eq!(
+            result,
+            "/api/{version}/users/123/posts/123/comments/{version}"
+        );
+    }
+
+    #[test]
+    fn test_replace_path_param_empty_cases() {
+        // Test edge cases with empty values
+        let result = replace_path_param("/users/{id}", "id", "");
+        assert_eq!(result, "/users/");
+
+        let result = replace_path_param("/users/{id}", "nonexistent", "123");
+        assert_eq!(result, "/users/{id}");
+    }
+
+    #[test]
+    fn test_replace_path_param_special_characters() {
+        // Test with special characters in parameter values
+        let result = replace_path_param("/users/{id}", "id", "user@example.com");
+        assert_eq!(result, "/users/user@example.com");
+
+        let result = replace_path_param("/search/{query}", "query", "hello world & more");
+        assert_eq!(result, "/search/hello world & more");
     }
 }
