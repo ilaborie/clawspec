@@ -27,6 +27,7 @@ indexmap = {workspace = true }
 slug = { workspace = true }
 uuid = { workspace = true }
 mime = { workspace = true }
+cruet = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

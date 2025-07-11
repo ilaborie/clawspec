@@ -515,6 +515,7 @@ impl CallResult {
 }
 
 impl CalledOperation {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn build(
         operation_id: String,
         method: http::Method,
@@ -523,6 +524,8 @@ impl CalledOperation {
         query: CallQuery,
         headers: Option<&CallHeaders>,
         request_body: Option<&CallBody>,
+        tags: Option<Vec<String>>,
+        description: Option<String>,
         // TODO cookie - https://github.com/ilaborie/clawspec/issues/18
     ) -> Self {
         // Build parameters
@@ -542,9 +545,17 @@ impl CalledOperation {
             schemas.merge(headers.schemas().clone());
         }
 
+        // Generate automatic description if none provided
+        let final_description = description.or_else(|| generate_description(&method, path_name));
+
+        // Generate automatic tags if none provided
+        let final_tags = tags.or_else(|| generate_tags(path_name));
+
         let builder = Operation::builder()
             .operation_id(Some(&operation_id))
-            .parameters(Some(parameters));
+            .parameters(Some(parameters))
+            .description(final_description)
+            .tags(final_tags);
 
         // Request body
         let builder = if let Some(body) = request_body {
@@ -694,4 +705,390 @@ fn merge_responses(
     }
 
     builder.build()
+}
+
+/// Common API path prefixes that should be skipped when generating operation metadata.
+/// These are typically organizational prefixes that don't represent business resources.
+const SKIP_PATH_PREFIXES: &[&str] = &[
+    "api",      // Most common: /api/users
+    "v1",       // Versioning: /v1/users, /api/v1/users
+    "v2",       // Versioning: /v2/users
+    "v3",       // Versioning: /v3/users
+    "rest",     // REST API prefix: /rest/users
+    "service",  // Service-oriented: /service/users
+    "public",   // Public API: /public/users
+    "internal", // Internal API: /internal/users
+];
+
+/// Generates a human-readable description for an operation based on HTTP method and path.
+///
+/// Examples:
+/// - GET /users -> "Retrieve users"
+/// - POST /users -> "Create user"
+/// - GET /users/{id} -> "Retrieve user by ID"
+/// - PUT /users/{id} -> "Update user by ID"
+/// - DELETE /users/{id} -> "Delete user by ID"
+/// - PATCH /users/{id} -> "Partially update user by ID"
+fn generate_description(method: &http::Method, path: &str) -> Option<String> {
+    let path = path.trim_start_matches('/');
+    let segments: Vec<&str> = path.split('/').collect();
+
+    if segments.is_empty() || (segments.len() == 1 && segments[0].is_empty()) {
+        return None;
+    }
+
+    // Skip common API prefixes (api, v1, v2, rest, etc.)
+    let start_index = segments
+        .iter()
+        .take_while(|&segment| SKIP_PATH_PREFIXES.contains(segment))
+        .count();
+
+    if start_index >= segments.len() {
+        return None;
+    }
+
+    // Extract the resource name from the path
+    let resource = if segments.len() == start_index + 1 {
+        // Simple path like "/users" or "/api/users"
+        segments[start_index]
+    } else if segments.len() >= start_index + 2 {
+        // Path with potential ID parameter like "/users/{id}" or "/users/123"
+        // Or nested resource like "/users/profile" or "/observations/import"
+        let last_segment = segments.last().unwrap();
+        if last_segment.starts_with('{') && last_segment.ends_with('}') {
+            // Last segment is a parameter, use the previous segment as resource
+            segments[segments.len() - 2]
+        } else if segments.len() > start_index + 1 {
+            // Check if this is a nested action (like import, upload, etc.)
+            let resource_name = segments[start_index];
+            let action = last_segment;
+
+            // Special handling for common actions
+            match *action {
+                "import" => return Some(format!("Import {resource_name}")),
+                "upload" => return Some(format!("Upload {resource_name}")),
+                "export" => return Some(format!("Export {resource_name}")),
+                "search" => return Some(format!("Search {resource_name}")),
+                _ => last_segment, // Use the last segment as the resource
+            }
+        } else {
+            last_segment
+        }
+    } else {
+        segments[start_index]
+    };
+
+    // Check if the path has an ID parameter (indicates single resource operation)
+    let has_id = segments
+        .iter()
+        .any(|segment| segment.starts_with('{') && segment.ends_with('}'));
+
+    let action = match *method {
+        http::Method::GET => {
+            if has_id {
+                format!("Retrieve {} by ID", singularize(resource))
+            } else {
+                format!("Retrieve {resource}")
+            }
+        }
+        http::Method::POST => {
+            if has_id {
+                format!("Create {} by ID", singularize(resource))
+            } else {
+                format!("Create {}", singularize(resource))
+            }
+        }
+        http::Method::PUT => {
+            if has_id {
+                format!("Update {} by ID", singularize(resource))
+            } else {
+                format!("Update {resource}")
+            }
+        }
+        http::Method::PATCH => {
+            if has_id {
+                format!("Partially update {} by ID", singularize(resource))
+            } else {
+                format!("Partially update {resource}")
+            }
+        }
+        http::Method::DELETE => {
+            if has_id {
+                format!("Delete {} by ID", singularize(resource))
+            } else {
+                format!("Delete {resource}")
+            }
+        }
+        _ => return None,
+    };
+
+    Some(action)
+}
+
+/// Generates appropriate tags for an operation based on the path.
+///
+/// Examples:
+/// - /users -> ["users"]
+/// - /users/{id} -> ["users"]
+/// - /observations/import -> ["observations", "import"]
+/// - /api/observations/upload -> ["observations", "upload"]
+fn generate_tags(path: &str) -> Option<Vec<String>> {
+    let path = path.trim_start_matches('/');
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+
+    if segments.is_empty() {
+        return None;
+    }
+
+    let mut tags = Vec::new();
+
+    // Skip common API prefixes (api, v1, v2, rest, etc.)
+    let start_index = segments
+        .iter()
+        .take_while(|&segment| SKIP_PATH_PREFIXES.contains(segment))
+        .count();
+
+    if start_index >= segments.len() {
+        return None;
+    }
+
+    // Add the main resource name
+    let resource = segments[start_index];
+    tags.push(resource.to_string());
+
+    // Add action-specific tags for nested resources
+    if segments.len() > start_index + 1 {
+        let last_segment = segments.last().unwrap();
+        // Only add as tag if it's not a parameter (doesn't contain braces)
+        if !last_segment.starts_with('{') {
+            match *last_segment {
+                "import" | "upload" | "export" | "search" | "bulk" => {
+                    tags.push(last_segment.to_string());
+                }
+                _ => {
+                    // For other nested resources, add them as secondary tags
+                    if segments.len() == start_index + 2 {
+                        tags.push(last_segment.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if tags.is_empty() { None } else { Some(tags) }
+}
+
+/// Singularize English words using the cruet crate with manual handling for known limitations.
+/// This provides production-ready pluralization handling for API resource names.
+/// Includes custom handling for irregular cases that cruet doesn't cover.
+fn singularize(word: &str) -> String {
+    // Handle special cases that cruet doesn't handle properly
+    match word {
+        "children" => return "child".to_string(),
+        "people" => return "person".to_string(),
+        "data" => return "datum".to_string(),
+        "feet" => return "foot".to_string(),
+        "teeth" => return "tooth".to_string(),
+        "geese" => return "goose".to_string(),
+        "men" => return "man".to_string(),
+        "women" => return "woman".to_string(),
+        _ => {}
+    }
+
+    // Use cruet for most cases
+    use cruet::*;
+    let result = word.to_singular();
+
+    // Fallback to original word if cruet returns empty string
+    if result.is_empty() && !word.is_empty() {
+        word.to_string()
+    } else {
+        result
+    }
+}
+
+#[cfg(test)]
+mod operation_metadata_tests {
+    use super::*;
+    use http::Method;
+
+    #[test]
+    fn test_generate_description_simple_paths() {
+        assert_eq!(
+            generate_description(&Method::GET, "/users"),
+            Some("Retrieve users".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::POST, "/users"),
+            Some("Create user".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::PUT, "/users"),
+            Some("Update users".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::DELETE, "/users"),
+            Some("Delete users".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::PATCH, "/users"),
+            Some("Partially update users".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_description_with_id_parameter() {
+        assert_eq!(
+            generate_description(&Method::GET, "/users/{id}"),
+            Some("Retrieve user by ID".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::PUT, "/users/{id}"),
+            Some("Update user by ID".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::DELETE, "/users/{id}"),
+            Some("Delete user by ID".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::PATCH, "/users/{id}"),
+            Some("Partially update user by ID".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_description_special_actions() {
+        assert_eq!(
+            generate_description(&Method::POST, "/observations/import"),
+            Some("Import observations".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::POST, "/observations/upload"),
+            Some("Upload observations".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::POST, "/users/export"),
+            Some("Export users".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::GET, "/users/search"),
+            Some("Search users".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_description_api_prefix() {
+        assert_eq!(
+            generate_description(&Method::GET, "/api/observations"),
+            Some("Retrieve observations".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::POST, "/api/observations/import"),
+            Some("Import observations".to_string())
+        );
+        // Test multiple prefixes
+        assert_eq!(
+            generate_description(&Method::GET, "/api/v1/users"),
+            Some("Retrieve users".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::POST, "/rest/service/items"),
+            Some("Create item".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_tags_simple_paths() {
+        assert_eq!(generate_tags("/users"), Some(vec!["users".to_string()]));
+        assert_eq!(
+            generate_tags("/observations"),
+            Some(vec!["observations".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_generate_tags_with_api_prefix() {
+        assert_eq!(generate_tags("/api/users"), Some(vec!["users".to_string()]));
+        assert_eq!(
+            generate_tags("/api/observations"),
+            Some(vec!["observations".to_string()])
+        );
+        // Test multiple prefixes
+        assert_eq!(
+            generate_tags("/api/v1/users"),
+            Some(vec!["users".to_string()])
+        );
+        assert_eq!(
+            generate_tags("/rest/service/items"),
+            Some(vec!["items".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_generate_tags_with_special_actions() {
+        assert_eq!(
+            generate_tags("/api/observations/import"),
+            Some(vec!["observations".to_string(), "import".to_string()])
+        );
+        assert_eq!(
+            generate_tags("/api/observations/upload"),
+            Some(vec!["observations".to_string(), "upload".to_string()])
+        );
+        assert_eq!(
+            generate_tags("/users/export"),
+            Some(vec!["users".to_string(), "export".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_generate_tags_with_id_parameter() {
+        assert_eq!(
+            generate_tags("/api/observations/{id}"),
+            Some(vec!["observations".to_string()])
+        );
+        assert_eq!(
+            generate_tags("/users/{user_id}"),
+            Some(vec!["users".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_singularize() {
+        // Regular plurals that cruet handles well
+        assert_eq!(singularize("users"), "user");
+        assert_eq!(singularize("observations"), "observation");
+        assert_eq!(singularize("items"), "item");
+
+        // Irregular plurals - handled by manual overrides + cruet
+        assert_eq!(singularize("mice"), "mouse"); // cruet handles this
+        assert_eq!(singularize("children"), "child"); // manual override
+        assert_eq!(singularize("people"), "person"); // manual override
+        assert_eq!(singularize("feet"), "foot"); // manual override
+        assert_eq!(singularize("teeth"), "tooth"); // manual override
+        assert_eq!(singularize("geese"), "goose"); // manual override
+        assert_eq!(singularize("men"), "man"); // manual override
+        assert_eq!(singularize("women"), "woman"); // manual override
+        assert_eq!(singularize("data"), "datum"); // manual override
+
+        // Words ending in 'es'
+        assert_eq!(singularize("boxes"), "box");
+        assert_eq!(singularize("watches"), "watch");
+
+        // Already singular - cruet handles these gracefully
+        assert_eq!(singularize("user"), "user");
+        assert_eq!(singularize("child"), "child");
+
+        // Edge cases - with fallback protection
+        assert_eq!(singularize("s"), "s"); // Falls back to original when cruet returns empty
+        assert_eq!(singularize(""), ""); // Empty string stays empty
+
+        // Complex cases that cruet handles well
+        assert_eq!(singularize("categories"), "category");
+        assert_eq!(singularize("companies"), "company");
+        assert_eq!(singularize("libraries"), "library");
+
+        // Additional cases cruet handles
+        assert_eq!(singularize("stories"), "story");
+        assert_eq!(singularize("cities"), "city");
+    }
 }

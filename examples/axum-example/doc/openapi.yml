@@ -5,6 +5,9 @@ info:
 paths:
   /api/observations:
     get:
+      tags:
+      - observations
+      description: Retrieve observations
       operationId: get-observations
       parameters:
       - name: offset
@@ -54,6 +57,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/ListObservations'
     post:
+      tags:
+      - observations
+      description: Create observation
       operationId: post-observations
       parameters:
       - name: X-Test-Case
@@ -104,6 +110,10 @@ paths:
                 $ref: '#/components/schemas/TestClientError'
   /api/observations/import:
     post:
+      tags:
+      - observations
+      - import
+      description: Import observations
       operationId: post-observations-import
       parameters: []
       requestBody:
@@ -121,6 +131,10 @@ paths:
                 $ref: '#/components/schemas/ImportResponse'
   /api/observations/upload:
     post:
+      tags:
+      - observations
+      - upload
+      description: Upload observations
       operationId: post-observations-upload
       parameters: []
       requestBody:
@@ -138,6 +152,9 @@ paths:
                 $ref: '#/components/schemas/UploadResponse'
   /api/observations/{observation_id}:
     put:
+      tags:
+      - observations
+      description: Update observation by ID
       operationId: put-observations-observation-id
       parameters:
       - name: observation_id
@@ -161,6 +178,9 @@ paths:
         '200':
           description: ''
     delete:
+      tags:
+      - observations
+      description: Delete observation by ID
       operationId: delete-observations-observation-id
       parameters:
       - name: observation_id
@@ -174,6 +194,9 @@ paths:
           content:
             application/json: {}
     patch:
+      tags:
+      - observations
+      description: Partially update observation by ID
       operationId: patch-observations-observation-id
       parameters:
       - name: observation_id
