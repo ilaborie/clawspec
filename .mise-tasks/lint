@@ -4,4 +4,4 @@
 set -eux
 
 # Tests
-cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
