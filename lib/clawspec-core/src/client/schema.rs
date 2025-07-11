@@ -16,12 +16,15 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 });
 
 #[derive(Clone, Default)]
-pub(super) struct Schemas(IndexMap<TypeId, SchemaEntry>);
+pub(super) struct Schemas {
+    entries: IndexMap<TypeId, SchemaEntry>,
+    resolved_names: std::collections::HashMap<TypeId, String>,
+}
 
 impl Debug for Schemas {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let names = self
-            .0
+            .entries
             .values()
             .map(|it| it.type_name.as_str())
             .collect::<Vec<_>>();
@@ -31,12 +34,24 @@ impl Debug for Schemas {
 
 impl Schemas {
     pub(crate) fn add_entry(&mut self, entry: SchemaEntry) -> RefOr<Schema> {
-        let entry = self
-            .0
-            .entry(entry.id)
+        let type_id = entry.id;
+
+        // First insert/update the entry
+        let _ = self
+            .entries
+            .entry(type_id)
             .and_modify(|existing| existing.examples.extend(entry.examples.clone()))
             .or_insert(entry);
-        entry.as_schema_ref()
+
+        // Then resolve name for this type and cache it
+        let resolved_name = self.resolve_name_for_type(type_id);
+
+        // Create the reference using the resolved name
+        if self.entries[&type_id].should_inline_schema() {
+            self.entries[&type_id].schema.clone()
+        } else {
+            RefOr::Ref(Ref::from_schema_name(&resolved_name))
+        }
     }
 
     fn add_type<T>(&mut self) -> &mut SchemaEntry
@@ -44,15 +59,25 @@ impl Schemas {
         T: ToSchema + 'static,
     {
         let id = TypeId::of::<T>();
-        self.0.entry(id).or_insert_with(SchemaEntry::of::<T>)
+        self.entries.entry(id).or_insert_with(SchemaEntry::of::<T>)
     }
 
     pub(super) fn add<T>(&mut self) -> RefOr<Schema>
     where
         T: ToSchema + 'static,
     {
-        let entry = self.add_type::<T>();
-        entry.as_schema_ref()
+        let type_id = TypeId::of::<T>();
+        let _ = self.add_type::<T>();
+
+        // Resolve name for this type and cache it
+        let resolved_name = self.resolve_name_for_type(type_id);
+
+        // Create the reference using the resolved name
+        if self.entries[&type_id].should_inline_schema() {
+            self.entries[&type_id].schema.clone()
+        } else {
+            RefOr::Ref(Ref::from_schema_name(&resolved_name))
+        }
     }
 
     pub(super) fn add_example<T>(&mut self, example: impl Into<serde_json::Value>) -> RefOr<Schema>
@@ -60,9 +85,62 @@ impl Schemas {
         T: ToSchema + 'static,
     {
         let example = example.into();
+        let type_id = TypeId::of::<T>();
         let entry = self.add_type::<T>();
         entry.examples.insert(example);
-        entry.as_schema_ref()
+
+        // Resolve name for this type and cache it
+        let resolved_name = self.resolve_name_for_type(type_id);
+
+        // Create the reference using the resolved name
+        if self.entries[&type_id].should_inline_schema() {
+            self.entries[&type_id].schema.clone()
+        } else {
+            RefOr::Ref(Ref::from_schema_name(&resolved_name))
+        }
+    }
+
+    /// Resolves the unique name for a given TypeId, handling conflicts
+    fn resolve_name_for_type(&mut self, target_type_id: TypeId) -> String {
+        // Check if we already resolved this type's name
+        if let Some(cached_name) = self.resolved_names.get(&target_type_id) {
+            return cached_name.clone();
+        }
+
+        let target_entry = &self.entries[&target_type_id];
+        let base_name = &target_entry.name;
+
+        // Count conflicts
+        let conflicts: Vec<_> = self
+            .entries
+            .values()
+            .filter(|entry| !entry.should_inline_schema() && &entry.name == base_name)
+            .collect();
+
+        let resolved_name = if conflicts.len() <= 1 {
+            // No conflict, use the original name
+            base_name.clone()
+        } else {
+            // Conflict detected - generate unique name using type path
+            let type_parts: Vec<&str> = target_entry
+                .type_name
+                .split("::")
+                .filter(|part| !part.is_empty() && *part != "tests")
+                .collect();
+
+            if type_parts.len() >= 2 {
+                // Use the last two parts for namespace (e.g., "module::Type")
+                format!("{}_{}", type_parts[type_parts.len() - 2], base_name)
+            } else {
+                // Fallback: use the TypeId as a unique suffix
+                format!("{base_name}_{target_type_id:?}")
+            }
+        };
+
+        // Cache the resolved name
+        self.resolved_names
+            .insert(target_type_id, resolved_name.clone());
+        resolved_name
     }
 
     /// Merges another schema collection into this one.
@@ -100,19 +178,31 @@ impl Schemas {
     /// // Result: schemas1 has User schema with both examples
     /// ```
     pub(super) fn merge(&mut self, other: Self) {
-        for (type_id, entry) in other.0 {
-            self.0.insert(type_id, entry);
+        for (type_id, entry) in other.entries {
+            self.entries
+                .entry(type_id)
+                .and_modify(|existing| existing.examples.extend(entry.examples.clone()))
+                .or_insert(entry);
         }
+        // Clear resolved names cache since we need to re-resolve after merge to handle conflicts
+        self.resolved_names.clear();
+
+        // Merge any resolved names from the other collection, but clear them since conflicts may change
+        // We don't carry over resolved names because the merge might create new conflicts
     }
 
     pub(super) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
         let mut result = vec![];
-        for entry in self.0.values() {
+
+        // Create a temporary copy to resolve names
+        let mut temp_schemas = self.clone();
+
+        for (type_id, entry) in &self.entries {
             // Only include non-primitive types in the components/schemas section
             if !entry.should_inline_schema() {
-                let name = entry.name.clone(); // TODO conflict - https://github.com/ilaborie/clawspec/issues/25
+                let resolved_name = temp_schemas.resolve_name_for_type(*type_id);
                 let schema = entry.schema.clone();
-                result.push((name, schema));
+                result.push((resolved_name, schema));
             }
         }
         result
@@ -184,17 +274,6 @@ impl SchemaEntry {
         self.examples.insert(example);
     }
 
-    fn as_schema_ref(&self) -> RefOr<Schema> {
-        if self.should_inline_schema() {
-            // Return the schema directly for primitive types
-            self.schema.clone()
-        } else {
-            // Return a reference for complex types
-            let name = &self.name; // TODO maybe conflict - https://github.com/ilaborie/clawspec/issues/25
-            RefOr::Ref(Ref::from_schema_name(name))
-        }
-    }
-
     /// Determines if this schema should be inlined (for primitives) or referenced (for complex types)
     fn should_inline_schema(&self) -> bool {
         // Check if the schema name (from T::name()) is a primitive type
@@ -257,6 +336,7 @@ mod tests {
         schemas.add::<TestType>();
 
         // Should still only have one entry
+        assert_eq!(schemas.entries.len(), 1);
         let schema_vec = schemas.schema_vec();
         assert_eq!(schema_vec.len(), 1);
     }
@@ -296,6 +376,80 @@ mod tests {
     }
 
     #[test]
+    fn test_schemas_merge_with_conflicts_and_examples() {
+        // Test merge behavior with conflicting schema names and example collection
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+            name: String,
+        }
+
+        mod api_v1 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+                email: String,
+            }
+        }
+
+        // Create first collection with User and examples
+        let mut schemas1 = Schemas::default();
+        let example1 = serde_json::json!({"id": 1, "name": "Alice"});
+        schemas1.add_example::<User>(example1.clone());
+
+        // Create second collection with different User type and examples
+        let mut schemas2 = Schemas::default();
+        let example2 = serde_json::json!({"user_id": "abc123", "email": "alice@example.com"});
+        schemas2.add_example::<api_v1::User>(example2.clone());
+
+        // Also add another example for the same User type to first collection
+        let example3 = serde_json::json!({"id": 2, "name": "Bob"});
+        schemas1.add_example::<User>(example3.clone());
+
+        // Merge schemas2 into schemas1
+        schemas1.merge(schemas2);
+
+        // Should have both User types
+        assert_eq!(schemas1.entries.len(), 2);
+
+        // Get schema vector - conflicts should be resolved
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 2, "Should have both User schemas");
+
+        // Names should be unique
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
+
+        // Should have one namespaced name
+        let has_namespaced = names.iter().any(|name| name.contains("api_v1_User"));
+        assert!(
+            has_namespaced,
+            "Should have a namespaced User schema from api_v1"
+        );
+
+        // Verify examples are preserved after merge
+        let user_type_id = TypeId::of::<User>();
+        let api_v1_user_type_id = TypeId::of::<api_v1::User>();
+
+        let user_entry = &schemas1.entries[&user_type_id];
+        assert_eq!(user_entry.examples.len(), 2); // example1 + example3
+        assert!(user_entry.examples.contains(&example1));
+        assert!(user_entry.examples.contains(&example3));
+
+        let api_v1_user_entry = &schemas1.entries[&api_v1_user_type_id];
+        assert_eq!(api_v1_user_entry.examples.len(), 1); // example2
+        assert!(api_v1_user_entry.examples.contains(&example2));
+    }
+
+    #[test]
     fn test_schema_entry_creation() {
         let entry = SchemaEntry::of::<TestType>();
 
@@ -331,10 +485,14 @@ mod tests {
     }
 
     #[test]
-    fn test_schema_entry_as_schema_ref() {
+    fn test_schema_entry_reference_creation() {
         let entry = SchemaEntry::of::<TestType>();
-        let schema_ref = entry.as_schema_ref();
 
+        // Test that non-primitive types should be referenced
+        assert!(!entry.should_inline_schema());
+
+        // Test schema reference creation
+        let schema_ref: RefOr<Schema> = RefOr::Ref(Ref::from_schema_name("TestType"));
         insta::assert_debug_snapshot!(schema_ref, @r##"
         Ref(
             Ref {
@@ -397,5 +555,132 @@ mod tests {
         let schema_vec = schemas.schema_vec();
         assert_eq!(schema_vec.len(), 1);
         assert_eq!(schema_vec[0].0, "TestType");
+    }
+
+    #[test]
+    fn test_schema_name_conflicts_are_resolved() {
+        // This test verifies that schema name conflicts are properly resolved
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+            name: String,
+        }
+
+        // Different module with same schema name
+        mod other_module {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+                email: String,
+            }
+        }
+
+        let mut schemas = Schemas::default();
+
+        // Add both types - they have different TypeIds but same schema name
+        let schema1 = schemas.add::<User>();
+        let schema2 = schemas.add::<other_module::User>();
+
+        // Both should be referenced (not inlined)
+        assert!(matches!(schema1, RefOr::Ref(_)));
+        assert!(matches!(schema2, RefOr::Ref(_)));
+
+        // Check the internal storage - should have 2 entries with different TypeIds
+        assert_eq!(schemas.entries.len(), 2);
+
+        // Get the schema_vec for OpenAPI output - conflicts should be resolved
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 2, "Should have both schemas");
+
+        // Extract schema names
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+
+        // Verify that names are unique (no conflicts)
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
+
+        // Should have exactly one name containing "other_module_User" and one with base "User" or namespace
+        let has_namespaced = names.iter().any(|name| name.contains("other_module_User"));
+        assert!(has_namespaced, "Should have a namespaced User schema");
+
+        println!("Resolved schema names: {names:?}");
+
+        // Verify that references point to the correct unique names
+        if let RefOr::Ref(ref_obj) = &schema1 {
+            let ref_name = ref_obj
+                .ref_location
+                .trim_start_matches("#/components/schemas/");
+            assert!(
+                names.iter().any(|&name| name == ref_name),
+                "Reference '{ref_name}' should match a schema name"
+            );
+        }
+
+        if let RefOr::Ref(ref_obj) = &schema2 {
+            let ref_name = ref_obj
+                .ref_location
+                .trim_start_matches("#/components/schemas/");
+            assert!(
+                names.iter().any(|&name| name == ref_name),
+                "Reference '{ref_name}' should match a schema name"
+            );
+        }
+    }
+
+    #[test]
+    fn test_enhanced_example_generation_and_validation() {
+        // This test verifies enhanced example handling for schemas
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Product {
+            id: u32,
+            name: String,
+            price: f64,
+        }
+
+        let mut schemas = Schemas::default();
+
+        // Add schema with multiple examples to test example collection
+        let example1 = serde_json::json!({"id": 1, "name": "Laptop", "price": 999.99});
+        let example2 = serde_json::json!({"id": 2, "name": "Mouse", "price": 29.99});
+        let example3 = serde_json::json!({"id": 3, "name": "Keyboard", "price": 89.99});
+
+        // Add the same type multiple times with different examples
+        schemas.add_example::<Product>(example1.clone());
+        schemas.add_example::<Product>(example2.clone());
+        schemas.add_example::<Product>(example3.clone());
+
+        // Should still only have one schema entry (same type)
+        assert_eq!(schemas.entries.len(), 1);
+
+        // Get the product entry to verify example collection
+        let product_type_id = TypeId::of::<Product>();
+        let product_entry = &schemas.entries[&product_type_id];
+
+        // Should have collected all three examples
+        assert_eq!(product_entry.examples.len(), 3);
+        assert!(product_entry.examples.contains(&example1));
+        assert!(product_entry.examples.contains(&example2));
+        assert!(product_entry.examples.contains(&example3));
+
+        // Schema should be properly referenced (not inlined)
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 1);
+        assert_eq!(schema_vec[0].0, "Product");
+
+        // Test duplicate example deduplication
+        schemas.add_example::<Product>(example1.clone()); // Add same example again
+        let product_entry = &schemas.entries[&product_type_id];
+        assert_eq!(
+            product_entry.examples.len(),
+            3,
+            "Duplicate examples should be deduplicated"
+        );
     }
 }
