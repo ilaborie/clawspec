@@ -376,6 +376,7 @@ components:
             type:
             - string
             - 'null'
+      description: Flattened observation structure for form data that doesn't support nested objects.
     ListObservations:
       type: object
       required:

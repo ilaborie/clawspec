@@ -2,8 +2,8 @@
 
 use anyhow::Context;
 use axum_example::extractors::ExtractorError;
-use axum_example::observations::ListOption;
 use axum_example::observations::domain::{LngLat, PartialObservation, PatchObservation};
+use axum_example::observations::{FlatObservation, ListOption};
 use clawspec_utoipa::{CallHeaders, register_schemas};
 use headers::ContentType;
 use rstest::rstest;

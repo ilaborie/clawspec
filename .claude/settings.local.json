@@ -43,7 +43,8 @@
       "Bash(gh issue comment:*)",
       "Bash(python3:*)",
       "Bash(mise spectral:*)",
-      "Bash(gh label:*)"
+      "Bash(gh label:*)",
+      "Bash(awk:*)"
     ],
     "deny": []
   }

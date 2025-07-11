@@ -4,8 +4,9 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use bytes::Bytes;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use utoipa::ToSchema;
 
 use super::domain::{LngLat, ObservationId, PartialObservation, PatchObservation};
 use super::repository::ObservationRepository;
@@ -42,7 +43,7 @@ impl Default for ListOption {
 }
 
 /// Flattened observation structure for form data that doesn't support nested objects.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct FlatObservation {
     pub name: String,
     #[serde(flatten)]
