@@ -1,14 +1,14 @@
 #![allow(clippy::missing_errors_doc, missing_docs)]
 use anyhow::Context;
 use axum_example::extractors::ExtractorError;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::ToSchema;
 
 use clawspec_utoipa::{CallHeaders, CallPath, CallQuery, ParamValue};
 
 use axum_example::observations::ListOption;
 use axum_example::observations::domain::{
-    LngLat, Observation, ObservationId, PartialObservation, PatchObservation,
+    Observation, ObservationId, PartialObservation, PatchObservation,
 };
 
 use super::TestApp;
@@ -16,15 +16,6 @@ use super::TestApp;
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct ListObservations {
     pub observations: Vec<Observation>,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct FlatObservation {
-    pub name: String,
-    #[serde(flatten)]
-    pub position: LngLat,
-    pub color: Option<String>,
-    pub notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

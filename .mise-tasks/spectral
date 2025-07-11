@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Run spetral linting"
+
+set -eux
+
+# Lint generated openapi.yaml
+spectral lint examples/axum-example/doc/openapi.yml

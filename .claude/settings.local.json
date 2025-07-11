@@ -40,7 +40,13 @@
       "Bash(grep:*)",
       "Bash(git branch:*)",
       "Bash(gh issue close:*)",
-      "Bash(gh issue comment:*)"
+      "Bash(gh issue comment:*)",
+      "Bash(python3:*)",
+      "Bash(mise spectral:*)",
+      "Bash(gh label:*)",
+      "Bash(awk:*)",
+      "Bash(npx @stoplight/spectral-cli lint doc/openapi.yml --ruleset ../../.spectral.yaml)",
+      "Bash(npx @stoplight/spectral-cli lint:*)"
     ],
     "deny": []
   }
