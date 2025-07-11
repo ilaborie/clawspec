@@ -31,8 +31,8 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create an API client
 //!     let mut client = ApiClient::builder()
-//!         .host("api.example.com")
-//!         .base_path("/v1")?
+//!         .with_host("api.example.com")
+//!         .with_base_path("/v1")?
 //!         .build()?;
 //!
 //!     // Create path with parameters
@@ -50,7 +50,7 @@
 //!     // Make a request and capture the schema
 //!     let user: User = client
 //!         .get(path)?
-//!         .query(query)
+//!         .with_query(query)
 //!         .with_headers(headers)
 //!         .exchange()
 //!         .await?
@@ -79,10 +79,10 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = ApiClient::builder()
-//!     .scheme(Scheme::HTTPS)
-//!     .host("api.github.com")
-//!     .port(443)
-//!     .base_path("/api/v3")?
+//!     .with_scheme(Scheme::HTTPS)
+//!     .with_host("api.github.com")
+//!     .with_port(443)
+//!     .with_base_path("/api/v3")?
 //!     .build()?;
 //! # Ok(())
 //! # }
@@ -118,7 +118,7 @@
 //!
 //! let result = client
 //!     .get(path)?
-//!     .query(query)
+//!     .with_query(query)
 //!     .with_headers(headers)
 //!     .exchange()
 //!     .await?;
@@ -213,7 +213,7 @@
 //! // Accept multiple success codes
 //! let result = client
 //!     .post("/users")?
-//!     .set_expected_status(201)
+//!     .with_expected_status(201)
 //!     .add_expected_status(202)
 //!     .exchange()
 //!     .await?;
@@ -221,7 +221,7 @@
 //! // Accept a range of codes
 //! let result = client
 //!     .get("/health")?
-//!     .set_status_range_inclusive(200..=299)
+//!     .with_status_range_inclusive(200..=299)
 //!     .exchange()
 //!     .await?;
 //! # Ok(())

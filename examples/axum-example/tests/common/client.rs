@@ -37,7 +37,7 @@ impl TestApp {
 
         let result = self
             .get("/observations")?
-            .query(query)
+            .with_query(query)
             .exchange()
             .await?
             .as_json()
@@ -135,7 +135,7 @@ impl TestApp {
 
         let result = self
             .get("/observations")?
-            .query(query)
+            .with_query(query)
             .with_headers(headers)
             .exchange()
             .await?

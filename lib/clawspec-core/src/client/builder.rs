@@ -50,22 +50,22 @@ impl ApiClientBuilder {
         })
     }
 
-    pub fn scheme(mut self, scheme: Scheme) -> Self {
+    pub fn with_scheme(mut self, scheme: Scheme) -> Self {
         self.scheme = scheme;
         self
     }
 
-    pub fn host(mut self, host: impl Into<String>) -> Self {
+    pub fn with_host(mut self, host: impl Into<String>) -> Self {
         self.host = host.into();
         self
     }
 
-    pub fn port(mut self, port: u16) -> Self {
+    pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
         self
     }
 
-    pub fn base_path<P>(mut self, base_path: P) -> Result<Self, ApiClientError>
+    pub fn with_base_path<P>(mut self, base_path: P) -> Result<Self, ApiClientError>
     where
         P: TryInto<PathAndQuery>,
         P::Error: Debug + 'static,
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn test_builder_with_custom_scheme() {
         let client = ApiClientBuilder::default()
-            .scheme(Scheme::HTTPS)
+            .with_scheme(Scheme::HTTPS)
             .build()
             .expect("should build client");
 
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn test_builder_with_custom_host() {
         let client = ApiClientBuilder::default()
-            .host("api.example.com")
+            .with_host("api.example.com")
             .build()
             .expect("should build client");
 
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn test_builder_with_custom_port() {
         let client = ApiClientBuilder::default()
-            .port(8080)
+            .with_port(8080)
             .build()
             .expect("should build client");
 
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn test_builder_with_valid_base_path() {
         let client = ApiClientBuilder::default()
-            .base_path("/api/v1")
+            .with_base_path("/api/v1")
             .expect("valid base path")
             .build()
             .expect("should build client");
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_builder_with_invalid_base_path_warns_and_continues() {
-        let result = ApiClientBuilder::default().base_path("invalid path with spaces");
+        let result = ApiClientBuilder::default().with_base_path("invalid path with spaces");
         assert!(result.is_err());
     }
 }
