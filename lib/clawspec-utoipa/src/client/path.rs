@@ -143,7 +143,7 @@ fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
     // Pre-allocate capacity based on the likely size difference
     let mut result = String::with_capacity(path.len() + value.len());
     let pattern = ["{", param_name, "}"].concat();
-    
+
     let mut last_end = 0;
     while let Some(start) = path[last_end..].find(&pattern) {
         let actual_start = last_end + start;
@@ -334,7 +334,7 @@ impl TryFrom<CallPath> for PathResolved {
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
             let encoded_value =
                 percent_encoding::utf8_percent_encode(&path_value, NON_ALPHANUMERIC).to_string();
-            
+
             // Optimized: Use custom replacement function that avoids string allocations
             path = replace_path_param(&path, &name, &encoded_value);
 
