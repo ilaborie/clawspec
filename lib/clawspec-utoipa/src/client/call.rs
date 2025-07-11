@@ -551,7 +551,14 @@ impl ApiCall {
             let body = response
                 .text()
                 .await
-                .unwrap_or_else(|_| "<unable to read response body>".to_string());
+                .map(|text| {
+                    if text.len() > 1024 {
+                        format!("{}... (truncated)", &text[..1024])
+                    } else {
+                        text
+                    }
+                })
+                .unwrap_or_else(|e| format!("<unable to read response body: {e}>"));
             return Err(ApiClientError::UnexpectedStatusCode { status_code, body });
         }
 
