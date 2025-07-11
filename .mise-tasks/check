@@ -7,10 +7,10 @@ set -eux
 cargo fmt --all --check
 
 # Check no lint warning
-cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 
 # Run tests
-cargo nextest run --locked
+cargo nextest run
 
 # Run doc tests
 cargo test --doc

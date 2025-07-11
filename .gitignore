@@ -1,1 +1,4 @@
 /target
+
+# Dependencies
+/Cargo.lock

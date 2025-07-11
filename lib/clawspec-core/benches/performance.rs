@@ -1,4 +1,4 @@
-use clawspec_utoipa::{CallPath, ParamStyle, ParamValue};
+use clawspec_core::{CallPath, ParamStyle, ParamValue};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 

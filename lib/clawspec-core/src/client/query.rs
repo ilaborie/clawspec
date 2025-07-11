@@ -15,7 +15,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use clawspec_utoipa::{CallQuery, ParamValue, ParamStyle};
+//! use clawspec_core::{CallQuery, ParamValue, ParamStyle};
 //!
 //! // Ergonomic usage - pass values directly (uses From<T> trait)
 //! let query = CallQuery::new()
@@ -43,7 +43,7 @@
 //! You can pass values directly or use explicit `ParamValue` wrappers:
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallQuery, ParamValue, ParamStyle};
+//! # use clawspec_core::{CallQuery, ParamValue, ParamStyle};
 //! // Ergonomic usage - values are automatically wrapped
 //! let query = CallQuery::new()
 //!     .add_param("name", "John Doe")
@@ -86,7 +86,7 @@ use super::{ApiClientError, ParamStyle, ParamValue};
 /// ## Basic Usage
 ///
 /// ```rust
-/// use clawspec_utoipa::{CallQuery, ParamValue, ParamStyle};
+/// use clawspec_core::{CallQuery, ParamValue, ParamStyle};
 ///
 /// let query = CallQuery::new()
 ///     .add_param("search", ParamValue::new("hello world"))
@@ -99,7 +99,7 @@ use super::{ApiClientError, ParamStyle, ParamValue};
 /// ## Array Parameters with Different Styles
 ///
 /// ```rust
-/// use clawspec_utoipa::{CallQuery, ParamValue, ParamStyle};
+/// use clawspec_core::{CallQuery, ParamValue, ParamStyle};
 /// let query = CallQuery::new()
 ///     // Form style (default): ?tags=rust&tags=web&tags=api
 ///     .add_param("tags", ParamValue::new(vec!["rust", "web", "api"]))
@@ -133,7 +133,7 @@ impl CallQuery {
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::CallQuery;
+    /// use clawspec_core::CallQuery;
     ///
     /// let query = CallQuery::new();
     /// // Query is initially empty
@@ -156,7 +156,7 @@ impl CallQuery {
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::{CallQuery, ParamValue, ParamStyle};
+    /// use clawspec_core::{CallQuery, ParamValue, ParamStyle};
     ///
     /// // Ergonomic usage - pass values directly
     /// let query = CallQuery::new()

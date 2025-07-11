@@ -4,7 +4,7 @@ use anyhow::Context;
 use axum_example::extractors::ExtractorError;
 use axum_example::observations::domain::{LngLat, PartialObservation, PatchObservation};
 use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
-use clawspec_utoipa::{CallHeaders, register_schemas};
+use clawspec_core::{CallHeaders, register_schemas};
 use headers::ContentType;
 use rstest::rstest;
 use tracing::info;

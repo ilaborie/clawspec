@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use clawspec_utoipa::ApiClientError;
+use clawspec_core::ApiClientError;
 use rstest::rstest;
 use tracing::info;
 

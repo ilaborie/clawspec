@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(entry.name, "TestType");
         assert_eq!(
             entry.type_name,
-            "clawspec_utoipa::client::schema::tests::TestType"
+            "clawspec_core::client::schema::tests::TestType"
         );
         assert!(entry.examples.is_empty());
     }

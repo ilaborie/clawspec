@@ -63,7 +63,7 @@ jobs:
           cache-key-suffix: msrv
         
       - name: Check compilation with MSRV
-        run: cargo check --locked --all-targets --all-features
+        run: cargo check --all-targets --all-features
 
   minimal-versions:
     name: 📦 Minimal Dependency Versions
@@ -91,7 +91,7 @@ jobs:
           cache-key-suffix: minimal-msrv
           
       - name: Check compilation with minimal versions
-        run: cargo check --locked --all-targets --all-features
+        run: cargo check --all-targets --all-features
 
   beta:
     name: 🧪 Beta Rust Channel

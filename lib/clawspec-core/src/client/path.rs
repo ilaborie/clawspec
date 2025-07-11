@@ -17,7 +17,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! use clawspec_core::{CallPath, ParamValue, ParamStyle};
 //!
 //! // Basic path with single parameter
 //! let mut path = CallPath::from("/users/{user_id}");
@@ -52,7 +52,7 @@
 //! suitable for URL path substitution.
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! # use clawspec_core::{CallPath, ParamValue, ParamStyle};
 //! let mut path = CallPath::from("/api/items/{id}");
 //!
 //! // String parameter
@@ -77,7 +77,7 @@
 //! - **PipeDelimited**: `value1|value2|value3` (pipe-separated)
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! # use clawspec_core::{CallPath, ParamValue, ParamStyle};
 //! let mut path = CallPath::from("/filter/{categories}");
 //!
 //! // Simple style (default): tech,programming,rust
@@ -102,7 +102,7 @@
 //! to ensure URL safety:
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallPath, ParamValue};
+//! # use clawspec_core::{CallPath, ParamValue};
 //! let mut path = CallPath::from("/search/{query}");
 //! path.add_param("query", ParamValue::new("hello world & more"));
 //! // Results in: /search/hello%20world%20%26%20more
@@ -123,7 +123,7 @@ use std::fmt::Debug;
 use std::sync::LazyLock;
 
 use indexmap::IndexMap;
-use percent_encoding::NON_ALPHANUMERIC;
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use regex::Regex;
 use tracing::warn;
 
@@ -146,6 +146,13 @@ fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
     path.replace(&pattern, value)
 }
 
+/// URL-encode a path parameter value using percent-encoding for proper path encoding.
+/// This approach maintains the existing behavior while consolidating the encoding logic
+/// in a single function that can be reused and tested independently.
+fn encode_path_param_value(value: &str) -> String {
+    utf8_percent_encode(value, NON_ALPHANUMERIC).to_string()
+}
+
 /// A parameterized HTTP path with type-safe parameter substitution.
 ///
 /// `CallPath` represents an HTTP path template with named parameters that can be
@@ -155,7 +162,7 @@ fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
 /// # Examples
 ///
 /// ```rust
-/// use clawspec_utoipa::{CallPath, ParamValue};
+/// use clawspec_core::{CallPath, ParamValue};
 ///
 /// // Create a path template
 /// let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
@@ -174,7 +181,7 @@ fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
 /// The same parameter can appear multiple times in a single path.
 ///
 /// ```rust
-/// # use clawspec_utoipa::{CallPath, ParamValue};
+/// # use clawspec_core::{CallPath, ParamValue};
 /// let mut path = CallPath::from("/api/v1/users/{user_id}/documents/{doc_id}");
 /// path.add_param("user_id", ParamValue::new(456));
 /// path.add_param("doc_id", ParamValue::new("report-2023"));
@@ -210,7 +217,7 @@ impl CallPath {
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+    /// use clawspec_core::{CallPath, ParamValue, ParamStyle};
     ///
     /// let mut path = CallPath::from("/users/{id}");
     ///
@@ -323,8 +330,7 @@ impl TryFrom<CallPath> for PathResolved {
 
             // TODO explore [URI template](https://datatracker.ietf.org/doc/html/rfc6570) - https://github.com/ilaborie/clawspec/issues/21
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
-            let encoded_value =
-                percent_encoding::utf8_percent_encode(&path_value, NON_ALPHANUMERIC).to_string();
+            let encoded_value = encode_path_param_value(&path_value);
 
             // Optimized: Use custom replacement function that avoids string allocations
             path = replace_path_param(&path, &name, &encoded_value);
