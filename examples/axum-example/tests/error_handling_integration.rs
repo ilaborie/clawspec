@@ -17,7 +17,7 @@ async fn test_unexpected_status_code_error(#[future] app: TestApp) -> anyhow::Re
     // Test 1: Expect 200 but get 404 from nonexistent endpoint
     let result = app
         .get("/nonexistent-endpoint")?
-        .expect_status(200)
+        .set_expected_status(200)
         .exchange()
         .await;
 
@@ -47,7 +47,7 @@ async fn test_sucessful_endpoint_bad_status(#[future] app: TestApp) -> anyhow::R
 
     let result = app
         .get("/observations")?
-        .expect_status(201)
+        .set_expected_status(201)
         .exchange()
         .await;
 

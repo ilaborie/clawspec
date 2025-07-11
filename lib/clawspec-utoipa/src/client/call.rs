@@ -15,6 +15,8 @@ use super::collectors::{CalledOperation, Collectors};
 use super::path::PathResolved;
 use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResult};
 
+const BODY_MAX_LENGTH: usize = 1024;
+
 /// Expected status codes for HTTP requests.
 ///
 /// Supports multiple ranges and individual status codes for flexible validation.
@@ -179,6 +181,17 @@ mod status_code_tests {
     }
 }
 
+/// Builder for configuring HTTP API calls with comprehensive status code validation.
+///
+/// Supports flexible status code expectations through multiple methods:
+/// - `set_expected_status(code)` - Set a single expected status code
+/// - `set_status_range_inclusive(range)` - Set an inclusive range (e.g., 200..=299)
+/// - `set_status_range(range)` - Set an exclusive range (e.g., 200..300)
+/// - `add_expected_status(code)` - Add additional expected status codes
+/// - `add_expected_status_range_inclusive(range)` - Add additional inclusive ranges
+/// - `add_expected_status_range(range)` - Add additional exclusive ranges
+///
+/// Default behavior accepts status codes 200..500 (exclusive).
 // TODO: Add comprehensive documentation for all public APIs - https://github.com/ilaborie/clawspec/issues/34
 // TODO: Standardize builder patterns for consistency - https://github.com/ilaborie/clawspec/issues/33
 #[derive(derive_more::Debug)]
@@ -260,14 +273,14 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept only 200 to 201 (inclusive)
-    /// let call = client.post("/users")?.expect_status_range(200..=201);
+    /// let call = client.post("/users")?.set_status_range_inclusive(200..=201);
     ///
     /// // Accept any 2xx status code
-    /// let call = client.get("/users")?.expect_status_range(200..=299);
+    /// let call = client.get("/users")?.set_status_range_inclusive(200..=299);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn expect_status_range(mut self, range: RangeInclusive<u16>) -> Self {
+    pub fn set_status_range_inclusive(mut self, range: RangeInclusive<u16>) -> Self {
         self.expected_status_codes = ExpectedStatusCodes::from_inclusive_range(range);
         self
     }
@@ -282,11 +295,11 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept 200 to 299 (200 included, 300 excluded)
-    /// let call = client.get("/users")?.expect_status_range_exclusive(200..300);
+    /// let call = client.get("/users")?.set_status_range(200..300);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn expect_status_range_exclusive(mut self, range: Range<u16>) -> Self {
+    pub fn set_status_range(mut self, range: Range<u16>) -> Self {
         self.expected_status_codes = ExpectedStatusCodes::from_exclusive_range(range);
         self
     }
@@ -301,11 +314,11 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept only 204 for DELETE operations
-    /// let call = client.delete("/users/123")?.expect_status(204);
+    /// let call = client.delete("/users/123")?.set_expected_status(204);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn expect_status(mut self, status: u16) -> Self {
+    pub fn set_expected_status(mut self, status: u16) -> Self {
         self.expected_status_codes = ExpectedStatusCodes::from_single(status);
         self
     }
@@ -320,7 +333,7 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept 200..299 and also 404
-    /// let call = client.get("/users")?.expect_status_range(200..=299).add_expected_status(404);
+    /// let call = client.get("/users")?.set_status_range_inclusive(200..=299).add_expected_status(404);
     /// # Ok(())
     /// # }
     /// ```
@@ -338,13 +351,32 @@ impl ApiCall {
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
-    /// // Accept 200..204 and also 400..402
-    /// let call = client.post("/users")?.expect_status_range(200..=204).add_expected_range(400..=402);
+    /// // Accept 200..=204 and also 400..=402
+    /// let call = client.post("/users")?.set_status_range_inclusive(200..=204).add_expected_status_range_inclusive(400..=402);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn add_expected_range(mut self, range: RangeInclusive<u16>) -> Self {
+    pub fn add_expected_status_range_inclusive(mut self, range: RangeInclusive<u16>) -> Self {
         self.expected_status_codes = self.expected_status_codes.add_expected_range(range);
+        self
+    }
+
+    /// Adds an additional expected status range (exclusive) to the existing set.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Accept 200..=204 and also 400..403
+    /// let call = client.post("/users")?.set_status_range_inclusive(200..=204).add_expected_status_range(400..403);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_expected_status_range(mut self, range: Range<u16>) -> Self {
+        self.expected_status_codes = self.expected_status_codes.add_exclusive_range(range);
         self
     }
 
@@ -373,7 +405,7 @@ impl ApiCall {
     ///     email: String,
     /// }
     ///
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// let user_data = CreateUser {
     ///     name: "John Doe".to_string(),
     ///     email: "john@example.com".to_string(),
@@ -410,7 +442,7 @@ impl ApiCall {
     ///     password: String,
     /// }
     ///
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// let form_data = LoginForm {
     ///     username: "user@example.com".to_string(),
     ///     password: "secret".to_string(),
@@ -441,7 +473,7 @@ impl ApiCall {
     /// # use clawspec_utoipa::ApiClient;
     /// # use headers::ContentType;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// // Send XML data
     /// let xml_data = r#"<?xml version="1.0"?><user><name>John</name></user>"#;
     /// let call = client.post("/import")?
@@ -470,7 +502,7 @@ impl ApiCall {
     /// ```rust
     /// # use clawspec_utoipa::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// let call = client.post("/notes")?.text("This is a plain text note");
     /// # Ok(())
     /// # }
@@ -492,7 +524,7 @@ impl ApiCall {
     /// ```rust
     /// # use clawspec_utoipa::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// let parts = vec![
     ///     ("title", "My Document"),
     ///     ("file", "file content here"),
@@ -552,7 +584,7 @@ impl ApiCall {
                 .text()
                 .await
                 .map(|text| {
-                    if text.len() > 1024 {
+                    if text.len() > BODY_MAX_LENGTH {
                         format!("{}... (truncated)", &text[..1024])
                     } else {
                         text

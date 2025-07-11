@@ -325,7 +325,7 @@ impl CallResult {
     ///     name: String,
     /// }
     ///
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// let user: User = client
     ///     .get("/users/123")?
     ///     .exchange()
@@ -382,7 +382,7 @@ impl CallResult {
     /// ```rust
     /// # use clawspec_utoipa::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// let text = client
     ///     .get("/api/status")?
     ///     .exchange()
@@ -419,7 +419,7 @@ impl CallResult {
     /// ```rust
     /// # use clawspec_utoipa::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// let bytes = client
     ///     .get("/api/download")?
     ///     .exchange()
@@ -458,7 +458,7 @@ impl CallResult {
     /// ```rust
     /// # use clawspec_utoipa::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     /// if let Some((content_type, body)) = client
     ///     .get("/api/data")?
     ///     .exchange()
@@ -497,7 +497,7 @@ impl CallResult {
     /// ```rust
     /// # use clawspec_utoipa::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build();
+    /// let mut client = ApiClient::builder().build()?;
     ///
     /// client
     ///     .delete("/items/123")?

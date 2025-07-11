@@ -11,3 +11,6 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 
 # Run tests
 cargo nextest run --locked
+
+# Run doc tests
+cargo test --doc
