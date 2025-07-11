@@ -707,6 +707,19 @@ fn merge_responses(
     builder.build()
 }
 
+/// Common API path prefixes that should be skipped when generating operation metadata.
+/// These are typically organizational prefixes that don't represent business resources.
+const SKIP_PATH_PREFIXES: &[&str] = &[
+    "api",      // Most common: /api/users
+    "v1",       // Versioning: /v1/users, /api/v1/users
+    "v2",       // Versioning: /v2/users
+    "v3",       // Versioning: /v3/users
+    "rest",     // REST API prefix: /rest/users
+    "service",  // Service-oriented: /service/users
+    "public",   // Public API: /public/users
+    "internal", // Internal API: /internal/users
+];
+
 /// Generates a human-readable description for an operation based on HTTP method and path.
 ///
 /// Examples:
@@ -724,12 +737,11 @@ fn generate_description(method: &http::Method, path: &str) -> Option<String> {
         return None;
     }
 
-    // Skip common prefixes like "api"
-    let start_index = if segments.first() == Some(&"api") {
-        1
-    } else {
-        0
-    };
+    // Skip common API prefixes (api, v1, v2, rest, etc.)
+    let start_index = segments
+        .iter()
+        .take_while(|&segment| SKIP_PATH_PREFIXES.contains(segment))
+        .count();
 
     if start_index >= segments.len() {
         return None;
@@ -830,12 +842,11 @@ fn generate_tags(path: &str) -> Option<Vec<String>> {
 
     let mut tags = Vec::new();
 
-    // Skip common prefixes like "api"
-    let start_index = if segments.first() == Some(&"api") {
-        1
-    } else {
-        0
-    };
+    // Skip common API prefixes (api, v1, v2, rest, etc.)
+    let start_index = segments
+        .iter()
+        .take_while(|&segment| SKIP_PATH_PREFIXES.contains(segment))
+        .count();
 
     if start_index >= segments.len() {
         return None;
@@ -867,15 +878,32 @@ fn generate_tags(path: &str) -> Option<Vec<String>> {
     if tags.is_empty() { None } else { Some(tags) }
 }
 
-/// Basic singularization for English words.
-/// This is a simplified version - for production use, consider a proper inflection library.
-fn singularize(word: &str) -> &str {
-    if word.ends_with('s') && word.len() > 1 {
-        // Simple heuristic: remove trailing 's' if word is longer than 1 character
-        // This handles most common cases like "users" -> "user", "observations" -> "observation"
-        &word[..word.len() - 1]
+/// Singularize English words using the cruet crate with manual handling for known limitations.
+/// This provides production-ready pluralization handling for API resource names.
+/// Includes custom handling for irregular cases that cruet doesn't cover.
+fn singularize(word: &str) -> String {
+    // Handle special cases that cruet doesn't handle properly
+    match word {
+        "children" => return "child".to_string(),
+        "people" => return "person".to_string(),
+        "data" => return "datum".to_string(),
+        "feet" => return "foot".to_string(),
+        "teeth" => return "tooth".to_string(),
+        "geese" => return "goose".to_string(),
+        "men" => return "man".to_string(),
+        "women" => return "woman".to_string(),
+        _ => {}
+    }
+
+    // Use cruet for most cases
+    use cruet::*;
+    let result = word.to_singular();
+
+    // Fallback to original word if cruet returns empty string
+    if result.is_empty() && !word.is_empty() {
+        word.to_string()
     } else {
-        word
+        result
     }
 }
 
@@ -958,6 +986,15 @@ mod operation_metadata_tests {
             generate_description(&Method::POST, "/api/observations/import"),
             Some("Import observations".to_string())
         );
+        // Test multiple prefixes
+        assert_eq!(
+            generate_description(&Method::GET, "/api/v1/users"),
+            Some("Retrieve users".to_string())
+        );
+        assert_eq!(
+            generate_description(&Method::POST, "/rest/service/items"),
+            Some("Create item".to_string())
+        );
     }
 
     #[test]
@@ -975,6 +1012,15 @@ mod operation_metadata_tests {
         assert_eq!(
             generate_tags("/api/observations"),
             Some(vec!["observations".to_string()])
+        );
+        // Test multiple prefixes
+        assert_eq!(
+            generate_tags("/api/v1/users"),
+            Some(vec!["users".to_string()])
+        );
+        assert_eq!(
+            generate_tags("/rest/service/items"),
+            Some(vec!["items".to_string()])
         );
     }
 
@@ -1008,10 +1054,41 @@ mod operation_metadata_tests {
 
     #[test]
     fn test_singularize() {
+        // Regular plurals that cruet handles well
         assert_eq!(singularize("users"), "user");
         assert_eq!(singularize("observations"), "observation");
         assert_eq!(singularize("items"), "item");
-        assert_eq!(singularize("user"), "user"); // Already singular
-        assert_eq!(singularize("s"), "s"); // Single character
+
+        // Irregular plurals - handled by manual overrides + cruet
+        assert_eq!(singularize("mice"), "mouse"); // cruet handles this
+        assert_eq!(singularize("children"), "child"); // manual override
+        assert_eq!(singularize("people"), "person"); // manual override
+        assert_eq!(singularize("feet"), "foot"); // manual override
+        assert_eq!(singularize("teeth"), "tooth"); // manual override
+        assert_eq!(singularize("geese"), "goose"); // manual override
+        assert_eq!(singularize("men"), "man"); // manual override
+        assert_eq!(singularize("women"), "woman"); // manual override
+        assert_eq!(singularize("data"), "datum"); // manual override
+
+        // Words ending in 'es'
+        assert_eq!(singularize("boxes"), "box");
+        assert_eq!(singularize("watches"), "watch");
+
+        // Already singular - cruet handles these gracefully
+        assert_eq!(singularize("user"), "user");
+        assert_eq!(singularize("child"), "child");
+
+        // Edge cases - with fallback protection
+        assert_eq!(singularize("s"), "s"); // Falls back to original when cruet returns empty
+        assert_eq!(singularize(""), ""); // Empty string stays empty
+
+        // Complex cases that cruet handles well
+        assert_eq!(singularize("categories"), "category");
+        assert_eq!(singularize("companies"), "company");
+        assert_eq!(singularize("libraries"), "library");
+
+        // Additional cases cruet handles
+        assert_eq!(singularize("stories"), "story");
+        assert_eq!(singularize("cities"), "city");
     }
 }

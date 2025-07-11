@@ -17,6 +17,17 @@ use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResu
 
 const BODY_MAX_LENGTH: usize = 1024;
 
+/// Metadata for OpenAPI operation documentation.
+#[derive(Debug, Clone, Default)]
+struct OperationMetadata {
+    /// Operation ID for the OpenAPI operation
+    operation_id: String,
+    /// Operation tags for categorization
+    tags: Option<Vec<String>>,
+    /// Operation description for documentation
+    description: Option<String>,
+}
+
 /// Expected status codes for HTTP requests.
 ///
 /// Supports multiple ranges and individual status codes for flexible validation.
@@ -200,7 +211,6 @@ pub struct ApiCall {
     base_uri: Uri,
     collectors: Arc<RwLock<Collectors>>,
 
-    operation_id: String,
     method: Method,
     path: CallPath,
     query: CallQuery,
@@ -212,10 +222,8 @@ pub struct ApiCall {
     // TODO cookiess - https://github.com/ilaborie/clawspec/issues/18
     /// Expected status codes for this request (default: 200..500)
     expected_status_codes: ExpectedStatusCodes,
-    /// Operation tags for OpenAPI categorization
-    tags: Option<Vec<String>>,
-    /// Operation description for OpenAPI documentation
-    description: Option<String>,
+    /// Operation metadata for OpenAPI documentation
+    metadata: OperationMetadata,
 }
 
 impl ApiCall {
@@ -232,15 +240,17 @@ impl ApiCall {
             client,
             base_uri,
             collectors,
-            operation_id,
             method,
             path,
             query: CallQuery::default(),
             headers: None,
             body: None,
             expected_status_codes: ExpectedStatusCodes::default(),
-            tags: None,
-            description: None,
+            metadata: OperationMetadata {
+                operation_id,
+                tags: None,
+                description: None,
+            },
         };
         Ok(result)
     }
@@ -249,7 +259,7 @@ impl ApiCall {
 // Builder
 impl ApiCall {
     pub fn operation_id(mut self, operation_id: impl Into<String>) -> Self {
-        self.operation_id = operation_id.into();
+        self.metadata.operation_id = operation_id.into();
         self
     }
 
@@ -266,7 +276,7 @@ impl ApiCall {
     /// # }
     /// ```
     pub fn description(mut self, description: impl Into<String>) -> Self {
-        self.description = Some(description.into());
+        self.metadata.description = Some(description.into());
         self
     }
 
@@ -279,11 +289,17 @@ impl ApiCall {
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let call = client.get("/users")?.tags(vec!["users", "admin"]);
+    /// // Also works with arrays, slices, or any IntoIterator
+    /// let call = client.get("/users")?.tags(["users", "admin"]);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn tags<T: Into<String>>(mut self, tags: Vec<T>) -> Self {
-        self.tags = Some(tags.into_iter().map(|t| t.into()).collect());
+    pub fn tags<I, T>(mut self, tags: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<String>,
+    {
+        self.metadata.tags = Some(tags.into_iter().map(|t| t.into()).collect());
         self
     }
 
@@ -300,7 +316,10 @@ impl ApiCall {
     /// # }
     /// ```
     pub fn tag(mut self, tag: impl Into<String>) -> Self {
-        self.tags.get_or_insert_with(Vec::new).push(tag.into());
+        self.metadata
+            .tags
+            .get_or_insert_with(Vec::new)
+            .push(tag.into());
         self
     }
 
@@ -605,15 +624,13 @@ impl ApiCall {
             client,
             base_uri,
             collectors,
-            operation_id,
             method,
             path,
             query,
             headers,
             body,
             expected_status_codes,
-            tags,
-            description,
+            metadata,
         } = self;
 
         // Build URL and request
@@ -621,16 +638,9 @@ impl ApiCall {
         let request = Self::build_request(method.clone(), url, &headers, &body)?;
 
         // Create operation for OpenAPI documentation
-        let mut operation = Self::build_operation(
-            &operation_id,
-            &method,
-            &path,
-            query.clone(),
-            &headers,
-            &body,
-            tags,
-            description,
-        );
+        let operation_id = metadata.operation_id.clone();
+        let mut operation =
+            Self::build_operation(metadata, &method, &path, query.clone(), &headers, &body);
 
         // Execute HTTP request
         debug!(?request, "sending...");
@@ -710,17 +720,20 @@ impl ApiCall {
         Ok(request)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn build_operation(
-        operation_id: &str,
+        metadata: OperationMetadata,
         method: &Method,
         path: &CallPath,
         query: CallQuery,
         headers: &Option<CallHeaders>,
         body: &Option<CallBody>,
-        tags: Option<Vec<String>>,
-        description: Option<String>,
     ) -> CalledOperation {
+        let OperationMetadata {
+            operation_id,
+            tags,
+            description,
+        } = metadata;
+
         CalledOperation::build(
             operation_id.to_string(),
             method.clone(),
