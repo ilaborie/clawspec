@@ -14,9 +14,10 @@ serde_urlencoded = "0.7.1"
 
 utoipa = "5.3.1"
 
-tokio = "1.44.2"
+tokio = "1.45.1"
+axum = "0.8.4"
 
-reqwest = { version = "0.12.15", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12.15", default-features = false }
 headers = "0.4.0"
 http = "1.3.1"
 url = "2.5.4"
@@ -28,17 +29,21 @@ derive_more = "2.0.1"
 indexmap = "2.9.0"
 slug = "0.1.6"
 anyhow = "1.0.98"
-uuid = { version = "1.11.0", features = ["v4"] }
+uuid = "1.11.0"
 mime = "0.3.17"
 cruet = "0.15.0"
+bytes = "1.9.0"
+chrono = "0.4.38" 
+pico-args = "0.5.0"
+serde-xml-rs = "0.8.1"
+tower-http = "0.6.6"
 
 ## Dev
 rstest = "0.25.0"
 insta = "1.42.1"
 assert2 = "0.3.15"
 tracing-subscriber = "0.3.19"
-criterion = "0.5.1"
-# proptest = "1.6.0"
+criterion = "0.6.0"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
