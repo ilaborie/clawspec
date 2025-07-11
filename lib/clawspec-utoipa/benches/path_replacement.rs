@@ -7,20 +7,11 @@ fn original_replace_path_param(path: &str, param_name: &str, value: &str) -> Str
 }
 
 /// Optimized implementation that avoids format! macro allocations
+/// while maintaining correctness for exact parameter matching
 fn optimized_replace_path_param(path: &str, param_name: &str, value: &str) -> String {
-    // Pre-allocate capacity based on the likely size difference
-    let mut result = String::with_capacity(path.len() + value.len());
+    // Use concat to avoid format! macro allocation, but keep str::replace for correctness
     let pattern = ["{", param_name, "}"].concat();
-
-    let mut last_end = 0;
-    while let Some(start) = path[last_end..].find(&pattern) {
-        let actual_start = last_end + start;
-        result.push_str(&path[last_end..actual_start]);
-        result.push_str(value);
-        last_end = actual_start + pattern.len();
-    }
-    result.push_str(&path[last_end..]);
-    result
+    path.replace(&pattern, value)
 }
 
 fn benchmark_path_replacement(c: &mut Criterion) {

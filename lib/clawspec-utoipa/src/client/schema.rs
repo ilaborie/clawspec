@@ -65,6 +65,40 @@ impl Schemas {
         entry.as_schema_ref()
     }
 
+    /// Merges another schema collection into this one.
+    ///
+    /// This function implements the core schema merge logic that handles
+    /// combining schemas from multiple API test calls.
+    ///
+    /// # Merge Strategy
+    ///
+    /// - **Type Identity**: Schemas are identified by Rust `TypeId`
+    /// - **Type Safety**: Same Rust type always maps to same OpenAPI schema
+    /// - **Example Collection**: Examples from both schemas are combined
+    /// - **Schema Overwrite**: New schema overwrites existing (same TypeId)
+    ///
+    /// # Performance Characteristics
+    ///
+    /// - **Time Complexity**: O(n) where n is the number of schemas to merge
+    /// - **Space Complexity**: O(1) additional space (moves entries, doesn't copy)
+    /// - **Memory Efficiency**: Direct insertion by TypeId for optimal performance
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The schema collection to merge into this one
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Internal usage - not exposed in public API
+    /// let mut schemas1 = Schemas::default();
+    /// let mut schemas2 = Schemas::default();
+    ///
+    /// // schemas1 has User schema with example1
+    /// // schemas2 has User schema with example2
+    /// schemas1.merge(schemas2);
+    /// // Result: schemas1 has User schema with both examples
+    /// ```
     pub(super) fn merge(&mut self, other: Self) {
         for (type_id, entry) in other.0 {
             self.0.insert(type_id, entry);

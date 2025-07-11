@@ -48,7 +48,11 @@
       "Bash(npx @stoplight/spectral-cli lint doc/openapi.yml --ruleset ../../.spectral.yaml)",
       "Bash(npx @stoplight/spectral-cli lint:*)",
       "Bash(git pull:*)",
-      "Bash(timeout 30s cargo bench --bench performance)"
+      "Bash(timeout 30s cargo bench --bench performance)",
+      "Bash(timeout 10s cargo bench --bench performance_regression -- --bench)",
+      "Bash(./target/release/deps/performance_regression-abf7fc77da902bad --bench)",
+      "Bash(./target/release/deps/performance_regression-abf7fc77da902bad --help)",
+      "Bash(./target/release/deps/performance_regression-abf7fc77da902bad)"
     ],
     "deny": []
   }

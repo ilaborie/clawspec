@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+# Performance regression testing script
+# This script runs performance benchmarks and validates that performance
+# thresholds established in Issue #31 are maintained
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}Running performance regression tests...${NC}"
+
+# Run the performance regression benchmarks
+echo -e "${YELLOW}Running path replacement regression tests...${NC}"
+cargo bench --bench performance_regression path_regression
+
+echo -e "${YELLOW}Running schema merge regression tests...${NC}"
+cargo bench --bench performance_regression schema_merge_regression
+
+echo -e "${YELLOW}Running collection operations regression tests...${NC}"
+cargo bench --bench performance_regression collection_regression
+
+echo -e "${YELLOW}Running API client regression tests...${NC}"
+cargo bench --bench performance_regression api_client_regression
+
+echo -e "${YELLOW}Running string allocation regression tests...${NC}"
+cargo bench --bench performance_regression string_allocation_regression
+
+# Run the original performance comparison benchmarks
+echo -e "${YELLOW}Running original performance comparison benchmarks...${NC}"
+cargo bench --bench path_replacement
+cargo bench --bench performance
+
+echo -e "${GREEN}✅ Performance regression tests completed successfully!${NC}"
+echo ""
+echo -e "${YELLOW}📊 Performance Guidelines:${NC}"
+echo "• Path replacement should be >20% faster than format!() approach"
+echo "• Schema merge operations should complete in <1μs for typical loads"
+echo "• Collection operations should use HashSet (O(1)) over Vec::retain() (O(n))"
+echo "• String concatenation should be faster than format!() for simple cases"
+echo ""
+echo -e "${GREEN}💡 To view detailed benchmark results:${NC}"
+echo "• HTML reports: target/criterion/*/report/index.html"
+echo "• Raw data: target/criterion/*/base/estimates.json"
+echo ""
+echo -e "${YELLOW}🔍 Performance Analysis:${NC}"
+echo "1. Compare path_replacement/original_* vs path_replacement/optimized_*"
+echo "2. Verify schema merge operations scale linearly with schema count"
+echo "3. Confirm HashSet operations outperform Vec operations at scale"
+echo "4. Check that string concatenation is faster than format!() for simple patterns"

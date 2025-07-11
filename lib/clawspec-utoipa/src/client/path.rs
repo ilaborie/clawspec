@@ -136,23 +136,14 @@ use utoipa::openapi::path::{Parameter, ParameterIn};
 
 /// Regular expression for matching path parameters in the format `{param_name}`.
 static RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\{(?<name>\w*)}").expect("a valid regex"));
+    LazyLock::new(|| Regex::new(r"\{(?<name>\w+)}").expect("a valid regex"));
 
 /// Optimized string replacement that avoids format! macro allocations
+/// while maintaining correctness for exact parameter matching
 fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
-    // Pre-allocate capacity based on the likely size difference
-    let mut result = String::with_capacity(path.len() + value.len());
+    // Use concat to avoid format! macro allocation, but keep str::replace for correctness
     let pattern = ["{", param_name, "}"].concat();
-
-    let mut last_end = 0;
-    while let Some(start) = path[last_end..].find(&pattern) {
-        let actual_start = last_end + start;
-        result.push_str(&path[last_end..actual_start]);
-        result.push_str(value);
-        last_end = actual_start + pattern.len();
-    }
-    result.push_str(&path[last_end..]);
-    result
+    path.replace(&pattern, value)
 }
 
 /// A parameterized HTTP path with type-safe parameter substitution.
@@ -564,5 +555,63 @@ mod tests {
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
         assert_eq!(resolved.path, "/items/1%2C2%2C3");
+    }
+
+    #[test]
+    fn test_replace_path_param_no_collision() {
+        // Test that "id" doesn't match inside "user_id"
+        let result = replace_path_param("/users/{user_id}/posts/{id}", "id", "123");
+        assert_eq!(result, "/users/{user_id}/posts/123");
+    }
+
+    #[test]
+    fn test_replace_path_param_substring_collision() {
+        // Test parameter names that are substrings of each other
+        let result = replace_path_param("/api/{user_id}/data/{id}", "id", "456");
+        assert_eq!(result, "/api/{user_id}/data/456");
+
+        let result = replace_path_param("/api/{user_id}/data/{id}", "user_id", "789");
+        assert_eq!(result, "/api/789/data/{id}");
+    }
+
+    #[test]
+    fn test_replace_path_param_exact_match_only() {
+        // Test that only exact {param} matches are replaced
+        let result = replace_path_param("/prefix{param}suffix/{param}", "param", "value");
+        assert_eq!(result, "/prefixvaluesuffix/value");
+    }
+
+    #[test]
+    fn test_replace_path_param_multiple_occurrences() {
+        // Test that all occurrences of the same parameter are replaced
+        let result = replace_path_param(
+            "/api/{version}/users/{id}/posts/{id}/comments/{version}",
+            "id",
+            "123",
+        );
+        assert_eq!(
+            result,
+            "/api/{version}/users/123/posts/123/comments/{version}"
+        );
+    }
+
+    #[test]
+    fn test_replace_path_param_empty_cases() {
+        // Test edge cases with empty values
+        let result = replace_path_param("/users/{id}", "id", "");
+        assert_eq!(result, "/users/");
+
+        let result = replace_path_param("/users/{id}", "nonexistent", "123");
+        assert_eq!(result, "/users/{id}");
+    }
+
+    #[test]
+    fn test_replace_path_param_special_characters() {
+        // Test with special characters in parameter values
+        let result = replace_path_param("/users/{id}", "id", "user@example.com");
+        assert_eq!(result, "/users/user@example.com");
+
+        let result = replace_path_param("/search/{query}", "query", "hello world & more");
+        assert_eq!(result, "/search/hello world & more");
     }
 }
