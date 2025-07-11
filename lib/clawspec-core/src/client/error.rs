@@ -13,15 +13,15 @@ pub enum ApiClientError {
     JsonValueError(serde_json::Error),
     QuerySerializationError(serde_urlencoded::ser::Error),
 
-    #[display("invalid state, expected a call result")]
+    #[display("Invalid state: expected a call result")]
     CallResultRequired,
 
-    #[display("Invalid base path: error: {error:?}")]
+    #[display("Invalid base path: {error}")]
     InvalidBasePath {
         error: String,
     },
 
-    #[display("fail to deserialize JSON at '{path}' because {error}\n{body}")]
+    #[display("Failed to deserialize JSON at '{path}': {error}\n{body}")]
     #[from(skip)]
     JsonError {
         path: String,
@@ -29,26 +29,26 @@ pub enum ApiClientError {
         body: String,
     },
 
-    #[display("unsupported output for {name} as JSON:\n{output:?}")]
+    #[display("Unsupported output for {name} as JSON:\n{output:?}")]
     #[from(skip)]
     UnsupportedJsonOutput {
         output: Output,
         name: &'static str,
     },
 
-    #[display("unsupported output for text:\n{output:?}")]
+    #[display("Unsupported output for text:\n{output:?}")]
     #[from(skip)]
     UnsupportedTextOutput {
         output: Output,
     },
 
-    #[display("unsupported output for bytes:\n{output:?}")]
+    #[display("Unsupported output for bytes:\n{output:?}")]
     #[from(skip)]
     UnsupportedBytesOutput {
         output: Output,
     },
 
-    #[display("path '{path}' miss arguments: {missings:?}")]
+    #[display("Path '{path}' is missing required arguments: {missings:?}")]
     #[from(skip)]
     PathUnresolved {
         path: String,
@@ -56,39 +56,39 @@ pub enum ApiClientError {
     },
 
     #[display(
-        "unsupported query parameter value: objects are not supported for query parameters. Got: {value}"
+        "Unsupported query parameter value: objects are not supported for query parameters. Got: {value}"
     )]
     #[from(skip)]
     UnsupportedQueryParameterValue {
         value: serde_json::Value,
     },
 
-    #[display("unsupported parameter value: {message}. Got: {value}")]
+    #[display("Unsupported parameter value: {message}. Got: {value}")]
     #[from(skip)]
     UnsupportedParameterValue {
         message: String,
         value: serde_json::Value,
     },
 
-    #[display("Missing operation {id}")]
+    #[display("Missing operation: {id}")]
     #[from(skip)]
     MissingOperation {
         id: String,
     },
 
-    #[display("having a 500 error with raw body: {raw_body}")]
+    #[display("Server error (500) with response body: {raw_body}")]
     #[from(skip)]
     ServerFailure {
         raw_body: String,
     },
 
-    #[display("serialization error: {message}")]
+    #[display("Serialization error: {message}")]
     #[from(skip)]
     SerializationError {
         message: String,
     },
 
-    #[display("unexpected status code {status_code}: {body}")]
+    #[display("Unexpected status code {status_code}: {body}")]
     #[from(skip)]
     UnexpectedStatusCode {
         status_code: u16,

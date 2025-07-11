@@ -12,8 +12,9 @@ use url::Url;
 use utoipa::ToSchema;
 
 use super::collectors::{CalledOperation, Collectors};
+use super::param::ParameterValue;
 use super::path::PathResolved;
-use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResult};
+use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResult, ParamValue};
 
 const BODY_MAX_LENGTH: usize = 1024;
 
@@ -256,8 +257,16 @@ impl ApiCall {
     }
 }
 
-// Builder
+// Builder Implementation
+// Methods are organized by functionality for better discoverability:
+// 1. OpenAPI Metadata (operation_id, description, tags)
+// 2. Request Configuration (query, headers)
+// 3. Status Code Validation
+// 4. Request Body Methods
 impl ApiCall {
+    // =============================================================================
+    // OpenAPI Metadata Methods
+    // =============================================================================
     pub fn operation_id(mut self, operation_id: impl Into<String>) -> Self {
         self.metadata.operation_id = operation_id.into();
         self
@@ -323,18 +332,81 @@ impl ApiCall {
         self
     }
 
-    pub fn query(mut self, query: CallQuery) -> Self {
+    // =============================================================================
+    // Request Configuration Methods
+    // =============================================================================
+
+    pub fn with_query(mut self, query: CallQuery) -> Self {
         self.query = query;
         self
     }
 
-    pub fn headers(mut self, headers: Option<CallHeaders>) -> Self {
+    pub fn with_headers_option(mut self, headers: Option<CallHeaders>) -> Self {
         self.headers = match (self.headers.take(), headers) {
             (Some(existing), Some(new)) => Some(existing.merge(new)),
             (existing, new) => existing.or(new),
         };
         self
     }
+
+    /// Adds headers to the API call, merging with any existing headers.
+    ///
+    /// This is a convenience method that automatically wraps the headers in Some().
+    pub fn with_headers(self, headers: CallHeaders) -> Self {
+        self.with_headers_option(Some(headers))
+    }
+
+    /// Convenience method to add a single header.
+    ///
+    /// This method automatically handles type conversion and merges with existing headers.
+    /// If a header with the same name already exists, the new value will override it.
+    ///
+    /// # Examples
+    ///
+    /// ## Basic Usage
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.get("/users")?
+    ///     .with_header("Authorization", "Bearer token123")
+    ///     .with_header("X-Request-ID", "abc-123-def");
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Type Flexibility and Edge Cases
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Different value types are automatically converted
+    /// let call = client.post("/api/data")?
+    ///     .with_header("Content-Length", 1024_u64)           // Numeric values
+    ///     .with_header("X-Retry-Count", 3_u32)               // Different numeric types
+    ///     .with_header("X-Debug", true)                      // Boolean values
+    ///     .with_header("X-Session-ID", "session-123");       // String values
+    ///
+    /// // Headers can be chained and overridden
+    /// let call = client.get("/protected")?
+    ///     .with_header("Authorization", "Bearer old-token")
+    ///     .with_header("Authorization", "Bearer new-token");  // Overrides previous value
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_header<T: ParameterValue>(
+        self,
+        name: impl Into<String>,
+        value: impl Into<ParamValue<T>>,
+    ) -> Self {
+        let headers = CallHeaders::new().add_header(name, value);
+        self.with_headers(headers)
+    }
+
+    // =============================================================================
+    // Status Code Validation Methods
+    // =============================================================================
 
     /// Sets the expected status codes for this request using an inclusive range.
     ///
@@ -343,20 +415,41 @@ impl ApiCall {
     ///
     /// # Examples
     ///
+    /// ## Basic Usage
     /// ```rust
     /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept only 200 to 201 (inclusive)
-    /// let call = client.post("/users")?.set_status_range_inclusive(200..=201);
+    /// let call = client.post("/users")?.with_status_range_inclusive(200..=201);
     ///
     /// // Accept any 2xx status code
-    /// let call = client.get("/users")?.set_status_range_inclusive(200..=299);
+    /// let call = client.get("/users")?.with_status_range_inclusive(200..=299);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn set_status_range_inclusive(mut self, range: RangeInclusive<u16>) -> Self {
+    ///
+    /// ## Edge Cases
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Single status code range (equivalent to with_expected_status)
+    /// let call = client.get("/health")?.with_status_range_inclusive(200..=200);
+    ///
+    /// // Accept both success and client error ranges  
+    /// let call = client.delete("/users/123")?
+    ///     .with_status_range_inclusive(200..=299)
+    ///     .add_expected_status_range_inclusive(400..=404);
+    ///
+    /// // Handle APIs that return 2xx or 3xx for different success states
+    /// let call = client.post("/async-operation")?.with_status_range_inclusive(200..=302);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_status_range_inclusive(mut self, range: RangeInclusive<u16>) -> Self {
         self.expected_status_codes = ExpectedStatusCodes::from_inclusive_range(range);
         self
     }
@@ -371,11 +464,11 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept 200 to 299 (200 included, 300 excluded)
-    /// let call = client.get("/users")?.set_status_range(200..300);
+    /// let call = client.get("/users")?.with_status_range(200..300);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn set_status_range(mut self, range: Range<u16>) -> Self {
+    pub fn with_status_range(mut self, range: Range<u16>) -> Self {
         self.expected_status_codes = ExpectedStatusCodes::from_exclusive_range(range);
         self
     }
@@ -390,11 +483,11 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept only 204 for DELETE operations
-    /// let call = client.delete("/users/123")?.set_expected_status(204);
+    /// let call = client.delete("/users/123")?.with_expected_status(204);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn set_expected_status(mut self, status: u16) -> Self {
+    pub fn with_expected_status(mut self, status: u16) -> Self {
         self.expected_status_codes = ExpectedStatusCodes::from_single(status);
         self
     }
@@ -409,7 +502,7 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept 200..299 and also 404
-    /// let call = client.get("/users")?.set_status_range_inclusive(200..=299).add_expected_status(404);
+    /// let call = client.get("/users")?.with_status_range_inclusive(200..=299).add_expected_status(404);
     /// # Ok(())
     /// # }
     /// ```
@@ -428,7 +521,7 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept 200..=204 and also 400..=402
-    /// let call = client.post("/users")?.set_status_range_inclusive(200..=204).add_expected_status_range_inclusive(400..=402);
+    /// let call = client.post("/users")?.with_status_range_inclusive(200..=204).add_expected_status_range_inclusive(400..=402);
     /// # Ok(())
     /// # }
     /// ```
@@ -447,7 +540,7 @@ impl ApiCall {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Accept 200..=204 and also 400..403
-    /// let call = client.post("/users")?.set_status_range_inclusive(200..=204).add_expected_status_range(400..403);
+    /// let call = client.post("/users")?.with_status_range_inclusive(200..=204).add_expected_status_range(400..403);
     /// # Ok(())
     /// # }
     /// ```
@@ -456,12 +549,42 @@ impl ApiCall {
         self
     }
 
-    /// Adds headers to the API call, merging with any existing headers.
+    /// Convenience method to accept only 2xx status codes (200..300).
     ///
-    /// This is a convenience method that automatically wraps the headers in Some().
-    pub fn with_headers(self, headers: CallHeaders) -> Self {
-        self.headers(Some(headers))
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.get("/users")?.with_success_only();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_success_only(self) -> Self {
+        self.with_status_range(200..300)
     }
+
+    /// Convenience method to accept 2xx and 4xx status codes (200..500, excluding 3xx).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.post("/users")?.with_client_errors();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_client_errors(self) -> Self {
+        self.with_status_range_inclusive(200..=299)
+            .add_expected_status_range_inclusive(400..=499)
+    }
+
+    // =============================================================================
+    // Request Body Methods
+    // =============================================================================
 
     /// Sets the request body to JSON.
     ///

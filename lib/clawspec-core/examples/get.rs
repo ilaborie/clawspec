@@ -11,9 +11,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Create a client
     let mut client = ApiClient::builder()
-        .scheme(Scheme::HTTP)
-        .host("dog.ceo")
-        .base_path("/api")?
+        .with_scheme(Scheme::HTTP)
+        .with_host("dog.ceo")
+        .with_base_path("/api")?
         .build()?;
 
     // Simple get call with no parameters
