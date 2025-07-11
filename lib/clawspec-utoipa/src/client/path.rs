@@ -10,6 +10,7 @@
 //! - **OpenAPI Compliance**: Supports different parameter styles for arrays
 //! - **URL Encoding**: Proper percent-encoding of parameter values
 //! - **Parameter Substitution**: Template-based path building with `{param}` syntax
+//! - **Duplicate Parameter Support**: Handles same parameter appearing multiple times in path
 //! - **Automatic Schema Generation**: Integrates with utoipa for OpenAPI documentation
 //! - **Error Handling**: Robust validation and error reporting
 //!
@@ -34,6 +35,12 @@
 //!     ParamStyle::PipeDelimited
 //! ));
 //! // Results in: /search/rust%7Cweb%7Capi
+//!
+//! // Duplicate parameters (same parameter appears multiple times)
+//! let mut path = CallPath::from("/api/{version}/users/{id}/posts/{id}/comments/{version}");
+//! path.add_param("version", ParamValue::new("v1"));
+//! path.add_param("id", ParamValue::new(123));
+//! // Results in: /api/v1/users/123/posts/123/comments/v1
 //! ```
 //!
 //! # Parameter Types
@@ -156,12 +163,18 @@ static RE: LazyLock<Regex> =
 ///
 /// Path templates use `{parameter_name}` syntax for parameter placeholders.
 /// Parameter names must be valid identifiers (alphanumeric + underscore).
+/// The same parameter can appear multiple times in a single path.
 ///
 /// ```rust
 /// # use clawspec_utoipa::{CallPath, ParamValue};
 /// let mut path = CallPath::from("/api/v1/users/{user_id}/documents/{doc_id}");
 /// path.add_param("user_id", ParamValue::new(456));
 /// path.add_param("doc_id", ParamValue::new("report-2023"));
+///
+/// // Duplicate parameters are supported
+/// let mut path = CallPath::from("/test/{id}/{id}");
+/// path.add_param("id", ParamValue::new(123));
+/// // Results in: /test/123/123
 /// ```
 #[derive(Debug, Clone, Default, derive_more::Display)]
 #[display("{path}")]
@@ -284,12 +297,12 @@ impl TryFrom<CallPath> for PathResolved {
         }
 
         for (name, resolved) in args {
-            let Some(idx) = names.iter().position(|it| it == &name) else {
+            let len = names.len();
+            names.retain(|it| it != &name);
+            if len == names.len() {
                 warn!(?name, "argument name not found");
                 continue;
             };
-
-            names.remove(idx);
 
             // Convert JSON value to string for path substitution
             let path_value: String = match resolved.to_string_value() {
@@ -443,12 +456,28 @@ mod tests {
         let mut path = CallPath::from("/test/{id}/{id}");
         path.add_param("id", ParamValue::new(123));
 
-        // This will actually fail because the algorithm doesn't handle duplicates properly
-        // The replace() replaces all occurrences but names.remove() only removes one from the list
+        // The algorithm now properly handles duplicates using names.retain()
+        // It removes all occurrences of the parameter name from the list
         let result = PathResolved::try_from(path);
 
-        // This demonstrates the current behavior - should fail with missing parameter
-        assert!(result.is_err());
+        // Should now succeed - duplicate parameters are handled correctly
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert_eq!(resolved.path, "/test/123/123");
+    }
+
+    #[test]
+    fn test_path_with_multiple_duplicate_parameters() {
+        let mut path = CallPath::from("/api/{version}/users/{id}/posts/{id}/comments/{version}");
+        path.add_param("version", ParamValue::new("v1"));
+        path.add_param("id", ParamValue::new(456));
+
+        // Test with multiple parameters that appear multiple times
+        let result = PathResolved::try_from(path);
+
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert_eq!(resolved.path, "/api/v1/users/456/posts/456/comments/v1");
     }
 
     #[test]

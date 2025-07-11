@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
         .scheme(Scheme::HTTP)
         .host("dog.ceo")
         .base_path("/api")?
-        .build();
+        .build()?;
 
     // Simple get call with no parameters
     let _result = client

@@ -47,7 +47,8 @@ impl TestApp {
         let client = ApiClient::builder()
             .port(local_addr.port())
             .base_path("/api")?
-            .build();
+            .build()
+            .context("failed to build API client")?;
 
         let result = Self {
             local_addr,
