@@ -123,7 +123,7 @@ use std::fmt::Debug;
 use std::sync::LazyLock;
 
 use indexmap::IndexMap;
-use percent_encoding::NON_ALPHANUMERIC;
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use regex::Regex;
 use tracing::warn;
 
@@ -144,6 +144,13 @@ fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
     // Use concat to avoid format! macro allocation, but keep str::replace for correctness
     let pattern = ["{", param_name, "}"].concat();
     path.replace(&pattern, value)
+}
+
+/// URL-encode a path parameter value using percent-encoding for proper path encoding.
+/// This approach maintains the existing behavior while consolidating the encoding logic
+/// in a single function that can be reused and tested independently.
+fn encode_path_param_value(value: &str) -> String {
+    utf8_percent_encode(value, NON_ALPHANUMERIC).to_string()
 }
 
 /// A parameterized HTTP path with type-safe parameter substitution.
@@ -323,8 +330,7 @@ impl TryFrom<CallPath> for PathResolved {
 
             // TODO explore [URI template](https://datatracker.ietf.org/doc/html/rfc6570) - https://github.com/ilaborie/clawspec/issues/21
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
-            let encoded_value =
-                percent_encoding::utf8_percent_encode(&path_value, NON_ALPHANUMERIC).to_string();
+            let encoded_value = encode_path_param_value(&path_value);
 
             // Optimized: Use custom replacement function that avoids string allocations
             path = replace_path_param(&path, &name, &encoded_value);
