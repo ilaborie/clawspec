@@ -4,7 +4,7 @@ use axum_example::extractors::ExtractorError;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use clawspec_utoipa::{CallHeaders, CallPath, CallQuery, ParamValue};
+use clawspec_core::{CallHeaders, CallPath, CallQuery, ParamValue};
 
 use axum_example::observations::ListOption;
 use axum_example::observations::domain::{

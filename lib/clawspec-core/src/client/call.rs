@@ -268,7 +268,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let call = client.get("/users")?.description("Retrieve all users");
@@ -285,7 +285,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let call = client.get("/users")?.tags(vec!["users", "admin"]);
@@ -308,7 +308,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let call = client.get("/users")?.tag("users").tag("admin");
@@ -344,7 +344,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
@@ -366,7 +366,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
@@ -385,7 +385,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
@@ -404,7 +404,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
@@ -423,7 +423,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
@@ -442,7 +442,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///
@@ -471,7 +471,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # use serde::Serialize;
     /// # use utoipa::ToSchema;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -508,7 +508,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # use serde::Serialize;
     /// # use utoipa::ToSchema;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -546,7 +546,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # use headers::ContentType;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
@@ -576,7 +576,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let call = client.post("/notes")?.text("This is a plain text note");
@@ -598,7 +598,7 @@ impl ApiCall {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let parts = vec![

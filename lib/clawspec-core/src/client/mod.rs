@@ -99,7 +99,7 @@ impl ApiClient {
     /// # Example
     ///
     /// ```rust
-    /// use clawspec_utoipa::ApiClient;
+    /// use clawspec_core::ApiClient;
     /// # use utoipa::ToSchema;
     /// # use serde::{Deserialize, Serialize};
     ///

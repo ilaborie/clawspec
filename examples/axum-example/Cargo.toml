@@ -22,7 +22,7 @@ tracing-subscriber = { workspace = true, features = ["fmt"] }
 utoipa = { workspace = true }
 
 [dev-dependencies]
-clawspec-utoipa= { path = "../../lib/clawspec-utoipa"}
+clawspec-core = { path = "../../lib/clawspec-core"}
 headers = { workspace = true}
 rstest = { workspace = true }
 utoipa = { workspace = true, features = ["yaml"]}

@@ -1,4 +1,4 @@
-use clawspec_utoipa::{ApiClient, CallPath, ParamValue};
+use clawspec_core::{ApiClient, CallPath, ParamValue};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use serde::{Deserialize, Serialize};
 use std::hint::black_box;

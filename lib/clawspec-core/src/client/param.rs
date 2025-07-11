@@ -25,7 +25,7 @@ impl<T> ParameterValue for T where T: Serialize + ToSchema + Debug + Send + Sync
 /// # Examples
 ///
 /// ```rust
-/// use clawspec_utoipa::{ParamStyle, ParamValue, CallQuery};
+/// use clawspec_core::{ParamStyle, ParamValue, CallQuery};
 ///
 /// // Form style (default) - arrays are repeated: ?tags=rust&tags=web&tags=api
 /// let form_query = ParamValue::new(vec!["rust", "web", "api"]);

@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib/clawspec-*", "examples/*"]
+members = ["lib/clawspec-core", "lib/clawspec-macro", "examples/*"]
 resolver = "2"
 
 [workspace.package]

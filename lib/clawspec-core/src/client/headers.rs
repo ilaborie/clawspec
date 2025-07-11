@@ -37,7 +37,7 @@ impl CallHeaders {
     /// # Example
     ///
     /// ```rust
-    /// use clawspec_utoipa::CallHeaders;
+    /// use clawspec_core::CallHeaders;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let headers = CallHeaders::new()

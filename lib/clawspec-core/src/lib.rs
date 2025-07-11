@@ -18,7 +18,7 @@ pub use self::client::{
 /// # Example
 ///
 /// ```rust
-/// use clawspec_utoipa::{ApiClient, register_schemas};
+/// use clawspec_core::{ApiClient, register_schemas};
 /// # use utoipa::ToSchema;
 /// # use serde::{Deserialize, Serialize};
 ///

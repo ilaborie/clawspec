@@ -364,7 +364,7 @@ impl CallResult {
     /// # Example
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # use serde::{Deserialize, Serialize};
     /// # use utoipa::ToSchema;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -429,7 +429,7 @@ impl CallResult {
     /// # Example
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let text = client
@@ -466,7 +466,7 @@ impl CallResult {
     /// # Example
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let bytes = client
@@ -505,7 +505,7 @@ impl CallResult {
     /// # Example
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// if let Some((content_type, body)) = client
@@ -544,7 +544,7 @@ impl CallResult {
     /// # Example
     ///
     /// ```rust
-    /// # use clawspec_utoipa::ApiClient;
+    /// # use clawspec_core::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     ///

@@ -4,7 +4,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 
 use anyhow::Context;
-use clawspec_utoipa::ApiClient;
+use clawspec_core::ApiClient;
 use tracing::error;
 
 use axum_example::launch;

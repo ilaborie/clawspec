@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use clawspec_utoipa::{ApiClient, CallPath, ParamValue};
+use clawspec_core::{ApiClient, CallPath, ParamValue};
 use http::uri::Scheme;
 use serde::Deserialize;
 use utoipa::ToSchema;

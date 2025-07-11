@@ -28,7 +28,7 @@ impl CallBody {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::CallBody;
+    /// # use clawspec_core::CallBody;
     /// # use serde::Serialize;
     /// # use utoipa::ToSchema;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -76,7 +76,7 @@ impl CallBody {
     /// # Examples
     ///
     /// ```rust
-    /// # use clawspec_utoipa::CallBody;
+    /// # use clawspec_core::CallBody;
     /// # use serde::Serialize;
     /// # use utoipa::ToSchema;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -128,7 +128,7 @@ impl CallBody {
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::CallBody;
+    /// use clawspec_core::CallBody;
     /// use headers::ContentType;
     ///
     /// // Send XML data
@@ -164,7 +164,7 @@ impl CallBody {
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::CallBody;
+    /// use clawspec_core::CallBody;
     ///
     /// let body = CallBody::text("Hello, World!");
     /// ```
@@ -181,7 +181,7 @@ impl CallBody {
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::CallBody;
+    /// use clawspec_core::CallBody;
     ///
     /// let mut parts = Vec::new();
     /// parts.push(("field1", "value1"));
@@ -244,7 +244,7 @@ mod tests {
                 "application/json",
             ),
             entry: SchemaEntry {
-                type_name: "clawspec_utoipa::client::body::tests::TestData",
+                type_name: "clawspec_core::client::body::tests::TestData",
                 name: "TestData",
                 examples: {
                     Object {

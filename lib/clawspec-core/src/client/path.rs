@@ -17,7 +17,7 @@
 //! # Quick Start
 //!
 //! ```rust
-//! use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! use clawspec_core::{CallPath, ParamValue, ParamStyle};
 //!
 //! // Basic path with single parameter
 //! let mut path = CallPath::from("/users/{user_id}");
@@ -52,7 +52,7 @@
 //! suitable for URL path substitution.
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! # use clawspec_core::{CallPath, ParamValue, ParamStyle};
 //! let mut path = CallPath::from("/api/items/{id}");
 //!
 //! // String parameter
@@ -77,7 +77,7 @@
 //! - **PipeDelimited**: `value1|value2|value3` (pipe-separated)
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+//! # use clawspec_core::{CallPath, ParamValue, ParamStyle};
 //! let mut path = CallPath::from("/filter/{categories}");
 //!
 //! // Simple style (default): tech,programming,rust
@@ -102,7 +102,7 @@
 //! to ensure URL safety:
 //!
 //! ```rust
-//! # use clawspec_utoipa::{CallPath, ParamValue};
+//! # use clawspec_core::{CallPath, ParamValue};
 //! let mut path = CallPath::from("/search/{query}");
 //! path.add_param("query", ParamValue::new("hello world & more"));
 //! // Results in: /search/hello%20world%20%26%20more
@@ -162,7 +162,7 @@ fn encode_path_param_value(value: &str) -> String {
 /// # Examples
 ///
 /// ```rust
-/// use clawspec_utoipa::{CallPath, ParamValue};
+/// use clawspec_core::{CallPath, ParamValue};
 ///
 /// // Create a path template
 /// let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
@@ -181,7 +181,7 @@ fn encode_path_param_value(value: &str) -> String {
 /// The same parameter can appear multiple times in a single path.
 ///
 /// ```rust
-/// # use clawspec_utoipa::{CallPath, ParamValue};
+/// # use clawspec_core::{CallPath, ParamValue};
 /// let mut path = CallPath::from("/api/v1/users/{user_id}/documents/{doc_id}");
 /// path.add_param("user_id", ParamValue::new(456));
 /// path.add_param("doc_id", ParamValue::new("report-2023"));
@@ -217,7 +217,7 @@ impl CallPath {
     /// # Examples
     ///
     /// ```rust
-    /// use clawspec_utoipa::{CallPath, ParamValue, ParamStyle};
+    /// use clawspec_core::{CallPath, ParamValue, ParamStyle};
     ///
     /// let mut path = CallPath::from("/users/{id}");
     ///
