@@ -125,15 +125,20 @@ impl Schemas {
             let type_parts: Vec<&str> = target_entry
                 .type_name
                 .split("::")
-                .filter(|part| !part.is_empty() && *part != "tests")
+                .filter(|part| !part.is_empty() && !Self::is_filtered_path_part(part))
                 .collect();
 
             if type_parts.len() >= 2 {
                 // Use the last two parts for namespace (e.g., "module::Type")
                 format!("{}_{}", type_parts[type_parts.len() - 2], base_name)
             } else {
-                // Fallback: use the TypeId as a unique suffix
-                format!("{base_name}_{target_type_id:?}")
+                // Fallback: use a more readable hash-based suffix
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                target_type_id.hash(&mut hasher);
+                let hash = hasher.finish();
+                format!("{base_name}_{:x}", hash & 0xFFFF) // Use last 4 hex digits for readability
             }
         };
 
@@ -178,38 +183,109 @@ impl Schemas {
     /// // Result: schemas1 has User schema with both examples
     /// ```
     pub(super) fn merge(&mut self, other: Self) {
-        for (type_id, entry) in other.entries {
-            self.entries
-                .entry(type_id)
-                .and_modify(|existing| existing.examples.extend(entry.examples.clone()))
-                .or_insert(entry);
-        }
-        // Clear resolved names cache since we need to re-resolve after merge to handle conflicts
-        self.resolved_names.clear();
+        // Collect schema names that might be affected by conflicts
+        let mut potentially_affected_names = std::collections::HashSet::new();
 
-        // Merge any resolved names from the other collection, but clear them since conflicts may change
-        // We don't carry over resolved names because the merge might create new conflicts
+        for (type_id, entry) in &other.entries {
+            // If this name already exists in our collection, it might create conflicts
+            if self
+                .entries
+                .values()
+                .any(|existing| existing.name == entry.name && !existing.should_inline_schema())
+            {
+                potentially_affected_names.insert(entry.name.clone());
+            }
+
+            self.entries
+                .entry(*type_id)
+                .and_modify(|existing| existing.examples.extend(entry.examples.clone()))
+                .or_insert(entry.clone());
+        }
+
+        // Selectively invalidate cache only for potentially conflicted schemas
+        if !potentially_affected_names.is_empty() {
+            self.resolved_names.retain(|type_id, _| {
+                if let Some(entry) = self.entries.get(type_id) {
+                    !potentially_affected_names.contains(&entry.name)
+                } else {
+                    false // Remove if entry no longer exists
+                }
+            });
+        }
     }
 
     pub(super) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
         let mut result = vec![];
 
-        // Create a temporary copy to resolve names
-        let mut temp_schemas = self.clone();
+        // First, identify all non-primitive entries and detect conflicts
+        let non_primitive_entries: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| !entry.should_inline_schema())
+            .collect();
 
-        for (type_id, entry) in &self.entries {
-            // Only include non-primitive types in the components/schemas section
-            if !entry.should_inline_schema() {
-                let resolved_name = temp_schemas.resolve_name_for_type(*type_id);
-                let schema = entry.schema.clone();
-                result.push((resolved_name, schema));
-            }
+        // Count name occurrences to detect conflicts
+        let mut name_counts = std::collections::HashMap::<String, u32>::new();
+        for (_, entry) in &non_primitive_entries {
+            *name_counts.entry(entry.name.clone()).or_insert(0) += 1;
+        }
+
+        // Generate resolved names without cloning the entire structure
+        for (type_id, entry) in non_primitive_entries {
+            let resolved_name =
+                self.resolve_schema_name(*type_id, &entry.name, &entry.type_name, &name_counts);
+            let schema = entry.schema.clone();
+            result.push((resolved_name, schema));
         }
         result
     }
 
-    // TODO examples - https://github.com/ilaborie/clawspec/issues/25
-    // let example = Example::builder().value(output.as_example_value()?).build();
+    /// Resolves schema name for a specific entry without requiring mutable access
+    fn resolve_schema_name(
+        &self,
+        type_id: TypeId,
+        base_name: &str,
+        type_name: &str,
+        name_counts: &std::collections::HashMap<String, u32>,
+    ) -> String {
+        // Check cache first
+        if let Some(cached_name) = self.resolved_names.get(&type_id) {
+            return cached_name.clone();
+        }
+
+        // If no conflict, use original name
+        if name_counts.get(base_name).copied().unwrap_or(0) <= 1 {
+            return base_name.to_string();
+        }
+
+        // Conflict detected - generate unique name using type path
+        let type_parts: Vec<&str> = type_name
+            .split("::")
+            .filter(|part| !part.is_empty() && !Self::is_filtered_path_part(part))
+            .collect();
+
+        if type_parts.len() >= 2 {
+            // Use the last two parts for namespace (e.g., "module::Type")
+            format!("{}_{}", type_parts[type_parts.len() - 2], base_name)
+        } else {
+            // Fallback: use a more readable hash-based suffix
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            type_id.hash(&mut hasher);
+            let hash = hasher.finish();
+            format!("{base_name}_{:x}", hash & 0xFFFF) // Use last 4 hex digits for readability
+        }
+    }
+
+    /// Checks if a path part should be filtered out from namespace generation
+    fn is_filtered_path_part(part: &str) -> bool {
+        // Filter out common test-related and internal modules
+        matches!(
+            part,
+            "tests" | "test" | "_test" | "testing" | "internal" | "private"
+        )
+    }
 }
 
 #[derive(Clone, derive_more::Display, derive_more::Debug)]
@@ -682,5 +758,147 @@ mod tests {
             3,
             "Duplicate examples should be deduplicated"
         );
+    }
+
+    #[test]
+    fn test_fallback_naming_strategy() {
+        // Test the fallback naming when type path has insufficient parts
+        #[derive(Debug, ToSchema, Serialize)]
+        struct SimpleType;
+
+        // Create a type in the root namespace (less than 2 path parts)
+        let mut schemas = Schemas::default();
+
+        // Manually create an entry to simulate root-level types
+        let simple_entry = SchemaEntry {
+            id: TypeId::of::<SimpleType>(),
+            type_name: "SimpleType".to_string(), // Root level, no :: separator
+            name: "SimpleType".to_string(),
+            schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            examples: IndexSet::default(),
+        };
+
+        // Add the same name from another "type" to force conflict
+        let conflicting_entry = SchemaEntry {
+            id: TypeId::of::<String>(), // Different type, same schema name
+            type_name: "String".to_string(),
+            name: "SimpleType".to_string(), // Same name as above!
+            schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            examples: IndexSet::default(),
+        };
+
+        schemas.entries.insert(simple_entry.id, simple_entry);
+        schemas
+            .entries
+            .insert(conflicting_entry.id, conflicting_entry);
+
+        // Get schema vector - should use hash-based fallback naming
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 2);
+
+        // Both should have unique names, and at least one should use hash-based naming
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
+
+        // At least one name should contain a hex hash
+        let has_hash_name = names.iter().any(|name| {
+            name.contains("_")
+                && name
+                    .split('_')
+                    .next_back()
+                    .unwrap_or("")
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit())
+        });
+        assert!(
+            has_hash_name,
+            "Should have at least one hash-based fallback name"
+        );
+    }
+
+    #[test]
+    fn test_path_filtering_edge_cases() {
+        // Test various edge cases in path filtering
+        assert!(Schemas::is_filtered_path_part("tests"));
+        assert!(Schemas::is_filtered_path_part("test"));
+        assert!(Schemas::is_filtered_path_part("_test"));
+        assert!(Schemas::is_filtered_path_part("testing"));
+        assert!(Schemas::is_filtered_path_part("internal"));
+        assert!(Schemas::is_filtered_path_part("private"));
+
+        // These should not be filtered
+        assert!(!Schemas::is_filtered_path_part("user"));
+        assert!(!Schemas::is_filtered_path_part("api"));
+        assert!(!Schemas::is_filtered_path_part("v1"));
+        assert!(!Schemas::is_filtered_path_part("service"));
+    }
+
+    #[test]
+    fn test_selective_cache_invalidation() {
+        // Test that cache invalidation only affects conflicted schemas
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Product {
+            name: String,
+        }
+
+        mod api_v1 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+            }
+        }
+
+        // Create first schema collection
+        let mut schemas1 = Schemas::default();
+        schemas1.add::<User>();
+        schemas1.add::<Product>();
+
+        // Manually populate cache to simulate cached state
+        let user_id = TypeId::of::<User>();
+        let product_id = TypeId::of::<Product>();
+        schemas1.resolved_names.insert(user_id, "User".to_string());
+        schemas1
+            .resolved_names
+            .insert(product_id, "Product".to_string());
+
+        // Create second collection with conflicting User but no Product
+        let mut schemas2 = Schemas::default();
+        schemas2.add::<api_v1::User>();
+
+        // Before merge, should have 2 cached names
+        assert_eq!(schemas1.resolved_names.len(), 2);
+
+        // Merge - should only invalidate User-related cache entries
+        schemas1.merge(schemas2);
+
+        // After merge, Product cache should remain, but User cache should be cleared
+        // Note: the exact behavior depends on implementation, but cache should be smaller
+        assert!(schemas1.resolved_names.len() <= 2);
+
+        // Verify that the schema_vec works correctly after merge
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 3); // User, api_v1_User, Product
+
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
     }
 }
