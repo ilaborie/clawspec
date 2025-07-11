@@ -138,6 +138,23 @@ use utoipa::openapi::path::{Parameter, ParameterIn};
 static RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\{(?<name>\w*)}").expect("a valid regex"));
 
+/// Optimized string replacement that avoids format! macro allocations
+fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
+    // Pre-allocate capacity based on the likely size difference
+    let mut result = String::with_capacity(path.len() + value.len());
+    let pattern = ["{", param_name, "}"].concat();
+    
+    let mut last_end = 0;
+    while let Some(start) = path[last_end..].find(&pattern) {
+        let actual_start = last_end + start;
+        result.push_str(&path[last_end..actual_start]);
+        result.push_str(value);
+        last_end = actual_start + pattern.len();
+    }
+    result.push_str(&path[last_end..]);
+    result
+}
+
 /// A parameterized HTTP path with type-safe parameter substitution.
 ///
 /// `CallPath` represents an HTTP path template with named parameters that can be
@@ -286,23 +303,23 @@ impl TryFrom<CallPath> for PathResolved {
             schemas: _,
         } = value;
 
-        let mut names = RE
+        // Optimized: Extract all parameter names once using a HashSet for efficient lookup
+        let mut names: std::collections::HashSet<String> = RE
             .captures_iter(&path)
             .filter_map(|caps| caps.name("name"))
             .map(|m| m.as_str().to_string())
-            .collect::<Vec<_>>();
+            .collect();
 
         if names.is_empty() {
             return Ok(Self { path });
         }
 
+        // Optimized: Process all parameters in a single pass
         for (name, resolved) in args {
-            let len = names.len();
-            names.retain(|it| it != &name);
-            if len == names.len() {
+            if !names.remove(&name) {
                 warn!(?name, "argument name not found");
                 continue;
-            };
+            }
 
             // Convert JSON value to string for path substitution
             let path_value: String = match resolved.to_string_value() {
@@ -317,7 +334,9 @@ impl TryFrom<CallPath> for PathResolved {
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
             let encoded_value =
                 percent_encoding::utf8_percent_encode(&path_value, NON_ALPHANUMERIC).to_string();
-            path = path.replace(&format!("{{{name}}}"), &encoded_value); // TODO: Optimize string allocations - https://github.com/ilaborie/clawspec/issues/31
+            
+            // Optimized: Use custom replacement function that avoids string allocations
+            path = replace_path_param(&path, &name, &encoded_value);
 
             if names.is_empty() {
                 return Ok(Self { path });
@@ -326,7 +345,7 @@ impl TryFrom<CallPath> for PathResolved {
 
         Err(ApiClientError::PathUnresolved {
             path,
-            missings: names,
+            missings: names.into_iter().collect(),
         })
     }
 }

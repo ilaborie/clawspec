@@ -46,7 +46,9 @@
       "Bash(gh label:*)",
       "Bash(awk:*)",
       "Bash(npx @stoplight/spectral-cli lint doc/openapi.yml --ruleset ../../.spectral.yaml)",
-      "Bash(npx @stoplight/spectral-cli lint:*)"
+      "Bash(npx @stoplight/spectral-cli lint:*)",
+      "Bash(git pull:*)",
+      "Bash(timeout 30s cargo bench --bench performance)"
     ],
     "deny": []
   }

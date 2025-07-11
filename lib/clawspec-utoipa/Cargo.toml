@@ -35,3 +35,12 @@ tracing-subscriber = { workspace = true, features = ["fmt"]}
 tokio = { workspace = true, features = ["full"]}
 insta = { workspace = true }
 serde_yaml = { workspace = true}
+criterion = { workspace = true }
+
+[[bench]]
+name = "performance"
+harness = false
+
+[[bench]]
+name = "path_replacement"
+harness = false

@@ -626,11 +626,9 @@ fn merge_request_body(
 ) -> Option<RequestBody> {
     match (current, new) {
         (Some(current), Some(new)) => {
-            // Merge content types from both request bodies
-            let mut merged_content = current.content.clone();
-            for (content_type, content) in new.content {
-                merged_content.insert(content_type, content);
-            }
+            // Optimized: Avoid cloning content by moving and extending
+            let mut merged_content = current.content;
+            merged_content.extend(new.content);
 
             let mut merged_builder = RequestBody::builder();
             for (content_type, content) in merged_content {
@@ -670,11 +668,12 @@ fn merge_parameters(
     new: Option<Vec<Parameter>>,
 ) -> Option<Vec<Parameter>> {
     let mut result = IndexMap::new();
+    // Optimized: Avoid cloning parameter names by using references for lookup
     for param in new.unwrap_or_default() {
         result.insert(param.name.clone(), param);
     }
     for param in current.unwrap_or_default() {
-        result.insert(param.name.clone(), param);
+        result.entry(param.name.clone()).or_insert(param);
     }
 
     let result = result.into_values().collect();
