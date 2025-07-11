@@ -47,3 +47,22 @@ pub struct PatchObservation {
     pub color: Option<String>,
     pub notes: Option<String>,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ImportResponse {
+    pub imported: usize,
+    pub error_count: usize,
+    pub bytes_processed: usize,
+    pub created_ids: Vec<ObservationId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct UploadResponse {
+    pub uploaded: usize,
+    pub error_count: usize,
+    pub created_ids: Vec<ObservationId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<String>>,
+}
