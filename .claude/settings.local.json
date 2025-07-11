@@ -44,7 +44,9 @@
       "Bash(python3:*)",
       "Bash(mise spectral:*)",
       "Bash(gh label:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(npx @stoplight/spectral-cli lint doc/openapi.yml --ruleset ../../.spectral.yaml)",
+      "Bash(npx @stoplight/spectral-cli lint:*)"
     ],
     "deny": []
   }

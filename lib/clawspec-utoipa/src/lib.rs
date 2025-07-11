@@ -12,8 +12,8 @@ pub use self::client::{
 /// Macro for registering multiple schemas at once in an ApiClient.
 ///
 /// This macro provides a convenient way to register multiple types that implement
-/// `ToSchema` in a single call. It's more efficient than calling `register_schema`
-/// multiple times as it only acquires the lock once.
+/// `ToSchema` in a single call. It's more convenient than calling `register_schema`
+/// multiple times.
 ///
 /// # Example
 ///

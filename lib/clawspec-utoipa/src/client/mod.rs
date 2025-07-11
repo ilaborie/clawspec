@@ -90,7 +90,7 @@ impl ApiClient {
     ///
     /// This method allows you to explicitly add types to the OpenAPI schema collection
     /// that might not be automatically detected. This is useful for types that are
-    /// referenced indirectly, such as nested types in error responses.
+    /// referenced indirectly, such as nested types.
     ///
     /// # Type Parameters
     ///
@@ -123,12 +123,11 @@ impl ApiClient {
     where
         T: utoipa::ToSchema + 'static,
     {
+        let mut schemas = schema::Schemas::default();
+        schemas.add::<T>();
+
         let mut collectors = self.collectors.write().await;
-        collectors.collect_schemas({
-            let mut schemas = schema::Schemas::default();
-            schemas.add::<T>();
-            schemas
-        });
+        collectors.collect_schemas(schemas);
     }
 }
 
