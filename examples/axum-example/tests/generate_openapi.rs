@@ -3,7 +3,7 @@
 use anyhow::Context;
 use axum_example::extractors::ExtractorError;
 use axum_example::observations::domain::{LngLat, PartialObservation, PatchObservation};
-use axum_example::observations::{FlatObservation, ListOption};
+use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 use clawspec_utoipa::{CallHeaders, register_schemas};
 use headers::ContentType;
 use rstest::rstest;
@@ -24,7 +24,9 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
         FlatObservation,
         PartialObservation,
         PatchObservation,
-        LngLat
+        LngLat,
+        ImportResponse,
+        UploadResponse
     );
 
     basic_crud(&mut app).await?;
@@ -125,6 +127,7 @@ async fn basic_crud(app: &mut TestApp) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     // Test 1: Create observation with JSON (existing format)
     let json_observation = PartialObservation {
@@ -206,12 +209,20 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
         ndjson_data.push(b'\n');
     }
 
-    let _import_result = app
+    let import_result = app
         .post("/observations/import")?
         .raw(ndjson_data, ContentType::octet_stream())
         .exchange()
         .await
-        .context("should import observations via streaming JSON")?;
+        .context("should import observations via streaming JSON")?
+        .as_json::<ImportResponse>()
+        .await
+        .context("should deserialize import response")?;
+
+    info!(
+        "Import result: imported {} observations",
+        import_result.imported
+    );
 
     // Test 5: Upload observations using multipart/form-data
     let multipart_data = vec![
@@ -225,12 +236,20 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
         ),
     ];
 
-    let _multipart_result = app
+    let upload_result = app
         .post("/observations/upload")?
         .multipart(multipart_data)
         .exchange()
         .await
-        .context("should upload observations via multipart")?;
+        .context("should upload observations via multipart")?
+        .as_json::<UploadResponse>()
+        .await
+        .context("should deserialize upload response")?;
+
+    info!(
+        "Upload result: uploaded {} observations",
+        upload_result.uploaded
+    );
 
     Ok(())
 }

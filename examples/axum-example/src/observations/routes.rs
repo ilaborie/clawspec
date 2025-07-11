@@ -156,7 +156,7 @@ async fn import_observations(
 
     let response = json!({
         "imported": created_ids.len(),
-        "errors": errors.len(),
+        "error_count": errors.len(),
         "bytes_processed": bytes_processed,
         "created_ids": created_ids,
         "errors": if errors.is_empty() { serde_json::Value::Null } else { json!(errors) }
@@ -229,7 +229,7 @@ async fn upload_observations(
 
     let response = json!({
         "uploaded": created_ids.len(),
-        "errors": errors.len(),
+        "error_count": errors.len(),
         "created_ids": created_ids,
         "errors": if errors.is_empty() { serde_json::Value::Null } else { json!(errors) }
     });

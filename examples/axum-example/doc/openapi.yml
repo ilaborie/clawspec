@@ -112,7 +112,13 @@ paths:
             schema:
               type: string
               format: binary
-      responses: {}
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResponse'
   /api/observations/upload:
     post:
       operationId: post-observations-upload
@@ -123,7 +129,13 @@ paths:
             schema:
               type: string
               format: binary
-      responses: {}
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
   /api/observations/{observation_id}:
     put:
       operationId: put-observations-observation-id
@@ -377,6 +389,33 @@ components:
             - string
             - 'null'
       description: Flattened observation structure for form data that doesn't support nested objects.
+    ImportResponse:
+      type: object
+      required:
+      - imported
+      - error_count
+      - bytes_processed
+      - created_ids
+      properties:
+        bytes_processed:
+          type: integer
+          minimum: 0
+        created_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObservationId'
+        error_count:
+          type: integer
+          minimum: 0
+        errors:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+        imported:
+          type: integer
+          minimum: 0
     ListObservations:
       type: object
       required:
@@ -462,3 +501,26 @@ components:
           minimum: 0
         timestamp:
           type: string
+    UploadResponse:
+      type: object
+      required:
+      - uploaded
+      - error_count
+      - created_ids
+      properties:
+        created_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObservationId'
+        error_count:
+          type: integer
+          minimum: 0
+        errors:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+        uploaded:
+          type: integer
+          minimum: 0
