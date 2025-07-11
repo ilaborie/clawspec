@@ -212,6 +212,10 @@ pub struct ApiCall {
     // TODO cookiess - https://github.com/ilaborie/clawspec/issues/18
     /// Expected status codes for this request (default: 200..500)
     expected_status_codes: ExpectedStatusCodes,
+    /// Operation tags for OpenAPI categorization
+    tags: Option<Vec<String>>,
+    /// Operation description for OpenAPI documentation
+    description: Option<String>,
 }
 
 impl ApiCall {
@@ -235,6 +239,8 @@ impl ApiCall {
             headers: None,
             body: None,
             expected_status_codes: ExpectedStatusCodes::default(),
+            tags: None,
+            description: None,
         };
         Ok(result)
     }
@@ -244,6 +250,57 @@ impl ApiCall {
 impl ApiCall {
     pub fn operation_id(mut self, operation_id: impl Into<String>) -> Self {
         self.operation_id = operation_id.into();
+        self
+    }
+
+    /// Sets the operation description for OpenAPI documentation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.get("/users")?.description("Retrieve all users");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Sets the operation tags for OpenAPI categorization.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.get("/users")?.tags(vec!["users", "admin"]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn tags<T: Into<String>>(mut self, tags: Vec<T>) -> Self {
+        self.tags = Some(tags.into_iter().map(|t| t.into()).collect());
+        self
+    }
+
+    /// Adds a single tag to the operation for OpenAPI categorization.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_utoipa::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.get("/users")?.tag("users").tag("admin");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn tag(mut self, tag: impl Into<String>) -> Self {
+        self.tags.get_or_insert_with(Vec::new).push(tag.into());
         self
     }
 
@@ -555,6 +612,8 @@ impl ApiCall {
             headers,
             body,
             expected_status_codes,
+            tags,
+            description,
         } = self;
 
         // Build URL and request
@@ -569,6 +628,8 @@ impl ApiCall {
             query.clone(),
             &headers,
             &body,
+            tags,
+            description,
         );
 
         // Execute HTTP request
@@ -649,6 +710,7 @@ impl ApiCall {
         Ok(request)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_operation(
         operation_id: &str,
         method: &Method,
@@ -656,6 +718,8 @@ impl ApiCall {
         query: CallQuery,
         headers: &Option<CallHeaders>,
         body: &Option<CallBody>,
+        tags: Option<Vec<String>>,
+        description: Option<String>,
     ) -> CalledOperation {
         CalledOperation::build(
             operation_id.to_string(),
@@ -665,6 +729,8 @@ impl ApiCall {
             query,
             headers.as_ref(),
             body.as_ref(),
+            tags,
+            description,
         )
     }
 
