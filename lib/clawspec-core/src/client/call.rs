@@ -257,8 +257,16 @@ impl ApiCall {
     }
 }
 
-// Builder
+// Builder Implementation
+// Methods are organized by functionality for better discoverability:
+// 1. OpenAPI Metadata (operation_id, description, tags)
+// 2. Request Configuration (query, headers)
+// 3. Status Code Validation
+// 4. Request Body Methods
 impl ApiCall {
+    // =============================================================================
+    // OpenAPI Metadata Methods
+    // =============================================================================
     pub fn operation_id(mut self, operation_id: impl Into<String>) -> Self {
         self.metadata.operation_id = operation_id.into();
         self
@@ -324,6 +332,10 @@ impl ApiCall {
         self
     }
 
+    // =============================================================================
+    // Request Configuration Methods
+    // =============================================================================
+
     pub fn with_query(mut self, query: CallQuery) -> Self {
         self.query = query;
         self
@@ -346,8 +358,12 @@ impl ApiCall {
 
     /// Convenience method to add a single header.
     ///
+    /// This method automatically handles type conversion and merges with existing headers.
+    /// If a header with the same name already exists, the new value will override it.
+    ///
     /// # Examples
     ///
+    /// ## Basic Usage
     /// ```rust
     /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -355,6 +371,27 @@ impl ApiCall {
     /// let call = client.get("/users")?
     ///     .with_header("Authorization", "Bearer token123")
     ///     .with_header("X-Request-ID", "abc-123-def");
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Type Flexibility and Edge Cases
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Different value types are automatically converted
+    /// let call = client.post("/api/data")?
+    ///     .with_header("Content-Length", 1024_u64)           // Numeric values
+    ///     .with_header("X-Retry-Count", 3_u32)               // Different numeric types
+    ///     .with_header("X-Debug", true)                      // Boolean values
+    ///     .with_header("X-Session-ID", "session-123");       // String values
+    ///
+    /// // Headers can be chained and overridden
+    /// let call = client.get("/protected")?
+    ///     .with_header("Authorization", "Bearer old-token")
+    ///     .with_header("Authorization", "Bearer new-token");  // Overrides previous value
     /// # Ok(())
     /// # }
     /// ```
@@ -367,6 +404,10 @@ impl ApiCall {
         self.with_headers(headers)
     }
 
+    // =============================================================================
+    // Status Code Validation Methods
+    // =============================================================================
+
     /// Sets the expected status codes for this request using an inclusive range.
     ///
     /// By default, status codes 200..500 are considered successful.
@@ -374,6 +415,7 @@ impl ApiCall {
     ///
     /// # Examples
     ///
+    /// ## Basic Usage
     /// ```rust
     /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -384,6 +426,26 @@ impl ApiCall {
     ///
     /// // Accept any 2xx status code
     /// let call = client.get("/users")?.with_status_range_inclusive(200..=299);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Edge Cases
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Single status code range (equivalent to with_expected_status)
+    /// let call = client.get("/health")?.with_status_range_inclusive(200..=200);
+    ///
+    /// // Accept both success and client error ranges  
+    /// let call = client.delete("/users/123")?
+    ///     .with_status_range_inclusive(200..=299)
+    ///     .add_expected_status_range_inclusive(400..=404);
+    ///
+    /// // Handle APIs that return 2xx or 3xx for different success states
+    /// let call = client.post("/async-operation")?.with_status_range_inclusive(200..=302);
     /// # Ok(())
     /// # }
     /// ```
@@ -519,6 +581,10 @@ impl ApiCall {
         self.with_status_range_inclusive(200..=299)
             .add_expected_status_range_inclusive(400..=499)
     }
+
+    // =============================================================================
+    // Request Body Methods
+    // =============================================================================
 
     /// Sets the request body to JSON.
     ///

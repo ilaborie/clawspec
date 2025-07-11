@@ -65,6 +65,49 @@ impl ApiClientBuilder {
         self
     }
 
+    /// Sets the base path for all API requests.
+    ///
+    /// This path will be prepended to all request paths. The path must be valid
+    /// according to URI standards (no spaces, properly encoded, etc.).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // API versioning
+    /// let client = ApiClient::builder()
+    ///     .with_host("api.example.com")
+    ///     .with_base_path("/v1")?              // All requests will start with /v1
+    ///     .build()?;
+    ///
+    /// // More complex base paths
+    /// let client = ApiClient::builder()
+    ///     .with_base_path("/api/v2")?          // Multiple path segments
+    ///     .build()?;
+    ///
+    /// // Nested API paths
+    /// let client = ApiClient::builder()
+    ///     .with_base_path("/services/user-api/v1")?  // Deep nesting
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `ApiClientError::InvalidBasePath` if the path contains invalid characters
+    /// (such as spaces) or cannot be parsed as a valid URI path.
+    ///
+    /// ```rust,should_panic
+    /// use clawspec_core::ApiClient;
+    ///
+    /// // This will fail - paths cannot contain unencoded spaces
+    /// let result = ApiClient::builder()
+    ///     .with_base_path("/invalid path with spaces")
+    ///     .expect("Should fail with invalid path");
+    /// ```
     pub fn with_base_path<P>(mut self, base_path: P) -> Result<Self, ApiClientError>
     where
         P: TryInto<PathAndQuery>,
