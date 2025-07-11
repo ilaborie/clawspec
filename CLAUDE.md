@@ -178,3 +178,7 @@ The project primarily uses:
 ## CI/Development Best Practices
 
 - Always fix issues provided by `mise check` after your work
+
+## Linting and Code Quality
+
+- Use `mise spectral` to lint generated openapi file

@@ -85,6 +85,51 @@ impl ApiClient {
 
         builder.build()
     }
+
+    /// Manually registers a type in the schema collection.
+    ///
+    /// This method allows you to explicitly add types to the OpenAPI schema collection
+    /// that might not be automatically detected. This is useful for types that are
+    /// referenced indirectly, such as nested types in error responses.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type to register, must implement `ToSchema` and `'static`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_utoipa::ApiClient;
+    /// # use utoipa::ToSchema;
+    /// # use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    /// struct NestedErrorType {
+    ///     message: String,
+    /// }
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Register the nested type that might not be automatically detected
+    /// client.register_schema::<NestedErrorType>().await;
+    ///
+    /// // Now when you generate the OpenAPI spec, NestedErrorType will be included
+    /// let openapi = client.collected_openapi().await;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn register_schema<T>(&mut self)
+    where
+        T: utoipa::ToSchema + 'static,
+    {
+        let mut collectors = self.collectors.write().await;
+        collectors.collect_schemas({
+            let mut schemas = schema::Schemas::default();
+            schemas.add::<T>();
+            schemas
+        });
+    }
 }
 
 impl ApiClient {

@@ -70,16 +70,19 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/binary'
+              type: string
+              format: binary
           application/pdf:
             schema:
-              $ref: '#/components/schemas/binary'
+              type: string
+              format: binary
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/FlatObservation'
           text/xml:
             schema:
-              $ref: '#/components/schemas/binary'
+              type: string
+              format: binary
       responses:
         '201':
           description: ''
@@ -107,7 +110,8 @@ paths:
         content:
           application/octet-stream:
             schema:
-              $ref: '#/components/schemas/binary'
+              type: string
+              format: binary
       responses: {}
   /api/observations/upload:
     post:
@@ -117,7 +121,8 @@ paths:
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/binary'
+              type: string
+              format: binary
       responses: {}
   /api/observations/{observation_id}:
     put:
@@ -183,6 +188,194 @@ paths:
                 $ref: '#/components/schemas/Observation'
 components:
   schemas:
+    ExtractorError:
+      oneOf:
+      - type: object
+        description: JSON parsing or serialization error
+        required:
+        - details
+        - type
+        properties:
+          details:
+            type: object
+            description: JSON parsing or serialization error
+            required:
+            - message
+            properties:
+              location:
+                type:
+                - string
+                - 'null'
+                description: Location where the error occurred (e.g., "body", "`field_name`")
+              message:
+                type: string
+                description: Detailed error message
+          type:
+            type: string
+            enum:
+            - JsonError
+      - type: object
+        description: XML parsing error
+        required:
+        - details
+        - type
+        properties:
+          details:
+            type: object
+            description: XML parsing error
+            required:
+            - message
+            properties:
+              element:
+                type:
+                - string
+                - 'null'
+                description: XML element where the error occurred
+              message:
+                type: string
+                description: Detailed error message
+          type:
+            type: string
+            enum:
+            - XmlError
+      - type: object
+        description: Form data processing error
+        required:
+        - details
+        - type
+        properties:
+          details:
+            type: object
+            description: Form data processing error
+            required:
+            - message
+            properties:
+              field:
+                type:
+                - string
+                - 'null'
+                description: Form field that caused the error
+              message:
+                type: string
+                description: Detailed error message
+          type:
+            type: string
+            enum:
+            - FormError
+      - type: object
+        description: Multipart processing error
+        required:
+        - details
+        - type
+        properties:
+          details:
+            type: object
+            description: Multipart processing error
+            required:
+            - message
+            properties:
+              message:
+                type: string
+                description: Detailed error message
+              part:
+                type:
+                - string
+                - 'null'
+                description: Multipart section that caused the error
+          type:
+            type: string
+            enum:
+            - MultipartError
+      - type: object
+        description: Encoding/decoding error (e.g., UTF-8 conversion)
+        required:
+        - details
+        - type
+        properties:
+          details:
+            type: object
+            description: Encoding/decoding error (e.g., UTF-8 conversion)
+            required:
+            - message
+            - encoding
+            properties:
+              encoding:
+                type: string
+                description: Expected encoding type
+              message:
+                type: string
+                description: Detailed error message
+          type:
+            type: string
+            enum:
+            - EncodingError
+      - type: object
+        description: Unsupported content type
+        required:
+        - details
+        - type
+        properties:
+          details:
+            type: object
+            description: Unsupported content type
+            required:
+            - content_type
+            - supported
+            properties:
+              content_type:
+                type: string
+                description: The unsupported content type
+              supported:
+                type: array
+                items:
+                  type: string
+                description: List of supported content types
+          type:
+            type: string
+            enum:
+            - UnsupportedMediaType
+      - type: object
+        description: Generic bad request error
+        required:
+        - details
+        - type
+        properties:
+          details:
+            type: object
+            description: Generic bad request error
+            required:
+            - message
+            properties:
+              message:
+                type: string
+                description: Detailed error message
+          type:
+            type: string
+            enum:
+            - BadRequest
+      description: |-
+        Custom error type for extractors that provides structured error responses.
+
+        This enum represents different types of extraction failures that can occur
+        when processing HTTP requests. Each variant corresponds to a specific error
+        scenario and provides appropriate HTTP status codes and error details.
+    FlatObservation:
+      allOf:
+      - $ref: '#/components/schemas/LngLat'
+      - type: object
+        required:
+        - name
+        properties:
+          color:
+            type:
+            - string
+            - 'null'
+          name:
+            type: string
+          notes:
+            type:
+            - string
+            - 'null'
     ListObservations:
       type: object
       required:
@@ -192,6 +385,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Observation'
+    LngLat:
+      type: object
+      required:
+      - lng
+      - lat
+      properties:
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
     Observation:
       allOf:
       - $ref: '#/components/schemas/PartialObservation'
@@ -204,6 +409,43 @@ components:
     ObservationId:
       type: integer
       minimum: 0
+    PartialObservation:
+      type: object
+      required:
+      - name
+      - position
+      properties:
+        color:
+          type:
+          - string
+          - 'null'
+        name:
+          type: string
+        notes:
+          type:
+          - string
+          - 'null'
+        position:
+          $ref: '#/components/schemas/LngLat'
+    PatchObservation:
+      type: object
+      properties:
+        color:
+          type:
+          - string
+          - 'null'
+        name:
+          type:
+          - string
+          - 'null'
+        notes:
+          type:
+          - string
+          - 'null'
+        position:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/LngLat'
     TestClientError:
       type: object
       required:

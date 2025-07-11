@@ -1,9 +1,10 @@
 #![allow(missing_docs)]
 
 use anyhow::Context;
+use axum_example::extractors::ExtractorError;
 use axum_example::observations::ListOption;
 use axum_example::observations::domain::{LngLat, PartialObservation, PatchObservation};
-use clawspec_utoipa::CallHeaders;
+use clawspec_utoipa::{CallHeaders, register_schemas};
 use headers::ContentType;
 use rstest::rstest;
 use tracing::info;
@@ -15,6 +16,16 @@ pub use self::common::*;
 #[tokio::test]
 async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     let mut app = app.await;
+
+    // Register missing schemas manually to fix the missing schema issues
+    register_schemas!(
+        app,
+        ExtractorError,
+        FlatObservation,
+        PartialObservation,
+        PatchObservation,
+        LngLat
+    );
 
     basic_crud(&mut app).await?;
     alternate_content_types(&mut app).await?;

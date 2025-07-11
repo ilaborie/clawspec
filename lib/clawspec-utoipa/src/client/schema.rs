@@ -11,7 +11,7 @@ use utoipa::openapi::{Ref, RefOr, Schema};
 static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     HashSet::from([
         "bool", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
-        "usize", "f32", "f64", "String", "str",
+        "usize", "f32", "f64", "String", "str", "binary",
     ])
 });
 
