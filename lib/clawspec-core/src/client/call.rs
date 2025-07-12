@@ -582,6 +582,35 @@ impl ApiCall {
             .add_expected_status_range_inclusive(400..=499)
     }
 
+    /// Sets the expected status codes using an `ExpectedStatusCodes` instance.
+    ///
+    /// This method allows you to pass pre-configured `ExpectedStatusCodes` instances,
+    /// which is particularly useful with the `expected_status_codes!` macro.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, expected_status_codes};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Using the macro with with_expected_status_codes
+    /// let call = client.get("/users")?
+    ///     .with_expected_status_codes(expected_status_codes!(200-299));
+    ///
+    /// // Using manually created ExpectedStatusCodes
+    /// let codes = clawspec_core::ExpectedStatusCodes::from_inclusive_range(200..=204)
+    ///     .add_expected_status(404);
+    /// let call = client.get("/items")?.with_expected_status_codes(codes);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_expected_status_codes(mut self, codes: ExpectedStatusCodes) -> Self {
+        self.expected_status_codes = codes;
+        self
+    }
+
     // =============================================================================
     // Request Body Methods
     // =============================================================================
