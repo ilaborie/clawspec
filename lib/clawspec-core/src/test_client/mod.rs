@@ -53,7 +53,9 @@ use std::marker::Sync;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
+use backon::{ExponentialBuilder, Retryable};
 use tracing::{debug, error};
 
 use crate::ApiClient;
@@ -141,7 +143,10 @@ pub use self::test_server::*;
 ///                     .with_host("localhost")
 ///                     .with_base_path("/api/v1").unwrap()
 ///             ),
-///             health_check_timeout: Duration::from_secs(30),
+///             min_backoff_delay: Duration::from_millis(25),
+///             max_backoff_delay: Duration::from_secs(2),
+///             backoff_jitter: true,
+///             max_retry_attempts: 15,
 ///         }
 ///     }
 /// }
@@ -372,56 +377,32 @@ where
 
         let TestServerConfig {
             api_client,
-            health_check_timeout,
+            min_backoff_delay,
+            max_backoff_delay,
+            backoff_jitter,
+            max_retry_attempts,
         } = test_server.config();
 
         // Build client with comprehensive OpenAPI metadata
         let client = api_client.unwrap_or_else(ApiClient::builder);
         let client = client.with_port(local_addr.port()).build()?;
 
-        // Wait until ready
-        let healthy = tokio::time::timeout(health_check_timeout, {
-            let mut client = client.clone();
-            let server = Arc::clone(&test_server);
-            // TODO exponential backoff
-            let wait_period = health_check_timeout / 16;
-            async move {
-                loop {
-                    let result = server.is_healthy(&mut client).await;
-                    match result {
-                        Ok(HealthStatus::Healthy) => {
-                            debug!("🟢 server healthy");
-                            break true;
-                        }
-                        Ok(HealthStatus::Unhealthy) => {
-                            debug!("🟠 server not yet healthy, wait {wait_period:?} before retry");
-                            tokio::time::sleep(wait_period).await;
-                        }
-                        Ok(HealthStatus::Uncheckable) => {
-                            debug!("❓wait until a connection can be establish with the server");
-                            let connection = tokio::net::TcpStream::connect(local_addr).await;
-                            if let Err(err) = &connection {
-                                error!(?err, %local_addr, "Oops, fail to establish connection");
-                            }
-                            break connection.is_ok();
-                        }
-                        Err(error) => {
-                            error!(?error, "Health check error");
-                            break false;
-                        }
-                    }
-                }
-            }
-        })
+        // Wait until ready with exponential backoff
+        let healthy = Self::wait_for_health(
+            &test_server,
+            &client,
+            local_addr,
+            min_backoff_delay,
+            max_backoff_delay,
+            backoff_jitter,
+            max_retry_attempts,
+        )
         .await;
 
-        match healthy {
-            Ok(true) => {}
-            Ok(false) | Err(_) => {
-                return Err(TestAppError::UnhealthyServer {
-                    timeout: health_check_timeout,
-                });
-            }
+        if !healthy {
+            return Err(TestAppError::UnhealthyServer {
+                timeout: max_backoff_delay,
+            });
         }
 
         let result = Self {
@@ -431,6 +412,86 @@ where
             test_server,
         };
         Ok(result)
+    }
+
+    /// Wait for the server to become healthy using exponential backoff.
+    ///
+    /// This method implements a retry mechanism with exponential backoff to check
+    /// if the server is healthy. It handles different health status responses:
+    /// - `Healthy`: Server is ready, returns success
+    /// - `Unhealthy`: Server not ready, retries with exponential backoff
+    /// - `Uncheckable`: Falls back to TCP connection test
+    /// - Error: Returns failure immediately
+    ///
+    /// # Arguments
+    ///
+    /// * `test_server` - The server implementation to check
+    /// * `client` - ApiClient configured for the server
+    /// * `local_addr` - Server address for TCP connection fallback
+    /// * `min_backoff_delay` - Minimum delay for exponential backoff
+    /// * `max_backoff_delay` - Maximum delay for exponential backoff
+    /// * `backoff_jitter` - Whether to add jitter to backoff delays
+    /// * `max_retry_attempts` - Maximum number of retry attempts before giving up
+    ///
+    /// # Returns
+    ///
+    /// * `true` - Server is healthy and ready
+    /// * `false` - Server failed health checks or encountered errors
+    async fn wait_for_health(
+        test_server: &Arc<T>,
+        client: &ApiClient,
+        local_addr: SocketAddr,
+        min_backoff_delay: Duration,
+        max_backoff_delay: Duration,
+        backoff_jitter: bool,
+        max_retry_attempts: usize,
+    ) -> bool {
+        // Configure exponential backoff with provided settings
+        let mut backoff_builder = ExponentialBuilder::default()
+            .with_min_delay(min_backoff_delay)
+            .with_max_delay(max_backoff_delay)
+            .with_max_times(max_retry_attempts); // Limit total retry attempts to prevent infinite loops
+
+        if backoff_jitter {
+            backoff_builder = backoff_builder.with_jitter();
+        }
+
+        let backoff = backoff_builder;
+
+        let health_check = || {
+            let mut client = client.clone();
+            let server = Arc::clone(test_server);
+            async move {
+                let result = server.is_healthy(&mut client).await;
+                match result {
+                    Ok(HealthStatus::Healthy) => {
+                        debug!("🟢 server healthy");
+                        Ok(true)
+                    }
+                    Ok(HealthStatus::Unhealthy) => {
+                        debug!("🟠 server not yet healthy, retrying with exponential backoff");
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::ConnectionRefused,
+                            "Server not healthy yet",
+                        ))
+                    }
+                    Ok(HealthStatus::Uncheckable) => {
+                        debug!("❓wait until a connection can be establish with the server");
+                        let connection = tokio::net::TcpStream::connect(local_addr).await;
+                        if let Err(err) = &connection {
+                            error!(?err, %local_addr, "Oops, fail to establish connection");
+                        }
+                        Ok(connection.is_ok())
+                    }
+                    Err(error) => {
+                        error!(?error, "Health check error");
+                        Ok(false)
+                    }
+                }
+            }
+        };
+
+        health_check.retry(&backoff).await.unwrap_or(false)
     }
 
     /// Write the collected OpenAPI specification to a file.
@@ -737,14 +798,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_test_client_start_with_custom_config() {
-        let timeout = Duration::from_secs(5);
+        let min_delay = Duration::from_millis(5);
+        let max_delay = Duration::from_millis(100);
         let client_builder = ApiClient::builder()
             .with_host("test.example.com")
             .with_port(8080);
 
         let config = TestServerConfig {
             api_client: Some(client_builder),
-            health_check_timeout: timeout,
+            min_backoff_delay: min_delay,
+            max_backoff_delay: max_delay,
+            backoff_jitter: false,
+            max_retry_attempts: 5,
         };
 
         let server = MockTestServer::new().with_config(config);
@@ -757,10 +822,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_test_client_start_unhealthy_server() {
-        let timeout = Duration::from_millis(123);
+        let expected_max_delay = Duration::from_millis(50);
         let config = TestServerConfig {
             api_client: None,
-            health_check_timeout: timeout,
+            min_backoff_delay: Duration::from_millis(5),
+            max_backoff_delay: expected_max_delay,
+            backoff_jitter: false,
+            max_retry_attempts: 3,
         };
         let server = MockTestServer::new()
             .with_health_status(false)
@@ -773,7 +841,7 @@ mod tests {
             TestAppError::UnhealthyServer {
                 timeout: actual_timeout,
             } => {
-                assert_eq!(actual_timeout, timeout);
+                assert_eq!(actual_timeout, expected_max_delay);
             }
             other => panic!("Expected UnhealthyServer error, got: {other:?}"),
         }
@@ -976,8 +1044,7 @@ mod tests {
             match self.error_type {
                 ErrorType::BindFailure => Ok(HealthStatus::Unhealthy),
                 ErrorType::HealthTimeout => {
-                    // Never return, causing a timeout
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    // Always return unhealthy, which will cause the exponential backoff to timeout
                     Ok(HealthStatus::Unhealthy)
                 }
             }
@@ -986,7 +1053,10 @@ mod tests {
         fn config(&self) -> TestServerConfig {
             TestServerConfig {
                 api_client: None,
-                health_check_timeout: Duration::from_millis(100), // Short timeout for testing
+                min_backoff_delay: Duration::from_millis(1), // Very fast for testing
+                max_backoff_delay: Duration::from_millis(10), // Short max delay for testing
+                backoff_jitter: false,                       // Predictable timing for tests
+                max_retry_attempts: 3,                       // Quick timeout for tests
             }
         }
     }
@@ -1000,7 +1070,8 @@ mod tests {
 
         match result.unwrap_err() {
             TestAppError::UnhealthyServer { timeout } => {
-                assert_eq!(timeout, Duration::from_millis(100));
+                // The timeout should be the max_backoff_delay from the ErrorTestServer config
+                assert_eq!(timeout, Duration::from_millis(10));
             }
             other => panic!("Expected UnhealthyServer error, got: {other:?}"),
         }

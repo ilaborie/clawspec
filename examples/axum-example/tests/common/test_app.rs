@@ -43,6 +43,7 @@ impl TestServer for AppTestServer {
         let Ok(mut result) = client
             .get("/health")
             .expect("valid path")
+            .with_description("Check if the API service is healthy and operational")
             .with_expected_status_code(StatusCode::OK)
             .exchange()
             .await

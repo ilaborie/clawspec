@@ -357,7 +357,10 @@
 //!                     .with_host("localhost")
 //!                     .with_base_path("/api").unwrap()
 //!             ),
-//!             health_check_timeout: Duration::from_secs(15),
+//!             min_backoff_delay: Duration::from_millis(10),
+//!             max_backoff_delay: Duration::from_secs(1),
+//!             backoff_jitter: true,
+//!             max_retry_attempts: 10,
 //!         }
 //!     }
 //! }

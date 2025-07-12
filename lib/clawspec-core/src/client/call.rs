@@ -582,7 +582,7 @@ impl ApiCall {
     // =============================================================================
     // OpenAPI Metadata Methods
     // =============================================================================
-    pub fn operation_id(mut self, operation_id: impl Into<String>) -> Self {
+    pub fn with_operation_id(mut self, operation_id: impl Into<String>) -> Self {
         self.metadata.operation_id = operation_id.into();
         self
     }
@@ -595,11 +595,11 @@ impl ApiCall {
     /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
-    /// let call = client.get("/users")?.description("Retrieve all users");
+    /// let call = client.get("/users")?.with_description("Retrieve all users");
     /// # Ok(())
     /// # }
     /// ```
-    pub fn description(mut self, description: impl Into<String>) -> Self {
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.metadata.description = Some(description.into());
         self
     }
@@ -612,13 +612,13 @@ impl ApiCall {
     /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
-    /// let call = client.get("/users")?.tags(vec!["users", "admin"]);
+    /// let call = client.get("/users")?.with_tags(vec!["users", "admin"]);
     /// // Also works with arrays, slices, or any IntoIterator
-    /// let call = client.get("/users")?.tags(["users", "admin"]);
+    /// let call = client.get("/users")?.with_tags(["users", "admin"]);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn tags<I, T>(mut self, tags: I) -> Self
+    pub fn with_tags<I, T>(mut self, tags: I) -> Self
     where
         I: IntoIterator<Item = T>,
         T: Into<String>,
@@ -635,11 +635,11 @@ impl ApiCall {
     /// # use clawspec_core::ApiClient;
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
-    /// let call = client.get("/users")?.tag("users").tag("admin");
+    /// let call = client.get("/users")?.with_tag("users").with_tag("admin");
     /// # Ok(())
     /// # }
     /// ```
-    pub fn tag(mut self, tag: impl Into<String>) -> Self {
+    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
         self.metadata
             .tags
             .get_or_insert_with(Vec::new)

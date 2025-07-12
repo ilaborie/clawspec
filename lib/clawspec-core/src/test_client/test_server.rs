@@ -74,7 +74,10 @@ use crate::{ApiClient, ApiClientBuilder};
 ///                     .with_host("localhost")
 ///                     .with_base_path("/api").unwrap()
 ///             ),
-///             health_check_timeout: Duration::from_secs(5),
+///             min_backoff_delay: Duration::from_millis(10),
+///             max_backoff_delay: Duration::from_secs(1),
+///             backoff_jitter: true,
+///             max_retry_attempts: 10,
 ///         }
 ///     }
 /// }
@@ -122,7 +125,7 @@ use crate::{ApiClient, ApiClientBuilder};
 ///
 /// - Return `Ok(HealthStatus::Healthy)` if the server is ready to accept requests
 /// - Return `Ok(HealthStatus::Unhealthy)` if the server is not ready
-/// - Return `Ok(HealthStatus::Unknown)` to use the default TCP connection test
+/// - Return `Ok(HealthStatus::Uncheckable)` to use the default TCP connection test
 /// - Return `Err(Self::Error)` if an error occurs during health checking
 ///
 /// The TestClient will wait for the server to become healthy before returning success.
@@ -199,7 +202,7 @@ pub trait TestServer {
     /// Check if the server is healthy and ready to accept requests.
     ///
     /// This method is called periodically during server startup to determine
-    /// when the server is ready. The default implementation returns `HealthStatus::Unknown`,
+    /// when the server is ready. The default implementation returns `HealthStatus::Uncheckable`,
     /// which triggers a TCP connection test.
     ///
     /// # Arguments
@@ -210,7 +213,7 @@ pub trait TestServer {
     ///
     /// * `Ok(HealthStatus::Healthy)` - Server is healthy and ready
     /// * `Ok(HealthStatus::Unhealthy)` - Server is not healthy
-    /// * `Ok(HealthStatus::Unknown)` - Use default TCP connection test
+    /// * `Ok(HealthStatus::Uncheckable)` - Use default TCP connection test
     /// * `Err(Self::Error)` - Error occurred during health check
     ///
     /// # Example
@@ -270,7 +273,10 @@ pub trait TestServer {
     ///                     .with_host("localhost")
     ///                     .with_base_path("/api").unwrap()
     ///             ),
-    ///             health_check_timeout: Duration::from_secs(30),
+    ///             min_backoff_delay: Duration::from_millis(10),
+    ///             max_backoff_delay: Duration::from_secs(1),
+    ///             backoff_jitter: true,
+    ///             max_retry_attempts: 10,
     ///         }
     ///     }
     /// }
@@ -280,20 +286,18 @@ pub trait TestServer {
     }
 }
 
-/// Default timeout for health check operations.
-///
-/// This is used when no custom timeout is specified in TestServerConfig.
-pub const DEFAULT_HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(10);
-
 /// Configuration for test server behavior and client setup.
 ///
 /// This struct allows customizing how the TestClient interacts with the test server,
-/// including the ApiClient configuration and health check timing.
+/// including the ApiClient configuration and exponential backoff timing for health checks.
 ///
 /// # Fields
 ///
 /// * `api_client` - Optional pre-configured ApiClient builder for custom client setup
-/// * `health_check_timeout` - Maximum time to wait for server to become healthy
+/// * `min_backoff_delay` - Minimum delay for exponential backoff between health check retries
+/// * `max_backoff_delay` - Maximum delay for exponential backoff between health check retries
+/// * `backoff_jitter` - Whether to add jitter to exponential backoff delays
+/// * `max_retry_attempts` - Maximum number of health check retry attempts
 ///
 /// # Examples
 ///
@@ -301,10 +305,14 @@ pub const DEFAULT_HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(10);
 ///
 /// ```rust
 /// use clawspec_core::test_client::TestServerConfig;
+/// use std::time::Duration;
 ///
 /// let config = TestServerConfig::default();
 /// assert!(config.api_client.is_none());
-/// assert_eq!(config.health_check_timeout.as_secs(), 10);
+/// assert_eq!(config.min_backoff_delay, Duration::from_millis(10));
+/// assert_eq!(config.max_backoff_delay, Duration::from_secs(1));
+/// assert_eq!(config.backoff_jitter, true);
+/// assert_eq!(config.max_retry_attempts, 10);
 /// ```
 ///
 /// ## Custom Configuration
@@ -320,7 +328,10 @@ pub const DEFAULT_HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(10);
 ///             .with_port(3000)
 ///             .with_base_path("/api/v1").unwrap()
 ///     ),
-///     health_check_timeout: Duration::from_secs(30),
+///     min_backoff_delay: Duration::from_millis(50),
+///     max_backoff_delay: Duration::from_secs(5),
+///     backoff_jitter: false,
+///     max_retry_attempts: 3,
 /// };
 /// ```
 ///
@@ -350,7 +361,10 @@ pub const DEFAULT_HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(10);
 ///                     .with_host("localhost")
 ///                     .with_base_path("/api").unwrap()
 ///             ),
-///             health_check_timeout: Duration::from_secs(15),
+///             min_backoff_delay: Duration::from_millis(25),
+///             max_backoff_delay: Duration::from_secs(2),
+///             backoff_jitter: true,
+///             max_retry_attempts: 15,
 ///         }
 ///     }
 /// }
@@ -374,20 +388,22 @@ pub struct TestServerConfig {
     ///             .with_host("api.example.com")
     ///             .with_base_path("/v1").unwrap()
     ///     ),
-    ///     health_check_timeout: std::time::Duration::from_secs(10),
+    ///     min_backoff_delay: std::time::Duration::from_millis(10),
+    ///     max_backoff_delay: std::time::Duration::from_secs(1),
+    ///     backoff_jitter: true,
+    ///     max_retry_attempts: 10,
     /// };
     /// ```
     pub api_client: Option<ApiClientBuilder>,
 
-    /// Maximum time to wait for the server to become healthy.
+    /// Minimum delay for exponential backoff between health check retries.
     ///
-    /// The TestClient will repeatedly check if the server is healthy (using either
-    /// the `is_healthy` method or TCP connection tests) until this timeout expires.
-    /// If the server doesn't become healthy within this time, startup will fail.
+    /// This is the initial delay used when the server is unhealthy and needs
+    /// to be retried. The delay will increase exponentially up to `max_backoff_delay`.
     ///
     /// # Default
     ///
-    /// [`DEFAULT_HEALTHCHECK_TIMEOUT`] (10 seconds)
+    /// 10 milliseconds
     ///
     /// # Example
     ///
@@ -396,18 +412,87 @@ pub struct TestServerConfig {
     /// use std::time::Duration;
     ///
     /// let config = TestServerConfig {
-    ///     api_client: None,
-    ///     health_check_timeout: Duration::from_secs(30), // 30 second timeout
+    ///     min_backoff_delay: Duration::from_millis(50), // Start with 50ms
+    ///     ..Default::default()
     /// };
     /// ```
-    pub health_check_timeout: Duration,
+    pub min_backoff_delay: Duration,
+
+    /// Maximum delay for exponential backoff between health check retries.
+    ///
+    /// This is the upper bound for the exponential backoff delay. Once the
+    /// delay reaches this value, it will not increase further.
+    ///
+    /// # Default
+    ///
+    /// 1 second
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::test_client::TestServerConfig;
+    /// use std::time::Duration;
+    ///
+    /// let config = TestServerConfig {
+    ///     max_backoff_delay: Duration::from_secs(5), // Max 5 seconds
+    ///     ..Default::default()
+    /// };
+    /// ```
+    pub max_backoff_delay: Duration,
+
+    /// Whether to add jitter to the exponential backoff delays.
+    ///
+    /// Jitter adds randomization to retry delays to prevent the "thundering herd"
+    /// problem when multiple clients retry simultaneously. This is generally
+    /// recommended for production use.
+    ///
+    /// # Default
+    ///
+    /// `true` (jitter enabled)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::test_client::TestServerConfig;
+    ///
+    /// let config = TestServerConfig {
+    ///     backoff_jitter: false, // Disable jitter for predictable timing
+    ///     ..Default::default()
+    /// };
+    /// ```
+    pub backoff_jitter: bool,
+
+    /// Maximum number of health check retry attempts.
+    ///
+    /// This limits the total number of health check attempts before giving up.
+    /// The health check will stop retrying once this number of attempts is reached,
+    /// preventing infinite loops when a server never becomes healthy.
+    ///
+    /// # Default
+    ///
+    /// 10 attempts
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::test_client::TestServerConfig;
+    ///
+    /// let config = TestServerConfig {
+    ///     max_retry_attempts: 5, // Only try 5 times before giving up
+    ///     ..Default::default()
+    /// };
+    /// ```
+    pub max_retry_attempts: usize,
 }
 
 impl Default for TestServerConfig {
     fn default() -> Self {
         Self {
             api_client: None,
-            health_check_timeout: DEFAULT_HEALTHCHECK_TIMEOUT,
+            min_backoff_delay: Duration::from_millis(10),
+            max_backoff_delay: Duration::from_secs(1),
+            backoff_jitter: true,
+            max_retry_attempts: 10,
         }
     }
 }
@@ -492,23 +577,33 @@ mod tests {
         let config = TestServerConfig::default();
 
         assert!(config.api_client.is_none());
-        assert_eq!(config.health_check_timeout, DEFAULT_HEALTHCHECK_TIMEOUT);
+        assert_eq!(config.min_backoff_delay, Duration::from_millis(10));
+        assert_eq!(config.max_backoff_delay, Duration::from_secs(1));
+        assert!(config.backoff_jitter);
+        assert_eq!(config.max_retry_attempts, 10);
     }
 
     #[test]
     fn test_test_server_config_custom() {
-        let timeout = Duration::from_secs(5);
+        let min_delay = Duration::from_millis(50);
+        let max_delay = Duration::from_secs(5);
         let client_builder = ApiClient::builder()
             .with_host("test.example.com")
             .with_port(8080);
 
         let config = TestServerConfig {
             api_client: Some(client_builder),
-            health_check_timeout: timeout,
+            min_backoff_delay: min_delay,
+            max_backoff_delay: max_delay,
+            backoff_jitter: false,
+            max_retry_attempts: 5,
         };
 
         assert!(config.api_client.is_some());
-        assert_eq!(config.health_check_timeout, timeout);
+        assert_eq!(config.min_backoff_delay, min_delay);
+        assert_eq!(config.max_backoff_delay, max_delay);
+        assert!(!config.backoff_jitter);
+        assert_eq!(config.max_retry_attempts, 5);
     }
 
     #[tokio::test]
@@ -532,8 +627,14 @@ mod tests {
     }
 
     #[test]
-    fn test_default_healthcheck_timeout_constant() {
-        assert_eq!(DEFAULT_HEALTHCHECK_TIMEOUT, Duration::from_secs(10));
+    fn test_default_backoff_configuration() {
+        let config = TestServerConfig::default();
+
+        // Verify the default backoff configuration values
+        assert_eq!(config.min_backoff_delay, Duration::from_millis(10));
+        assert_eq!(config.max_backoff_delay, Duration::from_secs(1));
+        assert!(config.backoff_jitter);
+        assert_eq!(config.max_retry_attempts, 10);
     }
 
     #[test]

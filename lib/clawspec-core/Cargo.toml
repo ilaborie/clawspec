@@ -28,6 +28,7 @@ slug = { workspace = true }
 uuid = { workspace = true, features = ["v4"]}
 mime = { workspace = true }
 cruet = { workspace = true }
+backon = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
