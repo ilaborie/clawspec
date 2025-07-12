@@ -383,7 +383,34 @@ macro_rules! register_schemas {
 /// This macro supports:
 /// - Single status codes: `200`, `404`, `418`
 /// - Inclusive ranges: `200-204` (equivalent to `200..=204`)
-/// - Comma-separated combinations: `200-204, 215, 400-403, 418`
+/// - Common combinations up to 8 elements: `200-204, 215, 400-403, 418`
+///
+/// # Supported Patterns
+///
+/// The macro supports these specific patterns:
+/// - 1 element: `200` or `200-204`
+/// - 2 elements: `200, 404` or `200-204, 400-403`
+/// - 3 elements: `200, 404, 418` or `200-204, 400-403, 500`
+/// - 4 elements: `200-204, 215, 400-403, 418`
+/// - 5 elements: `200, 201-204, 215, 300-302, 418`
+/// - 8 elements: `100, 200-204, 215, 300-302, 404, 418, 500-503, 520`
+///
+/// For complex patterns not covered by the macro, use the builder pattern:
+/// ```rust
+/// use clawspec_core::ExpectedStatusCodes;
+///
+/// // Using u16 status codes
+/// let codes = ExpectedStatusCodes::from_single(200)
+///     .add_expected_range(300..=302)
+///     .add_expected_status(404)
+///     .add_expected_range(500..=599);
+///
+/// // Using http::StatusCode for compile-time validation (no runtime checks needed)
+/// let codes = ExpectedStatusCodes::from_status_code(http::StatusCode::OK)
+///     .add_status_code_range_inclusive(http::StatusCode::MULTIPLE_CHOICES..=http::StatusCode::FOUND)
+///     .add_status_code(http::StatusCode::NOT_FOUND)
+///     .add_status_code_range_exclusive(http::StatusCode::INTERNAL_SERVER_ERROR..http::StatusCode::NOT_IMPLEMENTED);
+/// ```
 ///
 /// Status codes must be valid HTTP status codes (100-599).
 ///
@@ -405,7 +432,7 @@ macro_rules! register_schemas {
 /// assert!(!codes.contains(199));
 /// assert!(!codes.contains(205));
 ///
-/// // Multiple elements
+/// // Multiple elements (common patterns supported)
 /// let codes = expected_status_codes!(200-204, 215, 400-403, 418);
 /// assert!(codes.contains(200));   // first range
 /// assert!(codes.contains(204));   // first range
@@ -431,7 +458,7 @@ macro_rules! register_schemas {
 /// let call = client.get("/users")?
 ///     .with_expected_status_codes(expected_status_codes!(200-299));
 ///
-/// // Complex patterns  
+/// // Complex patterns with multiple elements
 /// let call = client.post("/users")?
 ///     .with_expected_status_codes(expected_status_codes!(200-204, 215, 400-403, 418));
 ///
@@ -444,6 +471,14 @@ macro_rules! register_schemas {
 ///
 /// let call = client.delete("/users/123")?
 ///     .with_expected_status_codes(expected_status_codes!(204, 404));
+///
+/// // Using http::StatusCode directly for type safety
+/// let call = client.get("/users/123")?
+///     .with_expected_status_code(http::StatusCode::OK);
+///
+/// // Using http::StatusCode ranges
+/// let call = client.get("/health")?
+///     .with_expected_status_code_range(http::StatusCode::OK..=http::StatusCode::NO_CONTENT);
 /// # Ok(())
 /// # }
 /// ```
@@ -451,8 +486,10 @@ macro_rules! register_schemas {
 /// # Benefits
 ///
 /// - **Concise Syntax**: More readable than verbose builder patterns
+/// - **Common Patterns Supported**: Covers most common status code patterns with the macro
+/// - **Type Safety**: Support for `http::StatusCode` with compile-time validation
 /// - **Familiar Pattern**: Similar to HTTP status code ranges in web servers
-/// - **Type Safety**: Compile-time validation through Rust's type system
+/// - **Multiple APIs**: Convenient macro syntax or type-safe `http::StatusCode` methods
 /// - **No Runtime Overhead**: Expands to the existing builder pattern at compile time
 #[macro_export]
 macro_rules! expected_status_codes {
@@ -466,65 +503,76 @@ macro_rules! expected_status_codes {
         $crate::ExpectedStatusCodes::from_inclusive_range($start..=$end)
     };
 
+    // Two elements: single, single
+    ($code1:literal, $code2:literal $(,)?) => {
+        $crate::ExpectedStatusCodes::from_single($code1).add_expected_status($code2)
+    };
+
     // Two elements: range, single
-    ($start1:literal - $end1:literal, $code2:literal) => {
+    ($start1:literal - $end1:literal, $code2:literal $(,)?) => {
         $crate::ExpectedStatusCodes::from_inclusive_range($start1..=$end1)
             .add_expected_status($code2)
     };
 
     // Two elements: single, range
-    ($code1:literal, $start2:literal - $end2:literal) => {
+    ($code1:literal, $start2:literal - $end2:literal $(,)?) => {
         $crate::ExpectedStatusCodes::from_single($code1).add_expected_range($start2..=$end2)
     };
 
     // Two elements: range, range
-    ($start1:literal - $end1:literal, $start2:literal - $end2:literal) => {
+    ($start1:literal - $end1:literal, $start2:literal - $end2:literal $(,)?) => {
         $crate::ExpectedStatusCodes::from_inclusive_range($start1..=$end1)
             .add_expected_range($start2..=$end2)
     };
 
-    // Two elements: single, single
-    ($code1:literal, $code2:literal) => {
-        $crate::ExpectedStatusCodes::from_single($code1).add_expected_status($code2)
+    // Three elements: single, single, single
+    ($code1:literal, $code2:literal, $code3:literal $(,)?) => {
+        $crate::ExpectedStatusCodes::from_single($code1)
+            .add_expected_status($code2)
+            .add_expected_status($code3)
     };
 
     // Three elements: range, range, single
-    ($start1:literal - $end1:literal, $start2:literal - $end2:literal, $code3:literal) => {
+    ($start1:literal - $end1:literal, $start2:literal - $end2:literal, $code3:literal $(,)?) => {
         $crate::ExpectedStatusCodes::from_inclusive_range($start1..=$end1)
             .add_expected_range($start2..=$end2)
             .add_expected_status($code3)
     };
 
     // Three elements: range, single, range
-    ($start1:literal - $end1:literal, $code2:literal, $start3:literal - $end3:literal) => {
+    ($start1:literal - $end1:literal, $code2:literal, $start3:literal - $end3:literal $(,)?) => {
         $crate::ExpectedStatusCodes::from_inclusive_range($start1..=$end1)
             .add_expected_status($code2)
             .add_expected_range($start3..=$end3)
     };
 
-    // Three elements: single, single, single
-    ($code1:literal, $code2:literal, $code3:literal) => {
-        $crate::ExpectedStatusCodes::from_single($code1)
-            .add_expected_status($code2)
-            .add_expected_status($code3)
-    };
-
     // Four elements: range, single, range, single (most complex case from examples)
-    ($start1:literal - $end1:literal, $code2:literal, $start3:literal - $end3:literal, $code4:literal) => {
+    ($start1:literal - $end1:literal, $code2:literal, $start3:literal - $end3:literal, $code4:literal $(,)?) => {
         $crate::ExpectedStatusCodes::from_inclusive_range($start1..=$end1)
             .add_expected_status($code2)
             .add_expected_range($start3..=$end3)
             .add_expected_status($code4)
     };
 
-    // Handle trailing comma for two elements
-    ($code1:literal, $code2:literal,) => {
-        expected_status_codes!($code1, $code2)
+    // Five elements: single, range, single, range, single
+    ($code1:literal, $start2:literal - $end2:literal, $code3:literal, $start4:literal - $end4:literal, $code5:literal $(,)?) => {
+        $crate::ExpectedStatusCodes::from_single($code1)
+            .add_expected_range($start2..=$end2)
+            .add_expected_status($code3)
+            .add_expected_range($start4..=$end4)
+            .add_expected_status($code5)
     };
 
-    // Handle trailing comma for range + single
-    ($start:literal - $end:literal, $code:literal,) => {
-        expected_status_codes!($start - $end, $code)
+    // Eight elements: single, range, single, range, single, single, range, single
+    ($code1:literal, $start2:literal - $end2:literal, $code3:literal, $start4:literal - $end4:literal, $code5:literal, $code6:literal, $start7:literal - $end7:literal, $code8:literal $(,)?) => {
+        $crate::ExpectedStatusCodes::from_single($code1)
+            .add_expected_range($start2..=$end2)
+            .add_expected_status($code3)
+            .add_expected_range($start4..=$end4)
+            .add_expected_status($code5)
+            .add_expected_status($code6)
+            .add_expected_range($start7..=$end7)
+            .add_expected_status($code8)
     };
 }
 
@@ -664,6 +712,99 @@ mod macro_tests {
         assert!(!error_codes.contains(405));
         assert!(!error_codes.contains(501));
     }
+
+    #[test]
+    fn test_expected_status_codes_five_elements() {
+        // Test with 5 elements using supported pattern
+        let codes = expected_status_codes!(200, 201 - 204, 215, 300 - 302, 418);
+
+        assert!(codes.contains(200)); // single
+        assert!(codes.contains(201)); // range
+        assert!(codes.contains(204)); // range
+        assert!(codes.contains(215)); // single
+        assert!(codes.contains(300)); // range
+        assert!(codes.contains(302)); // range
+        assert!(codes.contains(418)); // single
+
+        assert!(!codes.contains(199));
+        assert!(!codes.contains(205));
+        assert!(!codes.contains(214));
+        assert!(!codes.contains(216));
+        assert!(!codes.contains(299));
+        assert!(!codes.contains(303));
+        assert!(!codes.contains(417));
+        assert!(!codes.contains(419));
+    }
+
+    #[test]
+    fn test_expected_status_codes_eight_elements() {
+        // Test with 8 elements using supported pattern
+        let codes =
+            expected_status_codes!(100, 200 - 204, 215, 300 - 302, 404, 418, 500 - 503, 520);
+
+        // First group
+        assert!(codes.contains(100));
+
+        // Second group
+        assert!(codes.contains(200));
+        assert!(codes.contains(204));
+
+        // Third group
+        assert!(codes.contains(215));
+
+        // Fourth group
+        assert!(codes.contains(300));
+        assert!(codes.contains(302));
+
+        // Fifth group
+        assert!(codes.contains(404));
+
+        // Sixth group
+        assert!(codes.contains(418));
+
+        // Seventh group
+        assert!(codes.contains(500));
+        assert!(codes.contains(503));
+
+        // Eighth group
+        assert!(codes.contains(520));
+
+        // Verify boundaries
+        assert!(!codes.contains(99));
+        assert!(!codes.contains(101));
+        assert!(!codes.contains(205));
+        assert!(!codes.contains(214));
+        assert!(!codes.contains(303));
+        assert!(!codes.contains(403));
+        assert!(!codes.contains(405));
+        assert!(!codes.contains(417));
+        assert!(!codes.contains(419));
+        assert!(!codes.contains(499));
+        assert!(!codes.contains(504));
+        assert!(!codes.contains(519));
+        assert!(!codes.contains(521));
+    }
+
+    #[test]
+    fn test_expected_status_codes_builder_alternative() {
+        // For complex patterns not covered by macro, use builder pattern
+        let codes = ExpectedStatusCodes::from_single(200)
+            .add_expected_range(300..=302)
+            .add_expected_status(404)
+            .add_expected_range(500..=503);
+
+        assert!(codes.contains(200));
+        assert!(codes.contains(300));
+        assert!(codes.contains(302));
+        assert!(codes.contains(404));
+        assert!(codes.contains(500));
+        assert!(codes.contains(503));
+
+        assert!(!codes.contains(299));
+        assert!(!codes.contains(303));
+        assert!(!codes.contains(403));
+        assert!(!codes.contains(405));
+    }
 }
 
 #[cfg(test)]
@@ -751,6 +892,11 @@ mod integration_tests {
         let _call = client
             .post("/batch")?
             .with_expected_status_codes(expected_status_codes!(200 - 202, 207, 400 - 404, 422));
+
+        // Test multiple elements in real API context
+        let _call = client
+            .post("/complex-endpoint")?
+            .with_expected_status_codes(expected_status_codes!(200 - 204, 215, 400 - 403, 418));
 
         Ok(())
     }
