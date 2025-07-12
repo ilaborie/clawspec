@@ -165,6 +165,14 @@ impl Collectors {
         self.schemas.schema_vec()
     }
 
+    /// Returns an iterator over all collected operations.
+    ///
+    /// This method provides access to all operations that have been collected
+    /// during API calls, which is useful for tag computation and analysis.
+    pub(super) fn operations(&self) -> impl Iterator<Item = &CalledOperation> {
+        self.operations.values().flatten()
+    }
+
     pub(super) fn as_map(&mut self, base_path: &str) -> IndexMap<String, PathItem> {
         let mut result = IndexMap::<String, PathItem>::new();
         for (operation_id, calls) in &self.operations {
@@ -640,6 +648,11 @@ impl CalledOperation {
 
     pub(super) fn add_response(&mut self, call_result: CallResult) {
         self.result = Some(call_result);
+    }
+
+    /// Gets the tags associated with this operation.
+    pub(super) fn tags(&self) -> Option<&Vec<String>> {
+        self.operation.tags.as_ref()
     }
 }
 

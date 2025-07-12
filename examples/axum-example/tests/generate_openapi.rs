@@ -32,6 +32,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     basic_crud(&mut app).await?;
     alternate_content_types(&mut app).await?;
     test_error_cases(&mut app).await?;
+    demonstrate_tags_and_metadata(&mut app).await?;
 
     app.write_openapi("./doc/openapi.yml")
         .await
@@ -290,6 +291,106 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
         .await?
         .as_json::<TestClientError>()
         .await?;
+
+    Ok(())
+}
+
+/// Demonstrates the new `OpenAPI` info, servers, and tag functionality.
+///
+/// This function showcases how operations can be tagged for better organization
+/// in the generated `OpenAPI` specification. The tags, along with the API info
+/// and server definitions configured in the client builder, create a comprehensive
+/// and well-organized `OpenAPI` document.
+async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating OpenAPI metadata features with tagged operations");
+
+    // Create test observation for demonstration
+    let test_observation = PartialObservation {
+        name: "Metadata Demo Bird".to_string(),
+        position: LngLat {
+            lng: 45.0,
+            lat: -90.0,
+        },
+        color: Some("rainbow".to_string()),
+        notes: Some("Used to demonstrate OpenAPI metadata features".to_string()),
+    };
+
+    // Demonstrate single tag usage
+    info!("Testing operations with explicit tags for API organization");
+    let created_id = app
+        .post("/observations")?
+        .json(&test_observation)?
+        .tag("observations")
+        .description("Create a new bird observation with comprehensive metadata")
+        .exchange()
+        .await
+        .context("should create observation with tag")?
+        .as_json::<u32>()
+        .await?;
+
+    // Demonstrate multiple tags for cross-cutting concerns
+    let _list_result = app
+        .get("/observations")?
+        .tags(["observations", "listing"])
+        .description("List all observations with pagination support")
+        .exchange()
+        .await
+        .context("should list observations with multiple tags")?;
+
+    // Demonstrate administrative operations
+    let _import_result = app
+        .post("/observations/import")?
+        .tags(["import", "bulk-operations", "admin"])
+        .description("Bulk import observations from external data sources")
+        .raw(
+            br#"{"name":"Import Demo","position":{"lng":1.0,"lat":1.0}}"#.to_vec(),
+            headers::ContentType::octet_stream(),
+        )
+        .exchange()
+        .await
+        .context("should import with admin tags")?;
+
+    // Demonstrate upload operations
+    let _upload_result = app
+        .post("/observations/upload")?
+        .tags(["upload", "file-operations"])
+        .description("Upload observations via multipart form data")
+        .multipart(vec![(
+            "demo",
+            r#"{"name":"Upload Demo","position":{"lng":2.0,"lat":2.0}}"#,
+        )])
+        .exchange()
+        .await
+        .context("should upload with file operation tags")?;
+
+    // Demonstrate update operations with specific tags
+    let updated_observation = PartialObservation {
+        name: "Updated Metadata Demo".to_string(),
+        ..test_observation
+    };
+    let _update_result = app
+        .put(format!("/observations/{created_id}"))?
+        .json(&updated_observation)?
+        .tags(["observations", "modification"])
+        .description("Update an existing observation with new data")
+        .exchange()
+        .await
+        .context("should update with modification tags")?;
+
+    // Clean up demonstration data
+    app.delete(format!("/observations/{created_id}"))?
+        .tag("observations")
+        .description("Remove observation from the system")
+        .exchange()
+        .await
+        .context("should delete demonstration observation")?;
+
+    info!("OpenAPI metadata demonstration completed successfully");
+    info!("The generated OpenAPI spec will include:");
+    info!("  - API info: Bird Observation API v1.0.0 with description");
+    info!("  - Servers: Development, staging, and production environments");
+    info!("  - Tags: Automatically computed from all operations (admin, bulk-operations, etc.)");
+    info!("  - Organized operations: Operations grouped by functionality");
 
     Ok(())
 }

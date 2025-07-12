@@ -1,11 +1,20 @@
 openapi: 3.1.0
 info:
-  title: ''
-  version: ''
+  title: Bird Observation API
+  description: A comprehensive API for managing bird observations with support for multiple content types, file uploads, and bulk operations. This API demonstrates RESTful design patterns and provides comprehensive CRUD operations for bird observation data.
+  version: 1.0.0
+servers:
+- url: http://localhost:8080/api
+  description: Development server for testing
+- url: https://api.birdwatch.example.com/api
+  description: Production server
+- url: https://staging.birdwatch.example.com/api
+  description: Staging server for pre-production testing
 paths:
   /api/observations:
     get:
       tags:
+      - listing
       - observations
       description: Retrieve observations
       operationId: get-observations
@@ -76,8 +85,14 @@ paths:
         content:
           application/json:
             schema:
-              type: string
-              format: binary
+              $ref: '#/components/schemas/PartialObservation'
+            example:
+              color: rainbow
+              name: Metadata Demo Bird
+              notes: Used to demonstrate OpenAPI metadata features
+              position:
+                lat: -90.0
+                lng: 45.0
           application/pdf:
             schema:
               type: string
@@ -95,7 +110,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ObservationId'
+                type: integer
+                format: int32
+                minimum: 0
         '400':
           description: ''
           content:
@@ -108,11 +125,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TestClientError'
+  /api/observations/1007:
+    put:
+      tags:
+      - observations
+      - modification
+      description: Update an existing observation with new data
+      operationId: put-observations-1007
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialObservation'
+            example:
+              color: rainbow
+              name: Updated Metadata Demo
+              notes: Used to demonstrate OpenAPI metadata features
+              position:
+                lat: -90.0
+                lng: 45.0
+      responses: {}
+    delete:
+      tags:
+      - observations
+      description: Remove observation from the system
+      operationId: delete-observations-1007
+      parameters: []
+      responses: {}
   /api/observations/import:
     post:
       tags:
-      - observations
+      - admin
+      - bulk-operations
       - import
+      - observations
       description: Import observations
       operationId: post-observations-import
       parameters: []
@@ -132,6 +179,7 @@ paths:
   /api/observations/upload:
     post:
       tags:
+      - file-operations
       - observations
       - upload
       description: Upload observations
@@ -547,3 +595,12 @@ components:
         uploaded:
           type: integer
           minimum: 0
+tags:
+- name: admin
+- name: bulk-operations
+- name: file-operations
+- name: import
+- name: listing
+- name: modification
+- name: observations
+- name: upload
