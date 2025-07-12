@@ -56,27 +56,27 @@ impl TestApp {
                         "A comprehensive API for managing bird observations with support for \
                         multiple content types, file uploads, and bulk operations. \
                         This API demonstrates RESTful design patterns and provides \
-                        comprehensive CRUD operations for bird observation data."
+                        comprehensive CRUD operations for bird observation data.",
                     ))
-                    .build()
+                    .build(),
             )
             .add_server(
                 ServerBuilder::new()
-                    .url(format!("http://localhost:{}/api", local_addr.port()))
+                    .url("http://localhost:8080/api")
                     .description(Some("Development server for testing"))
-                    .build()
+                    .build(),
             )
             .add_server(
                 ServerBuilder::new()
                     .url("https://api.birdwatch.example.com/api")
                     .description(Some("Production server"))
-                    .build()
+                    .build(),
             )
             .add_server(
                 ServerBuilder::new()
                     .url("https://staging.birdwatch.example.com/api")
                     .description(Some("Staging server for pre-production testing"))
-                    .build()
+                    .build(),
             )
             .build()
             .context("failed to build API client")?;

@@ -4,7 +4,7 @@ info:
   description: A comprehensive API for managing bird observations with support for multiple content types, file uploads, and bulk operations. This API demonstrates RESTful design patterns and provides comprehensive CRUD operations for bird observation data.
   version: 1.0.0
 servers:
-- url: http://localhost:63865/api
+- url: http://localhost:8080/api
   description: Development server for testing
 - url: https://api.birdwatch.example.com/api
   description: Production server

@@ -295,12 +295,12 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Demonstrates the new OpenAPI info, servers, and tag functionality.
+/// Demonstrates the new `OpenAPI` info, servers, and tag functionality.
 ///
 /// This function showcases how operations can be tagged for better organization
-/// in the generated OpenAPI specification. The tags, along with the API info
+/// in the generated `OpenAPI` specification. The tags, along with the API info
 /// and server definitions configured in the client builder, create a comprehensive
-/// and well-organized OpenAPI document.
+/// and well-organized `OpenAPI` document.
 async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> {
     info!("Demonstrating OpenAPI metadata features with tagged operations");
 
