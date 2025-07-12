@@ -9,14 +9,6 @@ use std::net::TcpListener;
 use std::path::Path;
 
 use anyhow::Context;
-
-#[derive(Debug, thiserror::Error)]
-pub enum AppServerError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Server error: {0}")]
-    Server(#[from] anyhow::Error),
-}
 use axum::http::StatusCode;
 use tracing::info;
 use utoipa::openapi::{ContactBuilder, InfoBuilder, ServerBuilder};
@@ -25,6 +17,13 @@ use clawspec_core::ApiClient;
 use clawspec_core::test_client::{HealthStatus, TestClient, TestServer, TestServerConfig};
 
 use axum_example::launch;
+
+#[derive(Debug, derive_more::Error, derive_more::From, derive_more::Display)]
+pub enum AppServerError {
+    Io(std::io::Error),
+    #[display("Server error: {_0:#?}")]
+    Server(anyhow::Error),
+}
 
 #[derive(Debug)]
 pub struct AppTestServer;
@@ -55,44 +54,31 @@ impl TestServer for AppTestServer {
     }
 
     fn config(&self) -> TestServerConfig {
-        let client = ApiClient::builder()
-            .with_base_path("/api")
-            .expect("valid base path")
-            .with_info(
-                InfoBuilder::new()
-                    .title("Bird Observation API")
-                    .version("1.0.0")
-                    .description(Some(
-                        "A comprehensive API for managing bird observations with support for \
+        let info = InfoBuilder::new()
+            .title("Bird Observation API")
+            .version("1.0.0")
+            .description(Some(
+                "A comprehensive API for managing bird observations with support for \
                                         multiple content types, file uploads, and bulk operations. \
                                         This API demonstrates RESTful design patterns and provides \
                                         comprehensive CRUD operations for bird observation data.",
-                    ))
-                    .contact(Some(
-                        ContactBuilder::new()
-                            .name(Some("Bird Observation Team"))
-                            .email(Some("api-support@birdwatch.example.com"))
-                            .url(Some("https://birdwatch.example.com/support"))
-                            .build(),
-                    ))
+            ))
+            .contact(Some(
+                ContactBuilder::new()
+                    .name(Some("Bird Observation Team"))
+                    .email(Some("api-support@birdwatch.example.com"))
+                    .url(Some("https://birdwatch.example.com/support"))
                     .build(),
-            )
-            .add_server(
-                ServerBuilder::new()
-                    .url("http://localhost:8080/api")
-                    .description(Some("Development server for testing"))
-                    .build(),
-            )
+            ))
+            .build();
+        let client = ApiClient::builder()
+            .with_base_path("/api")
+            .expect("valid base path")
+            .with_info(info)
             .add_server(
                 ServerBuilder::new()
                     .url("https://api.birdwatch.example.com/api")
                     .description(Some("Production server"))
-                    .build(),
-            )
-            .add_server(
-                ServerBuilder::new()
-                    .url("https://staging.birdwatch.example.com/api")
-                    .description(Some("Staging server for pre-production testing"))
                     .build(),
             );
         TestServerConfig {

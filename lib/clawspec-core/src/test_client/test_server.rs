@@ -138,7 +138,7 @@ pub enum HealthStatus {
     Unhealthy,
     /// Use the default TCP connection test to determine health.
     /// This is equivalent to the previous `None` return value.
-    Unknown,
+    Uncheckable,
 }
 
 pub trait TestServer {
@@ -242,7 +242,7 @@ pub trait TestServer {
         &self,
         _client: &mut ApiClient,
     ) -> impl Future<Output = Result<HealthStatus, Self::Error>> + Send {
-        std::future::ready(Ok(HealthStatus::Unknown))
+        std::future::ready(Ok(HealthStatus::Uncheckable))
     }
 
     /// Provide configuration for the test framework.

@@ -8,12 +8,8 @@ info:
     email: api-support@birdwatch.example.com
   version: 1.0.0
 servers:
-- url: http://localhost:8080/api
-  description: Development server for testing
 - url: https://api.birdwatch.example.com/api
   description: Production server
-- url: https://staging.birdwatch.example.com/api
-  description: Staging server for pre-production testing
 paths:
   /api/health:
     get:

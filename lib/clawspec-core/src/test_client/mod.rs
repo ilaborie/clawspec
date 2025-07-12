@@ -364,8 +364,8 @@ where
         let handle = tokio::spawn({
             let server = Arc::clone(&test_server);
             async move {
-                if let Err(err) = server.launch(listener).await {
-                    tracing::error!("Server launch failed: {}", err);
+                if let Err(error) = server.launch(listener).await {
+                    error!(?error, "Server launch failed");
                 }
             }
         });
@@ -376,11 +376,7 @@ where
         } = test_server.config();
 
         // Build client with comprehensive OpenAPI metadata
-        let client = if let Some(builder) = api_client {
-            builder
-        } else {
-            ApiClient::builder()
-        };
+        let client = api_client.unwrap_or_else(ApiClient::builder);
         let client = client.with_port(local_addr.port()).build()?;
 
         // Wait until ready
@@ -401,7 +397,7 @@ where
                             debug!("🟠 server not yet healthy, wait {wait_period:?} before retry");
                             tokio::time::sleep(wait_period).await;
                         }
-                        Ok(HealthStatus::Unknown) => {
+                        Ok(HealthStatus::Uncheckable) => {
                             debug!("❓wait until a connection can be establish with the server");
                             let connection = tokio::net::TcpStream::connect(local_addr).await;
                             if let Err(err) = &connection {
@@ -409,8 +405,8 @@ where
                             }
                             break connection.is_ok();
                         }
-                        Err(err) => {
-                            error!("Health check error: {}", err);
+                        Err(error) => {
+                            error!(?error, "Health check error");
                             break false;
                         }
                     }
@@ -583,7 +579,7 @@ where
 
         let ext = path.extension().unwrap_or_default();
         let contents = if ext == "yml" || ext == "yaml" {
-            serde_yaml::to_string(&openapi).map_err(|err| TestAppError::YamlError {
+            openapi.to_yaml().map_err(|err| TestAppError::YamlError {
                 error: format!("{err:#?}"),
             })?
         } else {
@@ -761,7 +757,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_test_client_start_unhealthy_server() {
-        let timeout = Duration::from_millis(500);
+        let timeout = Duration::from_millis(123);
         let config = TestServerConfig {
             api_client: None,
             health_check_timeout: timeout,
