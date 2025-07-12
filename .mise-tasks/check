@@ -14,3 +14,6 @@ cargo nextest run
 
 # Run doc tests
 cargo test --doc
+
+# Validate OpenAPI specifications
+spectral lint examples/axum-example/doc/openapi.yml

@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Context;
 use clawspec_core::ApiClient;
 use tracing::error;
-use utoipa::openapi::{InfoBuilder, ServerBuilder};
+use utoipa::openapi::{ContactBuilder, InfoBuilder, ServerBuilder};
 
 use axum_example::launch;
 
@@ -57,6 +57,13 @@ impl TestApp {
                         multiple content types, file uploads, and bulk operations. \
                         This API demonstrates RESTful design patterns and provides \
                         comprehensive CRUD operations for bird observation data.",
+                    ))
+                    .contact(Some(
+                        ContactBuilder::new()
+                            .name(Some("Bird Observation Team"))
+                            .email(Some("api-support@birdwatch.example.com"))
+                            .url(Some("https://birdwatch.example.com/support"))
+                            .build(),
                     ))
                     .build(),
             )

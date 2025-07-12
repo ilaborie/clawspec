@@ -32,7 +32,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     basic_crud(&mut app).await?;
     alternate_content_types(&mut app).await?;
     test_error_cases(&mut app).await?;
-    demonstrate_tags_and_metadata(&mut app).await?;
+    Box::pin(demonstrate_tags_and_metadata(&mut app)).await?;
 
     app.write_openapi("./doc/openapi.yml")
         .await
@@ -368,22 +368,28 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         name: "Updated Metadata Demo".to_string(),
         ..test_observation
     };
-    let _update_result = app
-        .put(format!("/observations/{created_id}"))?
+    app.put(format!("/observations/{created_id}"))?
         .json(&updated_observation)?
         .tags(["observations", "modification"])
         .description("Update an existing observation with new data")
         .exchange()
         .await
-        .context("should update with modification tags")?;
+        .context("should update with modification tags")?
+        .as_empty()
+        .await
+        .context("should process update response")?;
 
     // Clean up demonstration data
-    app.delete(format!("/observations/{created_id}"))?
+    let _delete_result = app
+        .delete(format!("/observations/{created_id}"))?
         .tag("observations")
         .description("Remove observation from the system")
         .exchange()
         .await
-        .context("should delete demonstration observation")?;
+        .context("should delete demonstration observation")?
+        .as_json::<serde_json::Value>()
+        .await
+        .context("should process delete response")?;
 
     info!("OpenAPI metadata demonstration completed successfully");
     info!("The generated OpenAPI spec will include:");

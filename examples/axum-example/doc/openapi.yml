@@ -2,6 +2,10 @@ openapi: 3.1.0
 info:
   title: Bird Observation API
   description: A comprehensive API for managing bird observations with support for multiple content types, file uploads, and bulk operations. This API demonstrates RESTful design patterns and provides comprehensive CRUD operations for bird observation data.
+  contact:
+    name: Bird Observation Team
+    url: https://birdwatch.example.com/support
+    email: api-support@birdwatch.example.com
   version: 1.0.0
 servers:
 - url: http://localhost:8080/api
@@ -145,14 +149,22 @@ paths:
               position:
                 lat: -90.0
                 lng: 45.0
-      responses: {}
+      responses:
+        '200':
+          description: ''
     delete:
       tags:
       - observations
       description: Remove observation from the system
       operationId: delete-observations-1007
       parameters: []
-      responses: {}
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Value'
   /api/observations/import:
     post:
       tags:
@@ -595,6 +607,7 @@ components:
         uploaded:
           type: integer
           minimum: 0
+    Value: {}
 tags:
 - name: admin
 - name: bulk-operations
