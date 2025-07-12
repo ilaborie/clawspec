@@ -547,3 +547,7 @@ components:
         uploaded:
           type: integer
           minimum: 0
+tags:
+- name: import
+- name: observations
+- name: upload
