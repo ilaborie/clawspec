@@ -16,6 +16,14 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    # Enable auto-merge for patch updates
+    allow:
+      - dependency-type: "direct:production"
+        update-type: "version-update:semver-patch"
+      - dependency-type: "direct:development"
+        update-type: "version-update:semver-patch"
+      - dependency-type: "indirect"
+        update-type: "version-update:semver-patch"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -33,6 +41,12 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    # Enable auto-merge for patch and minor updates (GitHub Actions are typically stable)
+    allow:
+      - dependency-type: "direct:production"
+        update-type: "version-update:semver-patch"
+      - dependency-type: "direct:production"
+        update-type: "version-update:semver-minor"
 
   # npm dependencies (for Claude Code CLI)
   - package-ecosystem: "npm"
