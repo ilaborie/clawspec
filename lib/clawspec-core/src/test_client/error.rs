@@ -32,11 +32,13 @@ use crate::ApiClientError;
 /// struct MyServer;
 ///
 /// impl TestServer for MyServer {
-///     async fn launch(&self, listener: TcpListener) {
-///         listener.set_nonblocking(true).expect("set non-blocking");
-///         let tokio_listener = tokio::net::TcpListener::from_std(listener)
-///             .expect("valid listener");
+///     type Error = std::io::Error;
+///
+///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+///         listener.set_nonblocking(true)?;
+///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
 ///         // Server implementation
+///         Ok(())
 ///     }
 /// }
 ///
@@ -73,10 +75,13 @@ use crate::ApiClientError;
 /// struct MyServer;
 ///
 /// impl TestServer for MyServer {
-///     async fn launch(&self, listener: TcpListener) {
-/// #       listener.set_nonblocking(true).expect("set non-blocking");
-/// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+///     type Error = std::io::Error;
+///
+///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+///         listener.set_nonblocking(true)?;
+///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
 ///         // Server implementation
+///         Ok(())
 ///     }
 /// }
 ///
@@ -186,6 +191,19 @@ pub enum TestAppError {
         /// The timeout duration that was exceeded.
         timeout: Duration,
     },
+
+    /// Server operation failed.
+    ///
+    /// This wraps errors from the TestServer implementation, including
+    /// launch failures and health check errors.
+    ///
+    /// # Examples
+    ///
+    /// - Port binding failures during server startup
+    /// - Framework-specific server configuration errors
+    /// - Network errors during health checks
+    #[display("Server error: {_0}")]
+    ServerError(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 #[cfg(test)]
@@ -316,6 +334,17 @@ mod tests {
                 assert_eq!(actual_timeout, timeout);
             }
             other => panic!("Expected UnhealthyServer, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_server_error_creation() {
+        let server_error = std::io::Error::new(std::io::ErrorKind::AddrInUse, "Port in use");
+        let test_error = TestAppError::ServerError(Box::new(server_error));
+
+        match test_error {
+            TestAppError::ServerError(_) => {} // Expected
+            other => panic!("Expected ServerError, got: {other:?}"),
         }
     }
 

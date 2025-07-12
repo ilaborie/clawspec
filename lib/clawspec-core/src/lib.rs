@@ -333,18 +333,20 @@
 //! struct MyTestServer;
 //!
 //! impl TestServer for MyTestServer {
-//!     async fn launch(&self, listener: TcpListener) {
-//!         listener.set_nonblocking(true).expect("set non-blocking");
-//!         let tokio_listener = tokio::net::TcpListener::from_std(listener)
-//!             .expect("valid listener");
+//!     type Error = std::io::Error;
+//!
+//!     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+//!         listener.set_nonblocking(true)?;
+//!         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
 //!         // Start your web server here
+//!         Ok(())
 //!     }
 //!
-//!     async fn is_healthy(&self, client: &mut clawspec_core::ApiClient) -> Option<bool> {
+//!     async fn is_healthy(&self, client: &mut clawspec_core::ApiClient) -> Result<clawspec_core::test_client::HealthStatus, Self::Error> {
 //!         // Custom health check
 //!         match client.get("/health").unwrap().exchange().await {
-//!             Ok(_) => Some(true),
-//!             Err(_) => Some(false),
+//!             Ok(_) => Ok(clawspec_core::test_client::HealthStatus::Healthy),
+//!             Err(_) => Ok(clawspec_core::test_client::HealthStatus::Unhealthy),
 //!         }
 //!     }
 //!

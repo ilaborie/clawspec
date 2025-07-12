@@ -25,6 +25,7 @@ utoipa = { workspace = true }
 clawspec-core = { path = "../../lib/clawspec-core"}
 headers = { workspace = true}
 rstest = { workspace = true }
+thiserror = { workspace = true }
 utoipa = { workspace = true, features = ["yaml"]}
 
 [lints]

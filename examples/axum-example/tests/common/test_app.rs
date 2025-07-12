@@ -9,12 +9,20 @@ use std::net::TcpListener;
 use std::path::Path;
 
 use anyhow::Context;
+
+#[derive(Debug, thiserror::Error)]
+pub enum AppServerError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Server error: {0}")]
+    Server(#[from] anyhow::Error),
+}
 use axum::http::StatusCode;
 use tracing::info;
 use utoipa::openapi::{ContactBuilder, InfoBuilder, ServerBuilder};
 
 use clawspec_core::ApiClient;
-use clawspec_core::test_client::{TestClient, TestServer, TestServerConfig};
+use clawspec_core::test_client::{HealthStatus, TestClient, TestServer, TestServerConfig};
 
 use axum_example::launch;
 
@@ -22,14 +30,17 @@ use axum_example::launch;
 pub struct AppTestServer;
 
 impl TestServer for AppTestServer {
-    async fn launch(&self, listener: TcpListener) {
-        listener.set_nonblocking(true).expect("set non-blocking");
-        let listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+    type Error = AppServerError;
+
+    async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+        listener.set_nonblocking(true)?;
+        let listener = tokio::net::TcpListener::from_std(listener)?;
         info!(?listener, "launching server");
-        launch(listener).await.expect("server launched");
+        launch(listener).await.map_err(AppServerError::Server)?;
+        Ok(())
     }
 
-    async fn is_healthy(&self, client: &mut ApiClient) -> Option<bool> {
+    async fn is_healthy(&self, client: &mut ApiClient) -> Result<HealthStatus, Self::Error> {
         let Ok(mut result) = client
             .get("/health")
             .expect("valid path")
@@ -37,10 +48,10 @@ impl TestServer for AppTestServer {
             .exchange()
             .await
         else {
-            return Some(false);
+            return Ok(HealthStatus::Unhealthy);
         };
         let _ = result.as_empty().await;
-        Some(true)
+        Ok(HealthStatus::Healthy)
     }
 
     fn config(&self) -> TestServerConfig {

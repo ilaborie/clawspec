@@ -21,12 +21,14 @@
 //! struct MyTestServer;
 //!
 //! impl TestServer for MyTestServer {
-//!     async fn launch(&self, listener: TcpListener) {
+//!     type Error = std::io::Error;
+//!
+//!     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
 //!         // Start your server here
-//!         listener.set_nonblocking(true).expect("set non-blocking");
-//!         let tokio_listener = tokio::net::TcpListener::from_std(listener)
-//!             .expect("valid listener");
+//!         listener.set_nonblocking(true)?;
+//!         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
 //!         // Your server startup logic
+//!         Ok(())
 //!     }
 //! }
 //!
@@ -46,7 +48,6 @@
 //! }
 //! ```
 
-#![allow(clippy::missing_errors_doc, dead_code)]
 use std::fs;
 use std::marker::Sync;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
@@ -93,11 +94,13 @@ pub use self::test_server::*;
 /// struct MyServer;
 ///
 /// impl TestServer for MyServer {
-///     async fn launch(&self, listener: TcpListener) {
-///         listener.set_nonblocking(true).expect("set non-blocking");
-///         let tokio_listener = tokio::net::TcpListener::from_std(listener)
-///             .expect("valid listener");
+///     type Error = std::io::Error;
+///
+///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+///         listener.set_nonblocking(true)?;
+///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
 ///         // Start your server here
+///         Ok(())
 ///     }
 /// }
 ///
@@ -122,10 +125,13 @@ pub use self::test_server::*;
 /// struct MyServer;
 ///
 /// impl TestServer for MyServer {
-///     async fn launch(&self, listener: TcpListener) {
+///     type Error = std::io::Error;
+///
+///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
 ///         // Server implementation
-/// #       listener.set_nonblocking(true).expect("set non-blocking");
-/// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+///         listener.set_nonblocking(true)?;
+///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+///         Ok(())
 ///     }
 ///
 ///     fn config(&self) -> TestServerConfig {
@@ -161,10 +167,13 @@ pub use self::test_server::*;
 /// struct MyServer;
 ///
 /// impl TestServer for MyServer {
-///     async fn launch(&self, listener: TcpListener) {
-/// #       listener.set_nonblocking(true).expect("set non-blocking");
-/// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+///     type Error = std::io::Error;
+///
+///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+///         listener.set_nonblocking(true)?;
+///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
 ///         // Server implementation
+///         Ok(())
 ///     }
 /// }
 ///
@@ -195,9 +204,11 @@ pub use self::test_server::*;
 /// # use std::net::TcpListener;
 /// # #[derive(Debug)] struct MyServer;
 /// # impl TestServer for MyServer {
-/// #   async fn launch(&self, listener: TcpListener) {
-/// #       listener.set_nonblocking(true).expect("set non-blocking");
-/// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+/// #   type Error = std::io::Error;
+/// #   async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+/// #       listener.set_nonblocking(true)?;
+/// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+/// #       Ok(())
 /// #   }
 /// # }
 /// # #[tokio::test]
@@ -222,9 +233,11 @@ pub use self::test_server::*;
 /// # use std::net::TcpListener;
 /// # #[derive(Debug)] struct MyServer;
 /// # impl TestServer for MyServer {
-/// #   async fn launch(&self, listener: TcpListener) {
-/// #       listener.set_nonblocking(true).expect("set non-blocking");
-/// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+/// #   type Error = std::io::Error;
+/// #   async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+/// #       listener.set_nonblocking(true)?;
+/// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+/// #       Ok(())
 /// #   }
 /// # }
 /// # #[tokio::test]
@@ -238,11 +251,13 @@ pub use self::test_server::*;
 /// ```
 #[derive(Debug, derive_more::Deref, derive_more::DerefMut)]
 pub struct TestClient<T> {
+    #[allow(dead_code)]
     local_addr: SocketAddr,
     #[deref]
     #[deref_mut]
     client: ApiClient,
     handle: Option<tokio::task::JoinHandle<()>>,
+    #[allow(dead_code)]
     test_server: Arc<T>,
 }
 
@@ -287,11 +302,13 @@ where
     /// struct MyServer;
     ///
     /// impl TestServer for MyServer {
-    ///     async fn launch(&self, listener: TcpListener) {
-    ///         listener.set_nonblocking(true).expect("set non-blocking");
-    ///         let tokio_listener = tokio::net::TcpListener::from_std(listener)
-    ///             .expect("valid listener");
+    ///     type Error = std::io::Error;
+    ///
+    ///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+    ///         listener.set_nonblocking(true)?;
+    ///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
     ///         // Start your server
+    ///         Ok(())
     ///     }
     /// }
     ///
@@ -313,17 +330,20 @@ where
     /// struct MyServer;
     ///
     /// impl TestServer for MyServer {
-    ///     async fn launch(&self, listener: TcpListener) {
+    ///     type Error = std::io::Error;
+    ///
+    ///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
     ///         // Server implementation
-    /// #       listener.set_nonblocking(true).expect("set non-blocking");
-    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+    ///         listener.set_nonblocking(true)?;
+    ///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+    ///         Ok(())
     ///     }
     ///
-    ///     async fn is_healthy(&self, client: &mut ApiClient) -> Option<bool> {
+    ///     async fn is_healthy(&self, client: &mut ApiClient) -> Result<clawspec_core::test_client::HealthStatus, Self::Error> {
     ///         // Custom health check
     ///         match client.get("/health").unwrap().exchange().await {
-    ///             Ok(_) => Some(true),
-    ///             Err(_) => Some(false),
+    ///             Ok(_) => Ok(clawspec_core::test_client::HealthStatus::Healthy),
+    ///             Err(_) => Ok(clawspec_core::test_client::HealthStatus::Unhealthy),
     ///         }
     ///     }
     /// }
@@ -343,7 +363,11 @@ where
         let test_server = Arc::new(test_server);
         let handle = tokio::spawn({
             let server = Arc::clone(&test_server);
-            async move { server.launch(listener).await }
+            async move {
+                if let Err(err) = server.launch(listener).await {
+                    tracing::error!("Server launch failed: {}", err);
+                }
+            }
         });
 
         let TestServerConfig {
@@ -369,21 +393,25 @@ where
                 loop {
                     let result = server.is_healthy(&mut client).await;
                     match result {
-                        Some(true) => {
-                            debug!("🟢 server healty");
+                        Ok(HealthStatus::Healthy) => {
+                            debug!("🟢 server healthy");
                             break true;
                         }
-                        Some(false) => {
-                            debug!("🟠 server not yet healty, wait {wait_period:?} before retry");
+                        Ok(HealthStatus::Unhealthy) => {
+                            debug!("🟠 server not yet healthy, wait {wait_period:?} before retry");
                             tokio::time::sleep(wait_period).await;
                         }
-                        None => {
+                        Ok(HealthStatus::Unknown) => {
                             debug!("❓wait until a connection can be establish with the server");
                             let connection = tokio::net::TcpStream::connect(local_addr).await;
                             if let Err(err) = &connection {
                                 error!(?err, %local_addr, "Oops, fail to establish connection");
                             }
                             break connection.is_ok();
+                        }
+                        Err(err) => {
+                            error!("Health check error: {}", err);
+                            break false;
                         }
                     }
                 }
@@ -454,10 +482,13 @@ where
     /// struct MyServer;
     ///
     /// impl TestServer for MyServer {
-    ///     async fn launch(&self, listener: TcpListener) {
-    /// #       listener.set_nonblocking(true).expect("set non-blocking");
-    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+    ///     type Error = std::io::Error;
+    ///
+    ///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+    ///         listener.set_nonblocking(true)?;
+    ///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
     ///         // Server implementation
+    ///         Ok(())
     ///     }
     /// }
     ///
@@ -483,9 +514,11 @@ where
     /// # use std::net::TcpListener;
     /// # #[derive(Debug)] struct MyServer;
     /// # impl TestServer for MyServer {
-    /// #   async fn launch(&self, listener: TcpListener) {
-    /// #       listener.set_nonblocking(true).expect("set non-blocking");
-    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+    /// #   type Error = std::io::Error;
+    /// #   async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+    /// #       listener.set_nonblocking(true)?;
+    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+    /// #       Ok(())
     /// #   }
     /// # }
     /// # #[tokio::test]
@@ -512,9 +545,11 @@ where
     /// # use std::net::TcpListener;
     /// # #[derive(Debug)] struct MyServer;
     /// # impl TestServer for MyServer {
-    /// #   async fn launch(&self, listener: TcpListener) {
-    /// #       listener.set_nonblocking(true).expect("set non-blocking");
-    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+    /// #   type Error = std::io::Error;
+    /// #   async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+    /// #       listener.set_nonblocking(true)?;
+    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+    /// #       Ok(())
     /// #   }
     /// # }
     /// # #[tokio::test]
@@ -579,9 +614,11 @@ impl<T> Drop for TestClient<T> {
     /// # use std::net::TcpListener;
     /// # #[derive(Debug)] struct MyServer;
     /// # impl TestServer for MyServer {
-    /// #   async fn launch(&self, listener: TcpListener) {
-    /// #       listener.set_nonblocking(true).expect("set non-blocking");
-    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+    /// #   type Error = std::io::Error;
+    /// #   async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+    /// #       listener.set_nonblocking(true)?;
+    /// #       let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+    /// #       Ok(())
     /// #   }
     /// # }
     /// # #[tokio::test]
@@ -647,15 +684,17 @@ mod tests {
     }
 
     impl TestServer for MockTestServer {
-        async fn launch(&self, listener: TcpListener) {
+        type Error = std::io::Error;
+
+        async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
             // Simulate startup delay
             if !self.startup_delay.is_zero() {
                 tokio::time::sleep(self.startup_delay).await;
             }
 
             // Convert to non-blocking for tokio compatibility
-            listener.set_nonblocking(true).expect("set non-blocking");
-            let tokio_listener = TokioTcpListener::from_std(listener).expect("valid listener");
+            listener.set_nonblocking(true)?;
+            let tokio_listener = TokioTcpListener::from_std(listener)?;
 
             // Simple HTTP server that responds to health checks
             loop {
@@ -671,8 +710,12 @@ mod tests {
             }
         }
 
-        async fn is_healthy(&self, _client: &mut ApiClient) -> Option<bool> {
-            Some(self.should_be_healthy.load(Ordering::Relaxed))
+        async fn is_healthy(&self, _client: &mut ApiClient) -> Result<HealthStatus, Self::Error> {
+            Ok(if self.should_be_healthy.load(Ordering::Relaxed) {
+                HealthStatus::Healthy
+            } else {
+                HealthStatus::Unhealthy
+            })
         }
 
         fn config(&self) -> TestServerConfig {
@@ -731,7 +774,9 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            TestAppError::UnhealthyServer { timeout: actual_timeout } => {
+            TestAppError::UnhealthyServer {
+                timeout: actual_timeout,
+            } => {
                 assert_eq!(actual_timeout, timeout);
             }
             other => panic!("Expected UnhealthyServer error, got: {other:?}"),
@@ -867,6 +912,7 @@ mod tests {
     #[test]
     fn test_test_client_trait_bounds() {
         // Verify that TestClient has the expected trait bounds
+        #[allow(dead_code)]
         fn assert_bounds<T>(_: TestClient<T>)
         where
             T: TestServer + Send + Sync + 'static,
@@ -885,11 +931,13 @@ mod tests {
 
     #[derive(Debug)]
     enum ErrorType {
+        #[allow(dead_code)]
         BindFailure,
         HealthTimeout,
     }
 
     impl ErrorTestServer {
+        #[allow(dead_code)]
         fn bind_failure() -> Self {
             Self {
                 error_type: ErrorType::BindFailure,
@@ -904,17 +952,21 @@ mod tests {
     }
 
     impl TestServer for ErrorTestServer {
-        async fn launch(&self, listener: TcpListener) {
+        type Error = std::io::Error;
+
+        async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
             match self.error_type {
                 ErrorType::BindFailure => {
-                    // Simulate bind failure by panicking
-                    panic!("Simulated bind failure");
+                    // Simulate bind failure by returning an error
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::AddrInUse,
+                        "Simulated bind failure",
+                    ))
                 }
                 ErrorType::HealthTimeout => {
                     // Start normally but never become healthy
-                    listener.set_nonblocking(true).expect("set non-blocking");
-                    let _tokio_listener =
-                        TokioTcpListener::from_std(listener).expect("valid listener");
+                    listener.set_nonblocking(true)?;
+                    let _tokio_listener = TokioTcpListener::from_std(listener)?;
 
                     // Just keep running without accepting connections
                     loop {
@@ -924,13 +976,13 @@ mod tests {
             }
         }
 
-        async fn is_healthy(&self, _client: &mut ApiClient) -> Option<bool> {
+        async fn is_healthy(&self, _client: &mut ApiClient) -> Result<HealthStatus, Self::Error> {
             match self.error_type {
-                ErrorType::BindFailure => Some(false),
+                ErrorType::BindFailure => Ok(HealthStatus::Unhealthy),
                 ErrorType::HealthTimeout => {
                     // Never return, causing a timeout
                     tokio::time::sleep(Duration::from_secs(60)).await;
-                    Some(false)
+                    Ok(HealthStatus::Unhealthy)
                 }
             }
         }
