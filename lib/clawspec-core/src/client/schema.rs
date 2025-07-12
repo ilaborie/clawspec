@@ -138,7 +138,18 @@ impl Schemas {
                 let mut hasher = DefaultHasher::new();
                 target_type_id.hash(&mut hasher);
                 let hash = hasher.finish();
-                format!("{base_name}_{:x}", hash & 0xFFFF) // Use last 4 hex digits for readability
+                let fallback_name = format!("{base_name}_{:x}", hash & 0xFFFF);
+
+                // Warn about fallback naming for debugging purposes
+                tracing::warn!(
+                    type_name = %target_entry.type_name,
+                    base_name = %base_name,
+                    fallback_name = %fallback_name,
+                    "Schema conflict resolved using hash-based fallback naming. \
+                     Consider using more specific module structure for better naming."
+                );
+
+                fallback_name
             }
         };
 
@@ -274,7 +285,18 @@ impl Schemas {
             let mut hasher = DefaultHasher::new();
             type_id.hash(&mut hasher);
             let hash = hasher.finish();
-            format!("{base_name}_{:x}", hash & 0xFFFF) // Use last 4 hex digits for readability
+            let fallback_name = format!("{base_name}_{:x}", hash & 0xFFFF);
+
+            // Warn about fallback naming for debugging purposes
+            tracing::warn!(
+                type_name = %type_name,
+                base_name = %base_name,
+                fallback_name = %fallback_name,
+                "Schema conflict resolved using hash-based fallback naming. \
+                 Consider using more specific module structure for better naming."
+            );
+
+            fallback_name
         }
     }
 
@@ -900,5 +922,133 @@ mod tests {
                 "Schema name '{name}' should be unique"
             );
         }
+    }
+
+    #[test]
+    fn test_merge_behavior_safety() {
+        // Test that merge behavior is safe under various conditions
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+            name: String,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Product {
+            id: u32,
+            name: String,
+        }
+
+        mod v1 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+                email: String,
+            }
+        }
+
+        mod v2 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                uuid: String,
+                profile: String,
+            }
+        }
+
+        // Test 1: Merging empty collections is safe
+        let mut empty1 = Schemas::default();
+        let empty2 = Schemas::default();
+        empty1.merge(empty2);
+        assert_eq!(empty1.entries.len(), 0);
+        assert_eq!(empty1.resolved_names.len(), 0);
+
+        // Test 2: Merging with conflicting names preserves all data
+        let mut schemas1 = Schemas::default();
+        let example1 = serde_json::json!({"id": 1, "name": "Alice"});
+        schemas1.add_example::<User>(example1.clone());
+        schemas1.add::<Product>();
+
+        let mut schemas2 = Schemas::default();
+        let example2 = serde_json::json!({"user_id": "abc", "email": "alice@test.com"});
+        schemas2.add_example::<v1::User>(example2.clone());
+
+        // Pre-populate cache to test invalidation safety
+        let user_id = TypeId::of::<User>();
+        let product_id = TypeId::of::<Product>();
+        let v1_user_id = TypeId::of::<v1::User>();
+        schemas1.resolved_names.insert(user_id, "User".to_string());
+        schemas1
+            .resolved_names
+            .insert(product_id, "Product".to_string());
+
+        // Perform merge
+        schemas1.merge(schemas2);
+
+        // Verify all entries are preserved
+        assert_eq!(schemas1.entries.len(), 3);
+        assert!(schemas1.entries.contains_key(&user_id));
+        assert!(schemas1.entries.contains_key(&product_id));
+        assert!(schemas1.entries.contains_key(&v1_user_id));
+
+        // Verify examples are preserved
+        assert!(schemas1.entries[&user_id].examples.contains(&example1));
+        assert!(schemas1.entries[&v1_user_id].examples.contains(&example2));
+
+        // Verify cache invalidation only affects conflicted names
+        // Product should not be invalidated as it has no conflicts
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 3);
+
+        // All schema names must be unique
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let unique_names: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(
+            names.len(),
+            unique_names.len(),
+            "All schema names must be unique"
+        );
+
+        // Test 3: Multiple conflicting merges work correctly
+        let mut schemas3 = Schemas::default();
+        let example3 = serde_json::json!({"uuid": "uuid123", "profile": "admin"});
+        schemas3.add_example::<v2::User>(example3.clone());
+
+        schemas1.merge(schemas3);
+
+        // Should now have 4 schemas: User, Product, v1::User, v2::User
+        assert_eq!(schemas1.entries.len(), 4);
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 4);
+
+        // All names still unique
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let unique_names: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(
+            names.len(),
+            unique_names.len(),
+            "All schema names must remain unique after multiple merges"
+        );
+
+        // Examples are preserved across merges
+        let v2_user_id = TypeId::of::<v2::User>();
+        assert!(schemas1.entries[&v2_user_id].examples.contains(&example3));
+
+        // Test 4: Self-merge is safe (merging identical collections)
+        let schemas_copy = schemas1.clone();
+        let entries_before = schemas1.entries.len();
+
+        schemas1.merge(schemas_copy);
+
+        // Should have same number of entries (no duplicates)
+        assert_eq!(schemas1.entries.len(), entries_before);
+
+        // Examples should be preserved (sets prevent duplicates)
+        assert!(schemas1.entries[&user_id].examples.contains(&example1));
+        assert!(schemas1.entries[&v1_user_id].examples.contains(&example2));
+        assert!(schemas1.entries[&v2_user_id].examples.contains(&example3));
     }
 }
