@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::Context;
 use clawspec_core::ApiClient;
 use tracing::error;
+use utoipa::openapi::{InfoBuilder, ServerBuilder};
 
 use axum_example::launch;
 
@@ -43,10 +44,40 @@ impl TestApp {
         // TODO Wait until ready - https://github.com/ilaborie/clawspec/issues/15
         // let health_check_timeout = Duration::from_secs(10);
 
-        // Build client
+        // Build client with comprehensive OpenAPI metadata
         let client = ApiClient::builder()
             .with_port(local_addr.port())
             .with_base_path("/api")?
+            .with_info(
+                InfoBuilder::new()
+                    .title("Bird Observation API")
+                    .version("1.0.0")
+                    .description(Some(
+                        "A comprehensive API for managing bird observations with support for \
+                        multiple content types, file uploads, and bulk operations. \
+                        This API demonstrates RESTful design patterns and provides \
+                        comprehensive CRUD operations for bird observation data."
+                    ))
+                    .build()
+            )
+            .add_server(
+                ServerBuilder::new()
+                    .url(format!("http://localhost:{}/api", local_addr.port()))
+                    .description(Some("Development server for testing"))
+                    .build()
+            )
+            .add_server(
+                ServerBuilder::new()
+                    .url("https://api.birdwatch.example.com/api")
+                    .description(Some("Production server"))
+                    .build()
+            )
+            .add_server(
+                ServerBuilder::new()
+                    .url("https://staging.birdwatch.example.com/api")
+                    .description(Some("Staging server for pre-production testing"))
+                    .build()
+            )
             .build()
             .context("failed to build API client")?;
 
