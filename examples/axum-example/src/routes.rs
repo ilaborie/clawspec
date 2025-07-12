@@ -11,7 +11,7 @@ use crate::observations::routes::observation_router;
 pub fn app_router() -> Router<AppState> {
     Router::new()
         .nest("/api/observations", observation_router())
-        .route("/health", get(health))
+        .route("/api/health", get(health))
         .route(
             "/openapi",
             get(|| async move { include_str!("../doc/openapi.yml") }),

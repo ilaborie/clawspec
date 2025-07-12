@@ -15,6 +15,18 @@ servers:
 - url: https://staging.birdwatch.example.com/api
   description: Staging server for pre-production testing
 paths:
+  /api/health:
+    get:
+      tags:
+      - health
+      description: Retrieve health
+      operationId: get-health
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json: {}
   /api/observations:
     get:
       tags:
@@ -612,6 +624,7 @@ tags:
 - name: admin
 - name: bulk-operations
 - name: file-operations
+- name: health
 - name: import
 - name: listing
 - name: modification

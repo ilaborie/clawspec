@@ -54,7 +54,10 @@
       "Bash(./target/release/deps/performance_regression-abf7fc77da902bad --help)",
       "Bash(./target/release/deps/performance_regression-abf7fc77da902bad)",
       "Bash(git rm:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(git restore:*)",
+      "Bash(gh milestone:*)",
+      "Bash(time cargo test:*)"
     ],
     "deny": []
   }

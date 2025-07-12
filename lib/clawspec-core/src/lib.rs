@@ -320,6 +320,61 @@
 //! }
 //! ```
 //!
+//! ## Test Server Framework
+//!
+//! For testing web servers with automatic OpenAPI generation:
+//!
+//! ```rust,no_run
+//! use clawspec_core::test_client::{TestClient, TestServer, TestServerConfig};
+//! use std::net::TcpListener;
+//! use std::time::Duration;
+//!
+//! #[derive(Debug)]
+//! struct MyTestServer;
+//!
+//! impl TestServer for MyTestServer {
+//!     async fn launch(&self, listener: TcpListener) {
+//!         listener.set_nonblocking(true).expect("set non-blocking");
+//!         let tokio_listener = tokio::net::TcpListener::from_std(listener)
+//!             .expect("valid listener");
+//!         // Start your web server here
+//!     }
+//!
+//!     async fn is_healthy(&self, client: &mut clawspec_core::ApiClient) -> Option<bool> {
+//!         // Custom health check
+//!         match client.get("/health").unwrap().exchange().await {
+//!             Ok(_) => Some(true),
+//!             Err(_) => Some(false),
+//!         }
+//!     }
+//!
+//!     fn config(&self) -> TestServerConfig {
+//!         TestServerConfig {
+//!             api_client: Some(
+//!                 clawspec_core::ApiClient::builder()
+//!                     .with_host("localhost")
+//!                     .with_base_path("/api").unwrap()
+//!             ),
+//!             health_check_timeout: Duration::from_secs(15),
+//!         }
+//!     }
+//! }
+//!
+//! #[tokio::test]
+//! async fn test_with_server() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut client = TestClient::start(MyTestServer).await?;
+//!     
+//!     // Test your API
+//!     let response = client.get("/users")?.exchange().await?;
+//!     assert_eq!(response.status_code(), 200);
+//!     
+//!     // Generate comprehensive OpenAPI docs
+//!     client.write_openapi("docs/openapi.yml").await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Re-exports
 //!
 //! All commonly used types are re-exported from the crate root for convenience.
@@ -328,6 +383,8 @@
 // TODO: Add comprehensive unit tests for all modules - https://github.com/ilaborie/clawspec/issues/30
 
 mod client;
+
+pub mod test_client;
 
 // Public API - only expose user-facing types and functions
 pub use self::client::{

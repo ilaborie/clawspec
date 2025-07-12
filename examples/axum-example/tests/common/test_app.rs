@@ -1,62 +1,61 @@
-#![allow(clippy::missing_errors_doc, dead_code, missing_docs)]
+#![allow(
+    clippy::missing_errors_doc,
+    dead_code,
+    missing_docs,
+    clippy::expect_used
+)]
 use std::fs;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::TcpListener;
 use std::path::Path;
 
 use anyhow::Context;
-use clawspec_core::ApiClient;
-use tracing::error;
+use axum::http::StatusCode;
+use tracing::info;
 use utoipa::openapi::{ContactBuilder, InfoBuilder, ServerBuilder};
+
+use clawspec_core::ApiClient;
+use clawspec_core::test_client::{TestClient, TestServer, TestServerConfig};
 
 use axum_example::launch;
 
-#[derive(Debug, derive_more::Deref, derive_more::DerefMut)]
-pub struct TestApp {
-    local_addr: SocketAddr,
-    #[deref]
-    #[deref_mut]
-    client: ApiClient,
-    handle: Option<tokio::task::JoinHandle<()>>,
-}
+#[derive(Debug)]
+pub struct AppTestServer;
 
-impl TestApp {
-    // TODO params - https://github.com/ilaborie/clawspec/issues/14
-    // launcher FnOnce(TcpListener) -> Future<Output=()> + Send + 'statuc
-    // check healthy: Fn(port) -> bool
-    // health check internval: Duration
-    pub async fn start() -> anyhow::Result<Self> {
-        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
-        let listener = tokio::net::TcpListener::bind(addr)
+impl TestServer for AppTestServer {
+    async fn launch(&self, listener: TcpListener) {
+        listener.set_nonblocking(true).expect("set non-blocking");
+        let listener = tokio::net::TcpListener::from_std(listener).expect("valid listener");
+        info!(?listener, "launching server");
+        launch(listener).await.expect("server launched");
+    }
+
+    async fn is_healthy(&self, client: &mut ApiClient) -> Option<bool> {
+        let Ok(mut result) = client
+            .get("/health")
+            .expect("valid path")
+            .with_expected_status_code(StatusCode::OK)
+            .exchange()
             .await
-            .with_context(|| format!("cannot open {addr}"))?;
-        let local_addr = listener.local_addr().context("listener address")?;
+        else {
+            return Some(false);
+        };
+        let _ = result.as_empty().await;
+        Some(true)
+    }
 
-        let handle = tokio::spawn(async move {
-            if let Err(error) = launch(listener).await {
-                error!(?error, "server fail to launch");
-            }
-        });
-
-        let _connection = tokio::net::TcpStream::connect(local_addr)
-            .await
-            .with_context(|| format!("cannot connect to server {local_addr}"))?;
-
-        // TODO Wait until ready - https://github.com/ilaborie/clawspec/issues/15
-        // let health_check_timeout = Duration::from_secs(10);
-
-        // Build client with comprehensive OpenAPI metadata
+    fn config(&self) -> TestServerConfig {
         let client = ApiClient::builder()
-            .with_port(local_addr.port())
-            .with_base_path("/api")?
+            .with_base_path("/api")
+            .expect("valid base path")
             .with_info(
                 InfoBuilder::new()
                     .title("Bird Observation API")
                     .version("1.0.0")
                     .description(Some(
                         "A comprehensive API for managing bird observations with support for \
-                        multiple content types, file uploads, and bulk operations. \
-                        This API demonstrates RESTful design patterns and provides \
-                        comprehensive CRUD operations for bird observation data.",
+                                        multiple content types, file uploads, and bulk operations. \
+                                        This API demonstrates RESTful design patterns and provides \
+                                        comprehensive CRUD operations for bird observation data.",
                     ))
                     .contact(Some(
                         ContactBuilder::new()
@@ -84,16 +83,25 @@ impl TestApp {
                     .url("https://staging.birdwatch.example.com/api")
                     .description(Some("Staging server for pre-production testing"))
                     .build(),
-            )
-            .build()
-            .context("failed to build API client")?;
+            );
+        TestServerConfig {
+            api_client: Some(client),
+            ..Default::default()
+        }
+    }
+}
 
-        let result = Self {
-            local_addr,
-            client,
-            handle: Some(handle),
-        };
-        Ok(result)
+#[derive(Debug, derive_more::Deref, derive_more::DerefMut)]
+pub struct TestApp {
+    #[deref]
+    #[deref_mut]
+    client: TestClient<AppTestServer>,
+}
+
+impl TestApp {
+    pub async fn start() -> anyhow::Result<Self> {
+        let client = TestClient::start(AppTestServer).await?;
+        Ok(Self { client })
     }
 
     pub async fn write_openapi(mut self, path: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -114,13 +122,5 @@ impl TestApp {
         fs::write(path, contents).with_context(|| format!("writing to {}", path.display()))?;
 
         Ok(())
-    }
-}
-
-impl Drop for TestApp {
-    fn drop(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            handle.abort();
-        }
     }
 }
