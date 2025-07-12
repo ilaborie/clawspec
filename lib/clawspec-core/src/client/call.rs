@@ -72,23 +72,152 @@ impl ExpectedStatusCodes {
     }
 
     /// Creates expected status codes from a single inclusive range.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range contains invalid HTTP status codes (outside 100-599).
     pub fn from_inclusive_range(range: RangeInclusive<u16>) -> Self {
+        assert!(
+            *range.start() >= 100 && *range.start() <= 599,
+            "HTTP status code range start must be between 100 and 599, got {}",
+            range.start()
+        );
+        assert!(
+            *range.end() >= 100 && *range.end() <= 599,
+            "HTTP status code range end must be between 100 and 599, got {}",
+            range.end()
+        );
+        assert!(
+            range.start() <= range.end(),
+            "HTTP status code range start ({}) must be less than or equal to end ({})",
+            range.start(),
+            range.end()
+        );
+
         Self {
             ranges: vec![StatusCodeRange::Inclusive(range)],
         }
     }
 
     /// Creates expected status codes from a single exclusive range.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range contains invalid HTTP status codes (outside 100-599).
     pub fn from_exclusive_range(range: Range<u16>) -> Self {
+        assert!(
+            range.start >= 100 && range.start <= 599,
+            "HTTP status code range start must be between 100 and 599, got {}",
+            range.start
+        );
+        assert!(
+            range.end >= 100 && range.end <= 600, // exclusive end can be 600
+            "HTTP status code range end must be between 100 and 600 (exclusive), got {}",
+            range.end
+        );
+        assert!(
+            range.start < range.end,
+            "HTTP status code range start ({}) must be less than end ({})",
+            range.start,
+            range.end
+        );
+
         Self {
             ranges: vec![StatusCodeRange::Exclusive(range)],
         }
     }
 
     /// Creates expected status codes from a single status code.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the status code is invalid (outside 100-599).
     pub fn from_single(status: u16) -> Self {
+        assert!(
+            (100..=599).contains(&status),
+            "HTTP status code must be between 100 and 599, got {status}"
+        );
+
         Self {
             ranges: vec![StatusCodeRange::Single(status)],
+        }
+    }
+
+    /// Creates expected status codes from a single `http::StatusCode`.
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ExpectedStatusCodes;
+    /// use http::StatusCode;
+    ///
+    /// let codes = ExpectedStatusCodes::from_status_code(StatusCode::OK);
+    /// assert!(codes.contains(200));
+    /// ```
+    pub fn from_status_code(status: http::StatusCode) -> Self {
+        // No runtime validation needed - http::StatusCode guarantees validity at compile time
+        Self {
+            ranges: vec![StatusCodeRange::Single(status.as_u16())],
+        }
+    }
+
+    /// Creates expected status codes from an inclusive range of `http::StatusCode`.
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ExpectedStatusCodes;
+    /// use http::StatusCode;
+    ///
+    /// let codes = ExpectedStatusCodes::from_status_code_range_inclusive(
+    ///     StatusCode::OK..=StatusCode::NO_CONTENT
+    /// );
+    /// assert!(codes.contains(200));
+    /// assert!(codes.contains(204));
+    /// assert!(!codes.contains(205));
+    /// ```
+    pub fn from_status_code_range_inclusive(range: RangeInclusive<http::StatusCode>) -> Self {
+        // No runtime validation needed - http::StatusCode guarantees validity at compile time
+        let start = range.start().as_u16();
+        let end = range.end().as_u16();
+        Self {
+            ranges: vec![StatusCodeRange::Inclusive(start..=end)],
+        }
+    }
+
+    /// Creates expected status codes from an exclusive range of `http::StatusCode`.
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ExpectedStatusCodes;
+    /// use http::StatusCode;
+    ///
+    /// let codes = ExpectedStatusCodes::from_status_code_range_exclusive(
+    ///     StatusCode::OK..StatusCode::PARTIAL_CONTENT
+    /// );
+    /// assert!(codes.contains(200));
+    /// assert!(codes.contains(204));
+    /// assert!(!codes.contains(206));
+    /// ```
+    pub fn from_status_code_range_exclusive(range: Range<http::StatusCode>) -> Self {
+        // No runtime validation needed - http::StatusCode guarantees validity at compile time
+        let start = range.start.as_u16();
+        let end = range.end.as_u16();
+        Self {
+            ranges: vec![StatusCodeRange::Exclusive(start..end)],
         }
     }
 
@@ -101,15 +230,140 @@ impl ExpectedStatusCodes {
         })
     }
 
+    /// Checks if an `http::StatusCode` is expected/valid.
+    ///
+    /// This is a convenience method that accepts `http::StatusCode` directly.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ExpectedStatusCodes;
+    /// use http::StatusCode;
+    ///
+    /// let codes = ExpectedStatusCodes::from_status_code(StatusCode::OK);
+    /// assert!(codes.contains_status_code(StatusCode::OK));
+    /// assert!(!codes.contains_status_code(StatusCode::NOT_FOUND));
+    /// ```
+    pub fn contains_status_code(&self, status: http::StatusCode) -> bool {
+        self.contains(status.as_u16())
+    }
+
     /// Adds a single status code to the existing set (for chaining).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the status code is invalid (outside 100-599).
     pub fn add_expected_status(mut self, status: u16) -> Self {
+        assert!(
+            (100..=599).contains(&status),
+            "HTTP status code must be between 100 and 599, got {status}"
+        );
         self.ranges.push(StatusCodeRange::Single(status));
         self
     }
 
     /// Adds an inclusive range to the existing set (for chaining).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range contains invalid HTTP status codes (outside 100-599).
     pub fn add_expected_range(mut self, range: RangeInclusive<u16>) -> Self {
+        assert!(
+            *range.start() >= 100 && *range.start() <= 599,
+            "HTTP status code range start must be between 100 and 599, got {}",
+            range.start()
+        );
+        assert!(
+            *range.end() >= 100 && *range.end() <= 599,
+            "HTTP status code range end must be between 100 and 599, got {}",
+            range.end()
+        );
+        assert!(
+            range.start() <= range.end(),
+            "HTTP status code range start ({}) must be less than or equal to end ({})",
+            range.start(),
+            range.end()
+        );
+
         self.ranges.push(StatusCodeRange::Inclusive(range));
+        self
+    }
+
+    /// Adds a single `http::StatusCode` to the existing set (for chaining).
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ExpectedStatusCodes;
+    /// use http::StatusCode;
+    ///
+    /// let codes = ExpectedStatusCodes::from_status_code(StatusCode::OK)
+    ///     .add_status_code(StatusCode::NOT_FOUND);
+    /// assert!(codes.contains(200));
+    /// assert!(codes.contains(404));
+    /// ```
+    pub fn add_status_code(mut self, status: http::StatusCode) -> Self {
+        // No runtime validation needed - http::StatusCode guarantees validity at compile time
+        self.ranges.push(StatusCodeRange::Single(status.as_u16()));
+        self
+    }
+
+    /// Adds an inclusive range of `http::StatusCode` to the existing set (for chaining).
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ExpectedStatusCodes;
+    /// use http::StatusCode;
+    ///
+    /// let codes = ExpectedStatusCodes::from_status_code(StatusCode::OK)
+    ///     .add_status_code_range_inclusive(StatusCode::BAD_REQUEST..=StatusCode::NOT_FOUND);
+    /// assert!(codes.contains(200));
+    /// assert!(codes.contains(400));
+    /// assert!(codes.contains(404));
+    /// ```
+    pub fn add_status_code_range_inclusive(
+        mut self,
+        range: RangeInclusive<http::StatusCode>,
+    ) -> Self {
+        // No runtime validation needed - http::StatusCode guarantees validity at compile time
+        let start = range.start().as_u16();
+        let end = range.end().as_u16();
+        self.ranges.push(StatusCodeRange::Inclusive(start..=end));
+        self
+    }
+
+    /// Adds an exclusive range of `http::StatusCode` to the existing set (for chaining).
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ExpectedStatusCodes;
+    /// use http::StatusCode;
+    ///
+    /// let codes = ExpectedStatusCodes::from_status_code(StatusCode::OK)
+    ///     .add_status_code_range_exclusive(StatusCode::BAD_REQUEST..StatusCode::NOT_FOUND);
+    /// assert!(codes.contains(200));
+    /// assert!(codes.contains(400));
+    /// assert!(!codes.contains(404));
+    /// ```
+    pub fn add_status_code_range_exclusive(mut self, range: Range<http::StatusCode>) -> Self {
+        // No runtime validation needed - http::StatusCode guarantees validity at compile time
+        let start = range.start.as_u16();
+        let end = range.end.as_u16();
+        self.ranges.push(StatusCodeRange::Exclusive(start..end));
         self
     }
 }
@@ -190,6 +444,67 @@ mod status_code_tests {
         assert!(!codes.contains(205));
         assert!(!codes.contains(405));
         assert!(!codes.contains(504));
+    }
+
+    #[test]
+    #[should_panic(expected = "HTTP status code must be between 100 and 599, got 99")]
+    fn test_invalid_single_status_code_low() {
+        ExpectedStatusCodes::from_single(99);
+    }
+
+    #[test]
+    #[should_panic(expected = "HTTP status code must be between 100 and 599, got 600")]
+    fn test_invalid_single_status_code_high() {
+        ExpectedStatusCodes::from_single(600);
+    }
+
+    #[test]
+    #[should_panic(expected = "HTTP status code range start must be between 100 and 599, got 99")]
+    fn test_invalid_range_start_low() {
+        ExpectedStatusCodes::from_inclusive_range(99..=200);
+    }
+
+    #[test]
+    #[should_panic(expected = "HTTP status code range end must be between 100 and 599, got 600")]
+    fn test_invalid_range_end_high() {
+        ExpectedStatusCodes::from_inclusive_range(200..=600);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "HTTP status code range start (300) must be less than or equal to end (200)"
+    )]
+    fn test_invalid_range_order() {
+        #[allow(clippy::reversed_empty_ranges)]
+        {
+            ExpectedStatusCodes::from_inclusive_range(300..=200);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "HTTP status code range start must be between 100 and 599, got 99")]
+    fn test_invalid_exclusive_range_start() {
+        ExpectedStatusCodes::from_exclusive_range(99..200);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "HTTP status code range end must be between 100 and 600 (exclusive), got 601"
+    )]
+    fn test_invalid_exclusive_range_end() {
+        ExpectedStatusCodes::from_exclusive_range(200..601);
+    }
+
+    #[test]
+    #[should_panic(expected = "HTTP status code must be between 100 and 599, got 0")]
+    fn test_add_invalid_status() {
+        ExpectedStatusCodes::from_single(200).add_expected_status(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "HTTP status code range start must be between 100 and 599, got 50")]
+    fn test_add_invalid_range() {
+        ExpectedStatusCodes::from_single(200).add_expected_range(50..=100);
     }
 }
 
@@ -580,6 +895,85 @@ impl ApiCall {
     pub fn with_client_errors(self) -> Self {
         self.with_status_range_inclusive(200..=299)
             .add_expected_status_range_inclusive(400..=499)
+    }
+
+    /// Sets the expected status codes using an `ExpectedStatusCodes` instance.
+    ///
+    /// This method allows you to pass pre-configured `ExpectedStatusCodes` instances,
+    /// which is particularly useful with the `expected_status_codes!` macro.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, expected_status_codes};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Using the macro with with_expected_status_codes
+    /// let call = client.get("/users")?
+    ///     .with_expected_status_codes(expected_status_codes!(200-299));
+    ///
+    /// // Using manually created ExpectedStatusCodes
+    /// let codes = clawspec_core::ExpectedStatusCodes::from_inclusive_range(200..=204)
+    ///     .add_expected_status(404);
+    /// let call = client.get("/items")?.with_expected_status_codes(codes);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_expected_status_codes(mut self, codes: ExpectedStatusCodes) -> Self {
+        self.expected_status_codes = codes;
+        self
+    }
+
+    /// Sets expected status codes from a single `http::StatusCode`.
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    /// use http::StatusCode;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// let call = client.get("/users")?
+    ///     .with_expected_status_code(StatusCode::OK);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_expected_status_code(self, status: http::StatusCode) -> Self {
+        self.with_expected_status_codes(ExpectedStatusCodes::from_status_code(status))
+    }
+
+    /// Sets expected status codes from a range of `http::StatusCode`.
+    ///
+    /// This method provides **compile-time validation** of status codes through the type system.
+    /// Unlike the `u16` variants, this method does not perform runtime validation since
+    /// `http::StatusCode` guarantees valid HTTP status codes at compile time.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    /// use http::StatusCode;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// let call = client.get("/users")?
+    ///     .with_expected_status_code_range(StatusCode::OK..=StatusCode::NO_CONTENT);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_expected_status_code_range(self, range: RangeInclusive<http::StatusCode>) -> Self {
+        self.with_expected_status_codes(ExpectedStatusCodes::from_status_code_range_inclusive(
+            range,
+        ))
     }
 
     // =============================================================================
