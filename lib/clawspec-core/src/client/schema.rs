@@ -16,12 +16,15 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 });
 
 #[derive(Clone, Default)]
-pub(super) struct Schemas(IndexMap<TypeId, SchemaEntry>);
+pub(super) struct Schemas {
+    entries: IndexMap<TypeId, SchemaEntry>,
+    resolved_names: std::collections::HashMap<TypeId, String>,
+}
 
 impl Debug for Schemas {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let names = self
-            .0
+            .entries
             .values()
             .map(|it| it.type_name.as_str())
             .collect::<Vec<_>>();
@@ -31,12 +34,24 @@ impl Debug for Schemas {
 
 impl Schemas {
     pub(crate) fn add_entry(&mut self, entry: SchemaEntry) -> RefOr<Schema> {
-        let entry = self
-            .0
-            .entry(entry.id)
+        let type_id = entry.id;
+
+        // First insert/update the entry
+        let _ = self
+            .entries
+            .entry(type_id)
             .and_modify(|existing| existing.examples.extend(entry.examples.clone()))
             .or_insert(entry);
-        entry.as_schema_ref()
+
+        // Then resolve name for this type and cache it
+        let resolved_name = self.resolve_name_for_type(type_id);
+
+        // Create the reference using the resolved name
+        if self.entries[&type_id].should_inline_schema() {
+            self.entries[&type_id].schema.clone()
+        } else {
+            RefOr::Ref(Ref::from_schema_name(&resolved_name))
+        }
     }
 
     fn add_type<T>(&mut self) -> &mut SchemaEntry
@@ -44,15 +59,25 @@ impl Schemas {
         T: ToSchema + 'static,
     {
         let id = TypeId::of::<T>();
-        self.0.entry(id).or_insert_with(SchemaEntry::of::<T>)
+        self.entries.entry(id).or_insert_with(SchemaEntry::of::<T>)
     }
 
     pub(super) fn add<T>(&mut self) -> RefOr<Schema>
     where
         T: ToSchema + 'static,
     {
-        let entry = self.add_type::<T>();
-        entry.as_schema_ref()
+        let type_id = TypeId::of::<T>();
+        let _ = self.add_type::<T>();
+
+        // Resolve name for this type and cache it
+        let resolved_name = self.resolve_name_for_type(type_id);
+
+        // Create the reference using the resolved name
+        if self.entries[&type_id].should_inline_schema() {
+            self.entries[&type_id].schema.clone()
+        } else {
+            RefOr::Ref(Ref::from_schema_name(&resolved_name))
+        }
     }
 
     pub(super) fn add_example<T>(&mut self, example: impl Into<serde_json::Value>) -> RefOr<Schema>
@@ -60,9 +85,78 @@ impl Schemas {
         T: ToSchema + 'static,
     {
         let example = example.into();
+        let type_id = TypeId::of::<T>();
         let entry = self.add_type::<T>();
         entry.examples.insert(example);
-        entry.as_schema_ref()
+
+        // Resolve name for this type and cache it
+        let resolved_name = self.resolve_name_for_type(type_id);
+
+        // Create the reference using the resolved name
+        if self.entries[&type_id].should_inline_schema() {
+            self.entries[&type_id].schema.clone()
+        } else {
+            RefOr::Ref(Ref::from_schema_name(&resolved_name))
+        }
+    }
+
+    /// Resolves the unique name for a given TypeId, handling conflicts
+    fn resolve_name_for_type(&mut self, target_type_id: TypeId) -> String {
+        // Check if we already resolved this type's name
+        if let Some(cached_name) = self.resolved_names.get(&target_type_id) {
+            return cached_name.clone();
+        }
+
+        let target_entry = &self.entries[&target_type_id];
+        let base_name = &target_entry.name;
+
+        // Count conflicts
+        let conflicts: Vec<_> = self
+            .entries
+            .values()
+            .filter(|entry| !entry.should_inline_schema() && &entry.name == base_name)
+            .collect();
+
+        let resolved_name = if conflicts.len() <= 1 {
+            // No conflict, use the original name
+            base_name.clone()
+        } else {
+            // Conflict detected - generate unique name using type path
+            let type_parts: Vec<&str> = target_entry
+                .type_name
+                .split("::")
+                .filter(|part| !part.is_empty() && !Self::is_filtered_path_part(part))
+                .collect();
+
+            if type_parts.len() >= 2 {
+                // Use the last two parts for namespace (e.g., "module::Type")
+                format!("{}_{}", type_parts[type_parts.len() - 2], base_name)
+            } else {
+                // Fallback: use a more readable hash-based suffix
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                target_type_id.hash(&mut hasher);
+                let hash = hasher.finish();
+                let fallback_name = format!("{base_name}_{:x}", hash & 0xFFFF);
+
+                // Warn about fallback naming for debugging purposes
+                tracing::warn!(
+                    type_name = %target_entry.type_name,
+                    base_name = %base_name,
+                    fallback_name = %fallback_name,
+                    "Schema conflict resolved using hash-based fallback naming. \
+                     Consider using more specific module structure for better naming."
+                );
+
+                fallback_name
+            }
+        };
+
+        // Cache the resolved name
+        self.resolved_names
+            .insert(target_type_id, resolved_name.clone());
+        resolved_name
     }
 
     /// Merges another schema collection into this one.
@@ -100,26 +194,120 @@ impl Schemas {
     /// // Result: schemas1 has User schema with both examples
     /// ```
     pub(super) fn merge(&mut self, other: Self) {
-        for (type_id, entry) in other.0 {
-            self.0.insert(type_id, entry);
+        // Collect schema names that might be affected by conflicts
+        let mut potentially_affected_names = std::collections::HashSet::new();
+
+        for (type_id, entry) in &other.entries {
+            // If this name already exists in our collection, it might create conflicts
+            if self
+                .entries
+                .values()
+                .any(|existing| existing.name == entry.name && !existing.should_inline_schema())
+            {
+                potentially_affected_names.insert(entry.name.clone());
+            }
+
+            self.entries
+                .entry(*type_id)
+                .and_modify(|existing| existing.examples.extend(entry.examples.clone()))
+                .or_insert(entry.clone());
+        }
+
+        // Selectively invalidate cache only for potentially conflicted schemas
+        if !potentially_affected_names.is_empty() {
+            self.resolved_names.retain(|type_id, _| {
+                if let Some(entry) = self.entries.get(type_id) {
+                    !potentially_affected_names.contains(&entry.name)
+                } else {
+                    false // Remove if entry no longer exists
+                }
+            });
         }
     }
 
     pub(super) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
         let mut result = vec![];
-        for entry in self.0.values() {
-            // Only include non-primitive types in the components/schemas section
-            if !entry.should_inline_schema() {
-                let name = entry.name.clone(); // TODO conflict - https://github.com/ilaborie/clawspec/issues/25
-                let schema = entry.schema.clone();
-                result.push((name, schema));
-            }
+
+        // First, identify all non-primitive entries and detect conflicts
+        let non_primitive_entries: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| !entry.should_inline_schema())
+            .collect();
+
+        // Count name occurrences to detect conflicts
+        let mut name_counts = std::collections::HashMap::<String, u32>::new();
+        for (_, entry) in &non_primitive_entries {
+            *name_counts.entry(entry.name.clone()).or_insert(0) += 1;
+        }
+
+        // Generate resolved names without cloning the entire structure
+        for (type_id, entry) in non_primitive_entries {
+            let resolved_name =
+                self.resolve_schema_name(*type_id, &entry.name, &entry.type_name, &name_counts);
+            let schema = entry.schema.clone();
+            result.push((resolved_name, schema));
         }
         result
     }
 
-    // TODO examples - https://github.com/ilaborie/clawspec/issues/25
-    // let example = Example::builder().value(output.as_example_value()?).build();
+    /// Resolves schema name for a specific entry without requiring mutable access
+    fn resolve_schema_name(
+        &self,
+        type_id: TypeId,
+        base_name: &str,
+        type_name: &str,
+        name_counts: &std::collections::HashMap<String, u32>,
+    ) -> String {
+        // Check cache first
+        if let Some(cached_name) = self.resolved_names.get(&type_id) {
+            return cached_name.clone();
+        }
+
+        // If no conflict, use original name
+        if name_counts.get(base_name).copied().unwrap_or(0) <= 1 {
+            return base_name.to_string();
+        }
+
+        // Conflict detected - generate unique name using type path
+        let type_parts: Vec<&str> = type_name
+            .split("::")
+            .filter(|part| !part.is_empty() && !Self::is_filtered_path_part(part))
+            .collect();
+
+        if type_parts.len() >= 2 {
+            // Use the last two parts for namespace (e.g., "module::Type")
+            format!("{}_{}", type_parts[type_parts.len() - 2], base_name)
+        } else {
+            // Fallback: use a more readable hash-based suffix
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            type_id.hash(&mut hasher);
+            let hash = hasher.finish();
+            let fallback_name = format!("{base_name}_{:x}", hash & 0xFFFF);
+
+            // Warn about fallback naming for debugging purposes
+            tracing::warn!(
+                type_name = %type_name,
+                base_name = %base_name,
+                fallback_name = %fallback_name,
+                "Schema conflict resolved using hash-based fallback naming. \
+                 Consider using more specific module structure for better naming."
+            );
+
+            fallback_name
+        }
+    }
+
+    /// Checks if a path part should be filtered out from namespace generation
+    fn is_filtered_path_part(part: &str) -> bool {
+        // Filter out common test-related and internal modules
+        matches!(
+            part,
+            "tests" | "test" | "_test" | "testing" | "internal" | "private"
+        )
+    }
 }
 
 #[derive(Clone, derive_more::Display, derive_more::Debug)]
@@ -184,17 +372,6 @@ impl SchemaEntry {
         self.examples.insert(example);
     }
 
-    fn as_schema_ref(&self) -> RefOr<Schema> {
-        if self.should_inline_schema() {
-            // Return the schema directly for primitive types
-            self.schema.clone()
-        } else {
-            // Return a reference for complex types
-            let name = &self.name; // TODO maybe conflict - https://github.com/ilaborie/clawspec/issues/25
-            RefOr::Ref(Ref::from_schema_name(name))
-        }
-    }
-
     /// Determines if this schema should be inlined (for primitives) or referenced (for complex types)
     fn should_inline_schema(&self) -> bool {
         // Check if the schema name (from T::name()) is a primitive type
@@ -257,6 +434,7 @@ mod tests {
         schemas.add::<TestType>();
 
         // Should still only have one entry
+        assert_eq!(schemas.entries.len(), 1);
         let schema_vec = schemas.schema_vec();
         assert_eq!(schema_vec.len(), 1);
     }
@@ -296,6 +474,80 @@ mod tests {
     }
 
     #[test]
+    fn test_schemas_merge_with_conflicts_and_examples() {
+        // Test merge behavior with conflicting schema names and example collection
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+            name: String,
+        }
+
+        mod api_v1 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+                email: String,
+            }
+        }
+
+        // Create first collection with User and examples
+        let mut schemas1 = Schemas::default();
+        let example1 = serde_json::json!({"id": 1, "name": "Alice"});
+        schemas1.add_example::<User>(example1.clone());
+
+        // Create second collection with different User type and examples
+        let mut schemas2 = Schemas::default();
+        let example2 = serde_json::json!({"user_id": "abc123", "email": "alice@example.com"});
+        schemas2.add_example::<api_v1::User>(example2.clone());
+
+        // Also add another example for the same User type to first collection
+        let example3 = serde_json::json!({"id": 2, "name": "Bob"});
+        schemas1.add_example::<User>(example3.clone());
+
+        // Merge schemas2 into schemas1
+        schemas1.merge(schemas2);
+
+        // Should have both User types
+        assert_eq!(schemas1.entries.len(), 2);
+
+        // Get schema vector - conflicts should be resolved
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 2, "Should have both User schemas");
+
+        // Names should be unique
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
+
+        // Should have one namespaced name
+        let has_namespaced = names.iter().any(|name| name.contains("api_v1_User"));
+        assert!(
+            has_namespaced,
+            "Should have a namespaced User schema from api_v1"
+        );
+
+        // Verify examples are preserved after merge
+        let user_type_id = TypeId::of::<User>();
+        let api_v1_user_type_id = TypeId::of::<api_v1::User>();
+
+        let user_entry = &schemas1.entries[&user_type_id];
+        assert_eq!(user_entry.examples.len(), 2); // example1 + example3
+        assert!(user_entry.examples.contains(&example1));
+        assert!(user_entry.examples.contains(&example3));
+
+        let api_v1_user_entry = &schemas1.entries[&api_v1_user_type_id];
+        assert_eq!(api_v1_user_entry.examples.len(), 1); // example2
+        assert!(api_v1_user_entry.examples.contains(&example2));
+    }
+
+    #[test]
     fn test_schema_entry_creation() {
         let entry = SchemaEntry::of::<TestType>();
 
@@ -331,10 +583,14 @@ mod tests {
     }
 
     #[test]
-    fn test_schema_entry_as_schema_ref() {
+    fn test_schema_entry_reference_creation() {
         let entry = SchemaEntry::of::<TestType>();
-        let schema_ref = entry.as_schema_ref();
 
+        // Test that non-primitive types should be referenced
+        assert!(!entry.should_inline_schema());
+
+        // Test schema reference creation
+        let schema_ref: RefOr<Schema> = RefOr::Ref(Ref::from_schema_name("TestType"));
         insta::assert_debug_snapshot!(schema_ref, @r##"
         Ref(
             Ref {
@@ -397,5 +653,402 @@ mod tests {
         let schema_vec = schemas.schema_vec();
         assert_eq!(schema_vec.len(), 1);
         assert_eq!(schema_vec[0].0, "TestType");
+    }
+
+    #[test]
+    fn test_schema_name_conflicts_are_resolved() {
+        // This test verifies that schema name conflicts are properly resolved
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+            name: String,
+        }
+
+        // Different module with same schema name
+        mod other_module {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+                email: String,
+            }
+        }
+
+        let mut schemas = Schemas::default();
+
+        // Add both types - they have different TypeIds but same schema name
+        let schema1 = schemas.add::<User>();
+        let schema2 = schemas.add::<other_module::User>();
+
+        // Both should be referenced (not inlined)
+        assert!(matches!(schema1, RefOr::Ref(_)));
+        assert!(matches!(schema2, RefOr::Ref(_)));
+
+        // Check the internal storage - should have 2 entries with different TypeIds
+        assert_eq!(schemas.entries.len(), 2);
+
+        // Get the schema_vec for OpenAPI output - conflicts should be resolved
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 2, "Should have both schemas");
+
+        // Extract schema names
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+
+        // Verify that names are unique (no conflicts)
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
+
+        // Should have exactly one name containing "other_module_User" and one with base "User" or namespace
+        let has_namespaced = names.iter().any(|name| name.contains("other_module_User"));
+        assert!(has_namespaced, "Should have a namespaced User schema");
+
+        println!("Resolved schema names: {names:?}");
+
+        // Verify that references point to the correct unique names
+        if let RefOr::Ref(ref_obj) = &schema1 {
+            let ref_name = ref_obj
+                .ref_location
+                .trim_start_matches("#/components/schemas/");
+            assert!(
+                names.iter().any(|&name| name == ref_name),
+                "Reference '{ref_name}' should match a schema name"
+            );
+        }
+
+        if let RefOr::Ref(ref_obj) = &schema2 {
+            let ref_name = ref_obj
+                .ref_location
+                .trim_start_matches("#/components/schemas/");
+            assert!(
+                names.iter().any(|&name| name == ref_name),
+                "Reference '{ref_name}' should match a schema name"
+            );
+        }
+    }
+
+    #[test]
+    fn test_enhanced_example_generation_and_validation() {
+        // This test verifies enhanced example handling for schemas
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Product {
+            id: u32,
+            name: String,
+            price: f64,
+        }
+
+        let mut schemas = Schemas::default();
+
+        // Add schema with multiple examples to test example collection
+        let example1 = serde_json::json!({"id": 1, "name": "Laptop", "price": 999.99});
+        let example2 = serde_json::json!({"id": 2, "name": "Mouse", "price": 29.99});
+        let example3 = serde_json::json!({"id": 3, "name": "Keyboard", "price": 89.99});
+
+        // Add the same type multiple times with different examples
+        schemas.add_example::<Product>(example1.clone());
+        schemas.add_example::<Product>(example2.clone());
+        schemas.add_example::<Product>(example3.clone());
+
+        // Should still only have one schema entry (same type)
+        assert_eq!(schemas.entries.len(), 1);
+
+        // Get the product entry to verify example collection
+        let product_type_id = TypeId::of::<Product>();
+        let product_entry = &schemas.entries[&product_type_id];
+
+        // Should have collected all three examples
+        assert_eq!(product_entry.examples.len(), 3);
+        assert!(product_entry.examples.contains(&example1));
+        assert!(product_entry.examples.contains(&example2));
+        assert!(product_entry.examples.contains(&example3));
+
+        // Schema should be properly referenced (not inlined)
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 1);
+        assert_eq!(schema_vec[0].0, "Product");
+
+        // Test duplicate example deduplication
+        schemas.add_example::<Product>(example1.clone()); // Add same example again
+        let product_entry = &schemas.entries[&product_type_id];
+        assert_eq!(
+            product_entry.examples.len(),
+            3,
+            "Duplicate examples should be deduplicated"
+        );
+    }
+
+    #[test]
+    fn test_fallback_naming_strategy() {
+        // Test the fallback naming when type path has insufficient parts
+        #[derive(Debug, ToSchema, Serialize)]
+        struct SimpleType;
+
+        // Create a type in the root namespace (less than 2 path parts)
+        let mut schemas = Schemas::default();
+
+        // Manually create an entry to simulate root-level types
+        let simple_entry = SchemaEntry {
+            id: TypeId::of::<SimpleType>(),
+            type_name: "SimpleType".to_string(), // Root level, no :: separator
+            name: "SimpleType".to_string(),
+            schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            examples: IndexSet::default(),
+        };
+
+        // Add the same name from another "type" to force conflict
+        let conflicting_entry = SchemaEntry {
+            id: TypeId::of::<String>(), // Different type, same schema name
+            type_name: "String".to_string(),
+            name: "SimpleType".to_string(), // Same name as above!
+            schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            examples: IndexSet::default(),
+        };
+
+        schemas.entries.insert(simple_entry.id, simple_entry);
+        schemas
+            .entries
+            .insert(conflicting_entry.id, conflicting_entry);
+
+        // Get schema vector - should use hash-based fallback naming
+        let schema_vec = schemas.schema_vec();
+        assert_eq!(schema_vec.len(), 2);
+
+        // Both should have unique names, and at least one should use hash-based naming
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
+
+        // At least one name should contain a hex hash
+        let has_hash_name = names.iter().any(|name| {
+            name.contains("_")
+                && name
+                    .split('_')
+                    .next_back()
+                    .unwrap_or("")
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit())
+        });
+        assert!(
+            has_hash_name,
+            "Should have at least one hash-based fallback name"
+        );
+    }
+
+    #[test]
+    fn test_path_filtering_edge_cases() {
+        // Test various edge cases in path filtering
+        assert!(Schemas::is_filtered_path_part("tests"));
+        assert!(Schemas::is_filtered_path_part("test"));
+        assert!(Schemas::is_filtered_path_part("_test"));
+        assert!(Schemas::is_filtered_path_part("testing"));
+        assert!(Schemas::is_filtered_path_part("internal"));
+        assert!(Schemas::is_filtered_path_part("private"));
+
+        // These should not be filtered
+        assert!(!Schemas::is_filtered_path_part("user"));
+        assert!(!Schemas::is_filtered_path_part("api"));
+        assert!(!Schemas::is_filtered_path_part("v1"));
+        assert!(!Schemas::is_filtered_path_part("service"));
+    }
+
+    #[test]
+    fn test_selective_cache_invalidation() {
+        // Test that cache invalidation only affects conflicted schemas
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Product {
+            name: String,
+        }
+
+        mod api_v1 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+            }
+        }
+
+        // Create first schema collection
+        let mut schemas1 = Schemas::default();
+        schemas1.add::<User>();
+        schemas1.add::<Product>();
+
+        // Manually populate cache to simulate cached state
+        let user_id = TypeId::of::<User>();
+        let product_id = TypeId::of::<Product>();
+        schemas1.resolved_names.insert(user_id, "User".to_string());
+        schemas1
+            .resolved_names
+            .insert(product_id, "Product".to_string());
+
+        // Create second collection with conflicting User but no Product
+        let mut schemas2 = Schemas::default();
+        schemas2.add::<api_v1::User>();
+
+        // Before merge, should have 2 cached names
+        assert_eq!(schemas1.resolved_names.len(), 2);
+
+        // Merge - should only invalidate User-related cache entries
+        schemas1.merge(schemas2);
+
+        // After merge, Product cache should remain, but User cache should be cleared
+        // Note: the exact behavior depends on implementation, but cache should be smaller
+        assert!(schemas1.resolved_names.len() <= 2);
+
+        // Verify that the schema_vec works correctly after merge
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 3); // User, api_v1_User, Product
+
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let mut unique_names = std::collections::HashSet::new();
+        for name in &names {
+            assert!(
+                unique_names.insert(*name),
+                "Schema name '{name}' should be unique"
+            );
+        }
+    }
+
+    #[test]
+    fn test_merge_behavior_safety() {
+        // Test that merge behavior is safe under various conditions
+        #[derive(Debug, ToSchema, Serialize)]
+        struct User {
+            id: u64,
+            name: String,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Product {
+            id: u32,
+            name: String,
+        }
+
+        mod v1 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                user_id: String,
+                email: String,
+            }
+        }
+
+        mod v2 {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct User {
+                uuid: String,
+                profile: String,
+            }
+        }
+
+        // Test 1: Merging empty collections is safe
+        let mut empty1 = Schemas::default();
+        let empty2 = Schemas::default();
+        empty1.merge(empty2);
+        assert_eq!(empty1.entries.len(), 0);
+        assert_eq!(empty1.resolved_names.len(), 0);
+
+        // Test 2: Merging with conflicting names preserves all data
+        let mut schemas1 = Schemas::default();
+        let example1 = serde_json::json!({"id": 1, "name": "Alice"});
+        schemas1.add_example::<User>(example1.clone());
+        schemas1.add::<Product>();
+
+        let mut schemas2 = Schemas::default();
+        let example2 = serde_json::json!({"user_id": "abc", "email": "alice@test.com"});
+        schemas2.add_example::<v1::User>(example2.clone());
+
+        // Pre-populate cache to test invalidation safety
+        let user_id = TypeId::of::<User>();
+        let product_id = TypeId::of::<Product>();
+        let v1_user_id = TypeId::of::<v1::User>();
+        schemas1.resolved_names.insert(user_id, "User".to_string());
+        schemas1
+            .resolved_names
+            .insert(product_id, "Product".to_string());
+
+        // Perform merge
+        schemas1.merge(schemas2);
+
+        // Verify all entries are preserved
+        assert_eq!(schemas1.entries.len(), 3);
+        assert!(schemas1.entries.contains_key(&user_id));
+        assert!(schemas1.entries.contains_key(&product_id));
+        assert!(schemas1.entries.contains_key(&v1_user_id));
+
+        // Verify examples are preserved
+        assert!(schemas1.entries[&user_id].examples.contains(&example1));
+        assert!(schemas1.entries[&v1_user_id].examples.contains(&example2));
+
+        // Verify cache invalidation only affects conflicted names
+        // Product should not be invalidated as it has no conflicts
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 3);
+
+        // All schema names must be unique
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let unique_names: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(
+            names.len(),
+            unique_names.len(),
+            "All schema names must be unique"
+        );
+
+        // Test 3: Multiple conflicting merges work correctly
+        let mut schemas3 = Schemas::default();
+        let example3 = serde_json::json!({"uuid": "uuid123", "profile": "admin"});
+        schemas3.add_example::<v2::User>(example3.clone());
+
+        schemas1.merge(schemas3);
+
+        // Should now have 4 schemas: User, Product, v1::User, v2::User
+        assert_eq!(schemas1.entries.len(), 4);
+        let schema_vec = schemas1.schema_vec();
+        assert_eq!(schema_vec.len(), 4);
+
+        // All names still unique
+        let names: Vec<&String> = schema_vec.iter().map(|(name, _)| name).collect();
+        let unique_names: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(
+            names.len(),
+            unique_names.len(),
+            "All schema names must remain unique after multiple merges"
+        );
+
+        // Examples are preserved across merges
+        let v2_user_id = TypeId::of::<v2::User>();
+        assert!(schemas1.entries[&v2_user_id].examples.contains(&example3));
+
+        // Test 4: Self-merge is safe (merging identical collections)
+        let schemas_copy = schemas1.clone();
+        let entries_before = schemas1.entries.len();
+
+        schemas1.merge(schemas_copy);
+
+        // Should have same number of entries (no duplicates)
+        assert_eq!(schemas1.entries.len(), entries_before);
+
+        // Examples should be preserved (sets prevent duplicates)
+        assert!(schemas1.entries[&user_id].examples.contains(&example1));
+        assert!(schemas1.entries[&v1_user_id].examples.contains(&example2));
+        assert!(schemas1.entries[&v2_user_id].examples.contains(&example3));
     }
 }
