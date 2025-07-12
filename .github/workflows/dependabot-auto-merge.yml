@@ -1,0 +1,233 @@
+name: Dependabot Auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  checks: read
+
+jobs:
+  dependabot-auto-merge:
+    runs-on: ubuntu-latest
+    # Only run for Dependabot PRs
+    if: github.actor == 'dependabot[bot]'
+    
+    steps:
+      - name: Check if PR is ready for auto-merge
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            
+            // Get PR title to determine update type
+            const title = pr.title;
+            console.log(`PR Title: ${title}`);
+            
+            // Parse Dependabot PR title format: "chore(deps): bump dependency from x.y.z to x.y.z+1"
+            // Handle various version formats: v1.2.3, 1.2.3, 1.2, 1, with pre-release/metadata
+            const bumpMatch = title.match(/bump .+ from v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+][\w.-]+)? to v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+][\w.-]+)?/);
+            
+            if (!bumpMatch) {
+              console.log('Not a standard Dependabot version bump PR');
+              return { shouldAutoMerge: false, reason: 'Not a version bump PR' };
+            }
+            
+            const [, fromMajor, fromMinor = '0', fromPatch = '0', toMajor, toMinor = '0', toPatch = '0'] = bumpMatch;
+            
+            // Determine update type
+            const isMajorUpdate = fromMajor !== toMajor;
+            const isMinorUpdate = !isMajorUpdate && fromMinor !== toMinor;
+            const isPatchUpdate = !isMajorUpdate && !isMinorUpdate && fromPatch !== toPatch;
+            
+            console.log(`Update type: Major=${isMajorUpdate}, Minor=${isMinorUpdate}, Patch=${isPatchUpdate}`);
+            
+            // Check for security updates in title or body
+            const securityKeywords = ['security', 'vulnerability', 'cve-', 'ghsa-', 'security advisory', 'security fix'];
+            const combinedText = (title + ' ' + (pr.body || '')).toLowerCase();
+            const isSecurityUpdate = securityKeywords.some(keyword => 
+              combinedText.includes(keyword)
+            );
+            
+            // Auto-merge criteria
+            const shouldAutoMerge = 
+              isPatchUpdate || // All patch updates
+              isSecurityUpdate || // All security updates
+              (isMinorUpdate && title.includes('github-actions')); // Minor updates for GitHub Actions
+            
+            let reason = '';
+            if (isMajorUpdate) {
+              reason = 'Major version updates require manual review';
+            } else if (isMinorUpdate && !title.includes('github-actions')) {
+              reason = 'Minor version updates for Rust dependencies require manual review';
+            } else if (!isPatchUpdate && !isSecurityUpdate) {
+              reason = 'Unknown update type';
+            }
+            
+            console.log(`Should auto-merge: ${shouldAutoMerge}, Reason: ${reason}`);
+            
+            return { 
+              shouldAutoMerge, 
+              reason,
+              updateType: isPatchUpdate ? 'patch' : isMinorUpdate ? 'minor' : 'major',
+              isSecurityUpdate
+            };
+            
+      - name: Wait for status checks
+        if: fromJSON(steps.check.outputs.result).shouldAutoMerge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const maxWaitTime = 10 * 60 * 1000; // 10 minutes
+            const pollInterval = 30 * 1000; // 30 seconds
+            const startTime = Date.now();
+            
+            // Map required check names to actual GitHub Actions job names
+            const checkNameMap = {
+              'check': '✅ Check Code Quality',
+              'security': '🔒 Security Audit', 
+              'msrv': '🦀 Minimum Supported Rust Version',
+              'minimal-versions': '📦 Minimal Dependency Versions',
+              'beta': '🧪 Beta Rust Channel'
+            };
+            
+            const requiredChecks = Object.keys(checkNameMap);
+            
+            while (Date.now() - startTime < maxWaitTime) {
+              try {
+                const { data: statuses } = await github.rest.repos.getCombinedStatusForRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: context.payload.pull_request.head.sha,
+                });
+                
+                const { data: checkRuns } = await github.rest.checks.listForRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: context.payload.pull_request.head.sha,
+                });
+                
+                // Check status checks
+                const statusResults = statuses.statuses.reduce((acc, status) => {
+                  acc[status.context] = status.state;
+                  return acc;
+                }, {});
+                
+                // Check check runs (GitHub Actions)
+                const checkResults = checkRuns.check_runs.reduce((acc, check) => {
+                  acc[check.name] = check.conclusion;
+                  return acc;
+                }, {});
+                
+                console.log('Status checks:', statusResults);
+                console.log('Check runs:', checkResults);
+                
+                // Verify all required checks have passed
+                const allChecksPassed = requiredChecks.every(checkName => {
+                  const actualCheckName = checkNameMap[checkName];
+                  const checkStatus = checkResults[actualCheckName];
+                  console.log(`Checking ${checkName} (${actualCheckName}): ${checkStatus}`);
+                  return checkStatus === 'success' || 
+                         (checkName === 'security' && checkStatus === 'failure'); // Security audit can fail
+                });
+                
+                // Check overall status
+                const overallSuccess = statuses.state === 'success' || 
+                                      (statuses.state === 'failure' && 
+                                       checkResults[checkNameMap.security] === 'failure'); // Allow security audit failures
+              
+                if (allChecksPassed && overallSuccess) {
+                  console.log('All required checks have passed!');
+                  return true;
+                }
+                
+                // Check for any failures (except allowed security audit failures)
+                const hasFailures = Object.entries(checkResults).some(([name, status]) => 
+                  status === 'failure' && !name.includes('Security Audit')
+                );
+                
+                if (hasFailures) {
+                  throw new Error('Some checks have failed - cannot auto-merge');
+                }
+                
+                console.log(`Waiting for checks to complete... (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                
+              } catch (error) {
+                console.error('Error fetching status checks:', error.message);
+                if (error.message.includes('cannot auto-merge')) {
+                  throw error; // Re-throw check failure errors
+                }
+                // For API errors, wait and retry
+                console.log('API error, retrying...');
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+              }
+            }
+            
+            throw new Error('Timeout waiting for status checks to complete');
+            
+      - name: Enable auto-merge
+        if: fromJSON(steps.check.outputs.result).shouldAutoMerge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = ${{ steps.check.outputs.result }};
+            
+            // Enable auto-merge on the PR
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: `✅ **Auto-approved for merge**
+              
+              **Update Type:** ${result.updateType}
+              **Security Update:** ${result.isSecurityUpdate ? 'Yes' : 'No'}
+              
+              This ${result.updateType} update has been automatically approved because:
+              - All CI checks have passed
+              - Update type meets auto-merge criteria
+              - No manual review flags detected
+              
+              The PR will be automatically merged when all status checks are complete.`
+            });
+            
+            // Enable auto-merge
+            await github.rest.pulls.enableAutoMerge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: 'squash'
+            });
+            
+            console.log('Auto-merge enabled for PR');
+            
+      - name: Comment on manual review required
+        if: "!fromJSON(steps.check.outputs.result).shouldAutoMerge"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = ${{ steps.check.outputs.result }};
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🔍 **Manual review required**
+              
+              **Reason:** ${result.reason}
+              
+              This PR requires manual review because it contains changes that need careful consideration:
+              - Major version updates may contain breaking changes
+              - Minor version updates for Rust dependencies may introduce new features that need validation
+              
+              Please review the changes and merge manually if appropriate.`
+            });
