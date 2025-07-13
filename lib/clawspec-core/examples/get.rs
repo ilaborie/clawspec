@@ -19,7 +19,6 @@ async fn main() -> anyhow::Result<()> {
     // Simple get call with no parameters
     let _result = client
         .get("/breeds/list")?
-        .exchange()
         .await?
         .as_json::<BreedsList>()
         .await?;
@@ -28,12 +27,7 @@ async fn main() -> anyhow::Result<()> {
     let mut path = CallPath::from("/breed/{breed}/images");
     path.add_param("breed", ParamValue::new("hound"));
 
-    let _result = client
-        .get(path)?
-        .exchange()
-        .await?
-        .as_json::<BreedImages>()
-        .await?;
+    let _result = client.get(path)?.await?.as_json::<BreedImages>().await?;
 
     // extract collected data from client
     let paths = client.collected_openapi().await;

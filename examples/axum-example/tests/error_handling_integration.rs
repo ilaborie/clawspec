@@ -18,7 +18,6 @@ async fn test_unexpected_status_code_error(#[future] app: TestApp) -> anyhow::Re
     let result = app
         .get("/nonexistent-endpoint")?
         .with_expected_status(200)
-        .exchange()
         .await;
 
     match result {
@@ -45,11 +44,7 @@ async fn test_unexpected_status_code_error(#[future] app: TestApp) -> anyhow::Re
 async fn test_sucessful_endpoint_bad_status(#[future] app: TestApp) -> anyhow::Result<()> {
     let app = app.await;
 
-    let result = app
-        .get("/observations")?
-        .with_expected_status(201)
-        .exchange()
-        .await;
+    let result = app.get("/observations")?.with_expected_status(201).await;
 
     match result {
         Err(ApiClientError::UnexpectedStatusCode { status_code, body }) => {

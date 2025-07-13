@@ -58,7 +58,9 @@
       "Bash(git restore:*)",
       "Bash(gh milestone:*)",
       "Bash(time cargo test:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "WebFetch(domain:doc.rust-lang.org)",
+      "WebFetch(domain:condacity.io)"
     ],
     "deny": []
   }

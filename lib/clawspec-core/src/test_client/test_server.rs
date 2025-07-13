@@ -61,7 +61,7 @@ use crate::{ApiClient, ApiClientBuilder};
 ///
 ///     async fn is_healthy(&self, client: &mut clawspec_core::ApiClient) -> Result<HealthStatus, Self::Error> {
 ///         // Check if server is ready by making a health check request
-///         match client.get("/health").unwrap().exchange().await {
+///         match client.get("/health").unwrap().await {
 ///             Ok(_) => Ok(HealthStatus::Healthy),
 ///             Err(_) => Ok(HealthStatus::Unhealthy),
 ///         }
@@ -234,7 +234,7 @@ pub trait TestServer {
     ///     # async fn launch(&self, _listener: TcpListener) -> Result<(), Self::Error> { Ok(()) }
     ///     async fn is_healthy(&self, client: &mut ApiClient) -> Result<HealthStatus, Self::Error> {
     ///         // Try to make a health check request
-    ///         match client.get("/health").unwrap().exchange().await {
+    ///         match client.get("/health").unwrap().await {
     ///             Ok(_) => Ok(HealthStatus::Healthy),
     ///             Err(_) => Ok(HealthStatus::Unhealthy),
     ///         }
