@@ -38,7 +38,6 @@ impl TestApp {
         let result = self
             .get("/observations")?
             .with_query(query)
-            .exchange()
             .await?
             .as_json()
             .await?;
@@ -52,7 +51,6 @@ impl TestApp {
         let result = self
             .post("/observations")?
             .json(new_observation)?
-            .exchange()
             .await
             .context("create observation")?
             .as_json()
@@ -70,7 +68,6 @@ impl TestApp {
 
         self.put(path)?
             .json(observation)?
-            .exchange()
             .await
             .context("update observation")?
             .as_empty()
@@ -89,7 +86,6 @@ impl TestApp {
         let result = self
             .patch(call_path)?
             .json(patch)?
-            .exchange()
             .await
             .context("patch observation")?
             .as_json()
@@ -102,7 +98,6 @@ impl TestApp {
         path.add_param("observation_id", ParamValue::new(id));
 
         self.delete(path)?
-            .exchange()
             .await
             .context("delete observation")?
             .as_empty()
@@ -137,7 +132,6 @@ impl TestApp {
             .get("/observations")?
             .with_query(query)
             .with_headers(headers)
-            .exchange()
             .await?
             .as_json()
             .await?;

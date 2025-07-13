@@ -294,7 +294,7 @@ pub(super) struct CalledOperation {
 /// // ✅ CORRECT: Always consume the CallResult
 /// let user: User = client
 ///     .get("/users/123")?
-///     .exchange()
+///     
 ///     .await?
 ///     .as_json()  // ← This is required!
 ///     .await?;
@@ -302,13 +302,13 @@ pub(super) struct CalledOperation {
 /// // ✅ CORRECT: For empty responses (like DELETE)
 /// client
 ///     .delete("/users/123")?
-///     .exchange()
+///     
 ///     .await?
 ///     .as_empty()  // ← This is required!
 ///     .await?;
 ///
 /// // ❌ INCORRECT: This will not generate proper OpenAPI documentation
-/// // let _result = client.get("/users/123")?.exchange().await?;
+/// // let _result = client.get("/users/123")?.await?;
 /// // // Missing .as_json() or other consumption method! This will not generate proper OpenAPI documentation
 /// # Ok(())
 /// # }
@@ -346,7 +346,7 @@ pub struct CallResult {
 /// let mut client = ApiClient::builder().build()?;
 /// let raw_result = client
 ///     .get("/api/data")?
-///     .exchange()
+///     
 ///     .await?
 ///     .as_raw()
 ///     .await?;
@@ -546,7 +546,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let user: User = client
     ///     .get("/users/123")?
-    ///     .exchange()
+    ///     
     ///     .await?
     ///     .as_json()
     ///     .await?;
@@ -603,7 +603,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let text = client
     ///     .get("/api/status")?
-    ///     .exchange()
+    ///     
     ///     .await?
     ///     .as_text()
     ///     .await?;
@@ -640,7 +640,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let bytes = client
     ///     .get("/api/download")?
-    ///     .exchange()
+    ///     
     ///     .await?
     ///     .as_bytes()
     ///     .await?;
@@ -680,7 +680,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let raw_result = client
     ///     .get("/api/data")?
-    ///     .exchange()
+    ///     
     ///     .await?
     ///     .as_raw()
     ///     .await?;
@@ -730,7 +730,7 @@ impl CallResult {
     ///
     /// client
     ///     .delete("/items/123")?
-    ///     .exchange()
+    ///     
     ///     .await?
     ///     .as_empty()
     ///     .await?;

@@ -141,7 +141,6 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     let _json_result = app
         .post("/observations")?
         .json(&json_observation)?
-        .exchange()
         .await
         .context("should create observation via JSON")?;
 
@@ -159,7 +158,6 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
         .post("/observations")?
         .form(&flat_observation)?
         .add_expected_status(400) // Form validation may fail
-        .exchange()
         .await
         .context("should create observation via form encoding")?;
 
@@ -177,7 +175,6 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     let _xml_result = app
         .post("/observations")?
         .raw(xml_data.as_bytes().to_vec(), ContentType::xml())
-        .exchange()
         .await
         .context("should create observation via XML")?;
 
@@ -214,7 +211,6 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     let import_result = app
         .post("/observations/import")?
         .raw(ndjson_data, ContentType::octet_stream())
-        .exchange()
         .await
         .context("should import observations via streaming JSON")?
         .as_json::<ImportResponse>()
@@ -241,7 +237,6 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     let upload_result = app
         .post("/observations/upload")?
         .multipart(multipart_data)
-        .exchange()
         .await
         .context("should upload observations via multipart")?
         .as_json::<UploadResponse>()
@@ -261,7 +256,6 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
     let unsupported_error = app
         .post("/observations")?
         .raw(b"Some PDF content".to_vec(), "application/pdf".parse()?)
-        .exchange()
         .await?
         .as_json::<TestClientError>()
         .await?;
@@ -271,7 +265,6 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
     let _invalid_json_result = app
         .post("/observations")?
         .raw(b"{ invalid json }".to_vec(), ContentType::json())
-        .exchange()
         .await?
         .as_json::<TestClientError>()
         .await?;
@@ -288,7 +281,6 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
             b"definitely not valid json or xml".to_vec(),
             ContentType::json(),
         )
-        .exchange()
         .await?
         .as_json::<TestClientError>()
         .await?;
@@ -323,7 +315,6 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .json(&test_observation)?
         .with_tag("observations")
         .with_description("Create a new bird observation with comprehensive metadata")
-        .exchange()
         .await
         .context("should create observation with tag")?
         .as_json::<u32>()
@@ -334,7 +325,6 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .get("/observations")?
         .with_tags(["observations", "listing"])
         .with_description("List all observations with pagination support")
-        .exchange()
         .await
         .context("should list observations with multiple tags")?;
 
@@ -347,7 +337,6 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
             br#"{"name":"Import Demo","position":{"lng":1.0,"lat":1.0}}"#.to_vec(),
             headers::ContentType::octet_stream(),
         )
-        .exchange()
         .await
         .context("should import with admin tags")?;
 
@@ -360,7 +349,6 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
             "demo",
             r#"{"name":"Upload Demo","position":{"lng":2.0,"lat":2.0}}"#,
         )])
-        .exchange()
         .await
         .context("should upload with file operation tags")?;
 
@@ -373,7 +361,6 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .json(&updated_observation)?
         .with_tags(["observations", "modification"])
         .with_description("Update an existing observation with new data")
-        .exchange()
         .await
         .context("should update with modification tags")?
         .as_empty()
@@ -385,7 +372,6 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .delete(format!("/observations/{created_id}"))?
         .with_tag("observations")
         .with_description("Remove observation from the system")
-        .exchange()
         .await
         .context("should delete demonstration observation")?
         .as_json::<serde_json::Value>()
@@ -430,7 +416,6 @@ async fn test_raw_result_api(#[future] app: TestApp) -> anyhow::Result<()> {
     let create_result = app
         .post("/observations")?
         .json(&test_observation)?
-        .exchange()
         .await?
         .as_raw()
         .await?;
@@ -450,7 +435,7 @@ async fn test_raw_result_api(#[future] app: TestApp) -> anyhow::Result<()> {
     }
 
     // Test 2: List response (JSON array)
-    let list_result = app.get("/observations")?.exchange().await?.as_raw().await?;
+    let list_result = app.get("/observations")?.await?.as_raw().await?;
 
     assert_eq!(list_result.status_code(), StatusCode::OK);
     if let Some(content_type) = list_result.content_type() {
@@ -469,7 +454,7 @@ async fn test_raw_result_api(#[future] app: TestApp) -> anyhow::Result<()> {
     }
 
     // Test 3: Health check (JSON response)
-    let health_result = app.get("/health")?.exchange().await?.as_raw().await?;
+    let health_result = app.get("/health")?.await?.as_raw().await?;
 
     assert_eq!(health_result.status_code(), StatusCode::OK);
     match health_result.body() {
@@ -491,7 +476,6 @@ async fn test_raw_result_api(#[future] app: TestApp) -> anyhow::Result<()> {
             b"Invalid binary data".to_vec(),
             "application/octet-stream".parse()?,
         )
-        .exchange()
         .await?
         .as_raw()
         .await?;

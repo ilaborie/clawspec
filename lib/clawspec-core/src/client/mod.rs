@@ -85,7 +85,7 @@ mod output;
 ///     // Make a request and capture the schema
 ///     let user: User = client
 ///         .get("/users/123")?
-///         .exchange()
+///         
 ///         .await?
 ///         .as_json()
 ///         .await?;
@@ -160,7 +160,7 @@ mod output;
 ///     )
 ///     .with_header("Authorization", "Bearer token123")
 ///     .with_expected_status_codes(expected_status_codes!(200, 404))
-///     .exchange()
+///     
 ///     .await?
 ///     .as_json::<Vec<UserData>>()
 ///     .await?;
@@ -170,7 +170,7 @@ mod output;
 ///     .post("/users")?
 ///     .json(&user_data)?
 ///     .with_expected_status_codes(expected_status_codes!(201, 409))
-///     .exchange()
+///     
 ///     .await?
 ///     .as_json::<UserData>()
 ///     .await?;
@@ -221,8 +221,8 @@ mod output;
 /// let user_data = UserData { name: "John".to_string() };
 ///
 /// // Make some API calls...
-/// client.get("/users")?.exchange().await?.as_json::<Vec<UserData>>().await?;
-/// client.post("/users")?.json(&user_data)?.exchange().await?.as_json::<UserData>().await?;
+/// client.get("/users")?.await?.as_json::<Vec<UserData>>().await?;
+/// client.post("/users")?.json(&user_data)?.await?.as_json::<UserData>().await?;
 ///
 /// // Generate OpenAPI specification
 /// let openapi = client.collected_openapi().await;
@@ -244,7 +244,7 @@ mod output;
 /// # async fn example() -> Result<(), ApiClientError> {
 /// let mut client = ApiClient::builder().build()?;
 ///
-/// match client.get("/users/999")?.exchange().await {
+/// match client.get("/users/999")?.await {
 ///     Ok(response) => {
 ///         // Handle successful response
 ///         println!("Success!");
@@ -354,8 +354,8 @@ impl ApiClient {
     /// let user_data = UserData { name: "John".to_string() };
     ///
     /// // Make some API calls to collect data
-    /// client.get("/users")?.exchange().await?.as_json::<Vec<UserData>>().await?;
-    /// client.post("/users")?.json(&user_data)?.exchange().await?.as_json::<UserData>().await?;
+    /// client.get("/users")?.await?.as_json::<Vec<UserData>>().await?;
+    /// client.post("/users")?.json(&user_data)?.await?.as_json::<UserData>().await?;
     ///
     /// // Generate complete OpenAPI specification
     /// let openapi = client.collected_openapi().await;

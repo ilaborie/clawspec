@@ -1,4 +1,6 @@
+use std::future::{Future, IntoFuture};
 use std::ops::{Range, RangeInclusive};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use headers::HeaderMapExt;
@@ -756,7 +758,6 @@ impl ApiCall {
     /// // ✅ CORRECT: Always consume the result
     /// let user: User = client
     ///     .get("/users/123")?
-    ///     .exchange()
     ///     .await?
     ///     .as_json()  // ← Required for OpenAPI generation!
     ///     .await?;
@@ -764,7 +765,6 @@ impl ApiCall {
     /// // ✅ CORRECT: For operations returning empty responses
     /// client
     ///     .delete("/users/123")?
-    ///     .exchange()
     ///     .await?
     ///     .as_empty()  // ← Required for OpenAPI generation!
     ///     .await?;
@@ -785,7 +785,7 @@ impl ApiCall {
     /// but the response schema and examples are only captured when the [`CallResult`]
     /// is properly consumed with one of the `as_*` methods.
     // XXX code to abstract if we want multiple client
-    pub async fn exchange(self) -> Result<CallResult, ApiClientError> {
+    async fn exchange(self) -> Result<CallResult, ApiClientError> {
         let Self {
             client,
             base_uri,
@@ -928,8 +928,29 @@ impl ApiCall {
     }
 }
 
+/// Implement IntoFuture for ApiCall to enable direct .await syntax
+///
+/// This provides a more ergonomic API by allowing direct `.await` on ApiCall:
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// # let mut client = clawspec_core::ApiClient::builder().build()?;
+/// let response = client.get("/users")?.await?;
+/// # Ok(())
+/// # }
+/// ```
+impl IntoFuture for ApiCall {
+    type Output = Result<CallResult, ApiClientError>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.exchange())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::{CallPath, CallQuery};
+
     use super::*;
     use http::{Method, StatusCode};
     use serde::{Deserialize, Serialize};
@@ -1446,5 +1467,82 @@ mod tests {
     #[test]
     fn test_body_max_length_constant() {
         assert_eq!(BODY_MAX_LENGTH, 1024);
+    }
+
+    // Test IntoFuture implementation
+    #[test]
+    fn test_api_call_into_future_type_requirements() {
+        // Test that ApiCall implements IntoFuture with the correct associated types
+        use std::future::IntoFuture;
+
+        fn assert_into_future<T>(_: T)
+        where
+            T: IntoFuture<Output = Result<CallResult, ApiClientError>>,
+            T::IntoFuture: Send,
+        {
+        }
+
+        let call = create_test_api_call();
+        assert_into_future(call);
+    }
+
+    #[tokio::test]
+    async fn test_api_call_into_future_equivalence() {
+        // Test that ApiCall.await works correctly by testing the IntoFuture implementation
+        // This is a compile-time test that verifies the future type structure is correct
+
+        use std::future::IntoFuture;
+
+        let call1 = create_test_api_call();
+        let call2 = create_test_api_call();
+
+        // Test that both direct await and explicit into_future produce the same type
+        let _future1 = call1.into_future();
+        let _future2 = call2.into_future();
+
+        // Both should be Send futures
+        fn assert_send<T: Send>(_: T) {}
+        assert_send(_future1);
+        assert_send(_future2);
+    }
+
+    #[test]
+    fn test_into_future_api_demonstration() {
+        // This test demonstrates the new API usage patterns
+        // Note: This is a compile-time test showing the API ergonomics
+
+        use crate::ApiClient;
+        use std::future::IntoFuture;
+
+        // Demonstrate the new API pattern compiles correctly
+        fn assert_new_api_compiles() {
+            async fn _example() -> Result<(), ApiClientError> {
+                let client = ApiClient::builder().build()?;
+
+                // Create path with parameters
+                let mut path = CallPath::from("/users/{id}");
+                path.add_param("id", 123);
+
+                let query = CallQuery::new().add_param("include_details", true);
+
+                // Direct .await API (using IntoFuture)
+                let _response = client
+                    .get(path)?
+                    .with_query(query)
+                    .with_header("Authorization", "Bearer token")
+                    .await?; // Direct await
+
+                Ok(())
+            }
+        }
+
+        // Test that the function compiles
+        assert_new_api_compiles();
+
+        // Demonstrate that ApiCall implements IntoFuture with correct types
+        let call = create_test_api_call();
+        #[allow(clippy::let_underscore_future)]
+        let _: Pin<Box<dyn Future<Output = Result<CallResult, ApiClientError>> + Send>> =
+            call.into_future();
     }
 }

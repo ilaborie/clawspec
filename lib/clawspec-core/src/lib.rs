@@ -23,11 +23,10 @@
 //!     .with_host("api.example.com")
 //!     .build()?;
 //!
-//! // Make requests - schemas are captured automatically
+//! // Make requests - schemas are captured automatically  
 //! let user: User = client
 //!     .get("/users/123")?
-//!     .exchange()
-//!     .await?
+//!     .await?  // ← Direct await using IntoFuture
 //!     .as_json()  // ← Important: Must consume result for OpenAPI generation!
 //!     .await?;
 //!
@@ -58,7 +57,7 @@
 //!     let mut client = TestClient::start(MyServer).await?;
 //!     
 //!     // Test your API
-//!     let response = client.get("/users")?.exchange().await?.as_json::<serde_json::Value>().await?;
+//!     let response = client.get("/users")?.await?.as_json::<serde_json::Value>().await?;
 //!     
 //!     // Write OpenAPI spec
 //!     client.write_openapi("api.yml").await?;
@@ -85,12 +84,12 @@
 //! let headers = CallHeaders::new()
 //!     .add_header("Authorization", "Bearer token");
 //!
+//! // Direct await with parameters:
 //! let response = client
 //!     .get(path)?
 //!     .with_query(query)
 //!     .with_headers(headers)
-//!     .exchange()
-//!     .await?;
+//!     .await?;  // Direct await using IntoFuture
 //! # Ok(())
 //! # }
 //! ```
@@ -107,13 +106,13 @@
 //! // Single codes
 //! client.post("/users")?
 //!     .with_expected_status_codes(expected_status_codes!(201, 202))
-//!     .exchange()
+//!     
 //!     .await?;
 //!
 //! // Ranges
 //! client.get("/health")?
 //!     .with_expected_status_codes(expected_status_codes!(200-299))
-//!     .exchange()
+//!     
 //!     .await?;
 //! # Ok(())
 //! # }

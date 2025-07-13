@@ -40,7 +40,7 @@
 //!     
 //!     let response = test_client
 //!         .get("/api/users")?
-//!         .exchange()
+//!         
 //!         .await?;
 //!     
 //!     // Generate OpenAPI documentation
@@ -112,7 +112,7 @@ pub use self::test_server::*;
 /// async fn test_api() -> Result<(), Box<dyn std::error::Error>> {
 ///     let mut client = TestClient::start(MyServer).await?;
 ///     
-///     let response = client.get("/users")?.exchange().await?.as_raw().await?;
+///     let response = client.get("/users")?.await?.as_raw().await?;
 ///     assert_eq!(response.status_code(), http::StatusCode::OK);
 ///     
 ///     Ok(())
@@ -158,7 +158,7 @@ pub use self::test_server::*;
 ///     let mut client = TestClient::start(MyServer).await?;
 ///     
 ///     // Client is already configured with base path /api/v1
-///     let response = client.get("/users")?.exchange().await?; // Calls /api/v1/users
+///     let response = client.get("/users")?.await?; // Calls /api/v1/users
 ///     
 ///     Ok(())
 /// }
@@ -189,9 +189,9 @@ pub use self::test_server::*;
 ///     let mut client = TestClient::start(MyServer).await?;
 ///     
 ///     // Make various API calls
-///     client.get("/users")?.exchange().await?.as_json::<serde_json::Value>().await?;
-///     client.post("/users")?.json(&serde_json::json!({"name": "John"}))?.exchange().await?.as_json::<serde_json::Value>().await?;
-///     client.get("/users/123")?.exchange().await?.as_json::<serde_json::Value>().await?;
+///     client.get("/users")?.await?.as_json::<serde_json::Value>().await?;
+///     client.post("/users")?.json(&serde_json::json!({"name": "John"}))?.await?.as_json::<serde_json::Value>().await?;
+///     client.get("/users/123")?.await?.as_json::<serde_json::Value>().await?;
 ///     
 ///     // Generate OpenAPI specification
 ///     client.write_openapi("docs/openapi.yml").await?;
@@ -223,7 +223,7 @@ pub use self::test_server::*;
 /// let mut client = TestClient::start(MyServer).await?;
 ///
 /// // These are all ApiClient methods available directly on TestClient
-/// let response = client.get("/endpoint")?.exchange().await?.as_json::<serde_json::Value>().await?;
+/// let response = client.get("/endpoint")?.await?.as_json::<serde_json::Value>().await?;
 /// let openapi = client.collected_openapi().await;
 /// client.register_schema::<MyType>().await;
 /// # Ok(())
@@ -348,7 +348,7 @@ where
     ///
     ///     async fn is_healthy(&self, client: &mut ApiClient) -> Result<clawspec_core::test_client::HealthStatus, Self::Error> {
     ///         // Custom health check
-    ///         match client.get("/health").unwrap().exchange().await {
+    ///         match client.get("/health").unwrap().await {
     ///             Ok(_) => Ok(clawspec_core::test_client::HealthStatus::Healthy),
     ///             Err(_) => Ok(clawspec_core::test_client::HealthStatus::Unhealthy),
     ///         }
@@ -556,8 +556,8 @@ where
     ///     let mut client = TestClient::start(MyServer).await?;
     ///     
     ///     // Make some API calls
-    ///     client.get("/users")?.exchange().await?.as_json::<serde_json::Value>().await?;
-    ///     client.post("/users")?.json(&serde_json::json!({"name": "John"}))?.exchange().await?.as_json::<serde_json::Value>().await?;
+    ///     client.get("/users")?.await?.as_json::<serde_json::Value>().await?;
+    ///     client.post("/users")?.json(&serde_json::json!({"name": "John"}))?.await?.as_json::<serde_json::Value>().await?;
     ///     
     ///     // Generate YAML specification
     ///     client.write_openapi("openapi.yml").await?;
@@ -585,7 +585,7 @@ where
     /// let mut client = TestClient::start(MyServer).await?;
     ///
     /// // Make API calls
-    /// client.get("/api/health")?.exchange().await?.as_json::<serde_json::Value>().await?;
+    /// client.get("/api/health")?.await?.as_json::<serde_json::Value>().await?;
     ///
     /// // Write in different formats
     /// client.write_openapi("docs/openapi.yaml").await?;  // YAML format
@@ -685,7 +685,7 @@ impl<T> Drop for TestClient<T> {
     /// {
     ///     let client = TestClient::start(MyServer).await?;
     ///     // Use the client for testing
-    ///     client.get("/api/test")?.exchange().await?.as_json::<serde_json::Value>().await?;
+    ///     client.get("/api/test")?.await?.as_json::<serde_json::Value>().await?;
     /// } // <- TestClient is dropped here, server task is automatically aborted
     ///   
     /// // Server is no longer running
