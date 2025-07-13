@@ -340,4 +340,169 @@ mod tests {
 
         assert_eq!(actual_order, expected_order);
     }
+
+    #[test]
+    fn test_header_with_array_values() {
+        let headers = CallHeaders::new()
+            .add_header("X-Tags", vec!["rust", "web", "api"])
+            .add_header("X-Numbers", vec![1, 2, 3]);
+
+        let http_headers = headers
+            .to_http_headers()
+            .expect("Should convert to HTTP headers");
+
+        let header_map: IndexMap<String, String> = http_headers.into_iter().collect();
+
+        // Headers use Simple style by default for arrays (comma-separated)
+        assert_eq!(header_map.get("X-Tags"), Some(&"rust,web,api".to_string()));
+        assert_eq!(header_map.get("X-Numbers"), Some(&"1,2,3".to_string()));
+    }
+
+    #[test]
+    fn test_header_with_boolean_values() {
+        let headers = CallHeaders::new()
+            .add_header("X-Debug", true)
+            .add_header("X-Enabled", false);
+
+        let http_headers = headers
+            .to_http_headers()
+            .expect("Should convert to HTTP headers");
+
+        let header_map: IndexMap<String, String> = http_headers.into_iter().collect();
+
+        assert_eq!(header_map.get("X-Debug"), Some(&"true".to_string()));
+        assert_eq!(header_map.get("X-Enabled"), Some(&"false".to_string()));
+    }
+
+    #[test]
+    fn test_header_with_null_value() {
+        let headers = CallHeaders::new().add_header("X-Optional", serde_json::Value::Null);
+
+        let http_headers = headers
+            .to_http_headers()
+            .expect("Should convert to HTTP headers");
+
+        let header_map: IndexMap<String, String> = http_headers.into_iter().collect();
+
+        // Null values should serialize to empty string
+        assert_eq!(header_map.get("X-Optional"), Some(&String::new()));
+    }
+
+    #[test]
+    fn test_header_error_with_complex_object() {
+        use serde_json::json;
+
+        // Create a headers collection with a complex nested object
+        // Note: We need to bypass the normal add_header method since it expects()
+        // the header value to serialize correctly. Instead, we'll create a
+        // ResolvedParamValue manually with an unsupported object type.
+        let mut headers = CallHeaders::new();
+
+        // Add a complex object that should cause an error during to_string_value conversion
+        let complex_value = json!({
+            "nested": {
+                "object": "not supported in headers"
+            }
+        });
+
+        let resolved = ResolvedParamValue {
+            value: complex_value,
+            schema: headers.schemas.add::<serde_json::Value>(),
+            style: ParamStyle::Simple,
+        };
+
+        headers.headers.insert("X-Complex".to_string(), resolved);
+
+        // Now test that to_http_headers fails for the complex object
+        let result = headers.to_http_headers();
+        assert!(
+            result.is_err(),
+            "Complex objects should cause error in headers"
+        );
+
+        match result {
+            Err(ApiClientError::UnsupportedParameterValue { .. }) => {
+                // Expected error type
+            }
+            _ => panic!("Expected UnsupportedParameterValue error for complex object in header"),
+        }
+    }
+
+    #[test]
+    fn test_header_error_with_array_containing_objects() {
+        use serde_json::json;
+
+        // Similar to above, test arrays containing objects
+        let mut headers = CallHeaders::new();
+
+        let array_with_objects = json!([
+            "simple_string",
+            {"nested": "object"}
+        ]);
+
+        let resolved = ResolvedParamValue {
+            value: array_with_objects,
+            schema: headers.schemas.add::<serde_json::Value>(),
+            style: ParamStyle::Simple,
+        };
+
+        headers
+            .headers
+            .insert("X-Invalid-Array".to_string(), resolved);
+
+        let result = headers.to_http_headers();
+        assert!(
+            result.is_err(),
+            "Arrays containing objects should cause error"
+        );
+
+        match result {
+            Err(ApiClientError::UnsupportedParameterValue { .. }) => {
+                // Expected error type
+            }
+            _ => panic!("Expected UnsupportedParameterValue error for array with objects"),
+        }
+    }
+
+    #[test]
+    fn test_header_with_empty_array() {
+        let headers = CallHeaders::new().add_header("X-Empty-List", Vec::<String>::new());
+
+        let http_headers = headers
+            .to_http_headers()
+            .expect("Should handle empty arrays");
+
+        let header_map: IndexMap<String, String> = http_headers.into_iter().collect();
+
+        // Empty arrays should serialize to empty string
+        assert_eq!(header_map.get("X-Empty-List"), Some(&String::new()));
+    }
+
+    #[test]
+    fn test_header_override_in_merge() {
+        let headers1 = CallHeaders::new()
+            .add_header("Same-Header", "original-value")
+            .add_header("Unique-1", "value1");
+
+        let headers2 = CallHeaders::new()
+            .add_header("Same-Header", "new-value")
+            .add_header("Unique-2", "value2");
+
+        let merged = headers1.merge(headers2);
+
+        let http_headers = merged
+            .to_http_headers()
+            .expect("Should convert merged headers");
+
+        let header_map: IndexMap<String, String> = http_headers.into_iter().collect();
+
+        // The second headers collection should override the first
+        assert_eq!(
+            header_map.get("Same-Header"),
+            Some(&"new-value".to_string())
+        );
+        assert_eq!(header_map.get("Unique-1"), Some(&"value1".to_string()));
+        assert_eq!(header_map.get("Unique-2"), Some(&"value2".to_string()));
+        assert_eq!(header_map.len(), 3);
+    }
 }
