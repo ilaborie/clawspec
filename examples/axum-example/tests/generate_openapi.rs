@@ -402,9 +402,9 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Test to demonstrate the new RawResult functionality
+/// Test to demonstrate the new `RawResult` functionality
 ///
-/// This test verifies that the new RawResult API provides complete access to
+/// This test verifies that the new `RawResult` API provides complete access to
 /// HTTP response data including status code, content type, and body content.
 #[rstest]
 #[tokio::test]
