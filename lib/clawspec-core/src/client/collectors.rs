@@ -433,43 +433,57 @@ impl RawResult {
 }
 
 impl CallResult {
+    /// Extracts and parses the Content-Type header from the HTTP response.
+    fn extract_content_type(response: &Response) -> Result<Option<ContentType>, ApiClientError> {
+        let content_type = response
+            .headers()
+            .get_all(CONTENT_TYPE)
+            .iter()
+            .collect::<Vec<_>>();
+
+        if content_type.is_empty() {
+            Ok(None)
+        } else {
+            let ct = ContentType::decode(&mut content_type.into_iter())?;
+            Ok(Some(ct))
+        }
+    }
+
+    /// Processes the response body based on content type and status code.
+    async fn process_response_body(
+        response: Response,
+        content_type: &Option<ContentType>,
+        status: StatusCode,
+    ) -> Result<Output, ApiClientError> {
+        if let Some(content_type) = content_type
+            && status != StatusCode::NO_CONTENT
+        {
+            if *content_type == ContentType::json() {
+                let json = response.text().await?;
+                Ok(Output::Json(json))
+            } else if *content_type == ContentType::octet_stream() {
+                let bytes = response.bytes().await?;
+                Ok(Output::Bytes(bytes.to_vec()))
+            } else if content_type.to_string().starts_with("text/") {
+                let text = response.text().await?;
+                Ok(Output::Text(text))
+            } else {
+                let body = response.text().await?;
+                Ok(Output::Other { body })
+            }
+        } else {
+            Ok(Output::Empty)
+        }
+    }
+
     pub(super) async fn new(
         operation_id: String,
         collectors: Arc<RwLock<Collectors>>,
         response: Response,
     ) -> Result<Self, ApiClientError> {
         let status = response.status();
-        let content_type = response
-            .headers()
-            .get_all(CONTENT_TYPE)
-            .iter()
-            .collect::<Vec<_>>();
-        let content_type = if content_type.is_empty() {
-            None
-        } else {
-            let ct = ContentType::decode(&mut content_type.into_iter())?;
-            Some(ct)
-        };
-
-        let output = if let Some(content_type) = content_type.clone()
-            && status != StatusCode::NO_CONTENT
-        {
-            if content_type == ContentType::json() {
-                let json = response.text().await?;
-                Output::Json(json)
-            } else if content_type == ContentType::octet_stream() {
-                let bytes = response.bytes().await?;
-                Output::Bytes(bytes.to_vec())
-            } else if content_type.to_string().starts_with("text/") {
-                let text = response.text().await?;
-                Output::Text(text)
-            } else {
-                let body = response.text().await?;
-                Output::Other { body }
-            }
-        } else {
-            Output::Empty
-        };
+        let content_type = Self::extract_content_type(&response)?;
+        let output = Self::process_response_body(response, &content_type, status).await?;
 
         Ok(Self {
             operation_id,
@@ -482,37 +496,8 @@ impl CallResult {
 
     pub(super) async fn new_without_collection(response: Response) -> Result<Self, ApiClientError> {
         let status = response.status();
-        let content_type = response
-            .headers()
-            .get_all(CONTENT_TYPE)
-            .iter()
-            .collect::<Vec<_>>();
-        let content_type = if content_type.is_empty() {
-            None
-        } else {
-            let ct = ContentType::decode(&mut content_type.into_iter())?;
-            Some(ct)
-        };
-
-        let output = if let Some(content_type) = content_type.clone()
-            && status != StatusCode::NO_CONTENT
-        {
-            if content_type == ContentType::json() {
-                let json = response.text().await?;
-                Output::Json(json)
-            } else if content_type == ContentType::octet_stream() {
-                let bytes = response.bytes().await?;
-                Output::Bytes(bytes.to_vec())
-            } else if content_type.to_string().starts_with("text/") {
-                let text = response.text().await?;
-                Output::Text(text)
-            } else {
-                let body = response.text().await?;
-                Output::Other { body }
-            }
-        } else {
-            Output::Empty
-        };
+        let content_type = Self::extract_content_type(&response)?;
+        let output = Self::process_response_body(response, &content_type, status).await?;
 
         // Create a dummy collectors instance that won't be used
         let collectors = Arc::new(RwLock::new(Collectors::default()));
