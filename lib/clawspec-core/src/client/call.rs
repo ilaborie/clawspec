@@ -82,7 +82,7 @@ struct OperationMetadata {
 ///
 /// ```text
 /// Path: /api/v1/users/{id}     → Tags: ["users"]
-/// Path: /users                 → Tags: ["users"] 
+/// Path: /users                 → Tags: ["users"]
 /// Path: /users/export          → Tags: ["users", "export"]
 /// Path: /observations/import   → Tags: ["observations", "import"]
 /// ```
@@ -95,7 +95,7 @@ struct OperationMetadata {
 /// - `import`, `upload`, `export`, `search`, `bulk`
 /// - `/users/export` → `["users", "export"]`
 ///
-/// ### **Automatic Descriptions** 
+/// ### **Automatic Descriptions**
 /// Descriptions are generated based on HTTP method and path:
 ///
 /// ```text
@@ -739,7 +739,7 @@ impl ApiCall {
     /// - [`CallResult::as_json::<T>()`] - For JSON responses that should be deserialized
     /// - [`CallResult::as_text()`] - For plain text responses
     /// - [`CallResult::as_bytes()`] - For binary responses
-    /// - [`CallResult::as_raw()`] - For any other response type
+    /// - [`CallResult::as_raw()`] - For complete raw response access (status, content-type, body)
     ///
     /// # Example
     ///

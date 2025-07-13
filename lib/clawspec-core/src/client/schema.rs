@@ -1,6 +1,8 @@
 use std::any::{TypeId, type_name};
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::sync::LazyLock;
 
 use indexmap::{IndexMap, IndexSet};
@@ -133,8 +135,6 @@ impl Schemas {
                 format!("{}_{}", type_parts[type_parts.len() - 2], base_name)
             } else {
                 // Fallback: use a more readable hash-based suffix
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
                 let mut hasher = DefaultHasher::new();
                 target_type_id.hash(&mut hasher);
                 let hash = hasher.finish();

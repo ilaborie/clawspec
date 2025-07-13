@@ -274,10 +274,10 @@ pub(super) struct CalledOperation {
 /// Choose the appropriate method based on your expected response:
 ///
 /// - **Empty responses** (204 No Content, etc.): [`as_empty()`](Self::as_empty)
-/// - **JSON responses**: [`as_json::<T>()`](Self::as_json) 
+/// - **JSON responses**: [`as_json::<T>()`](Self::as_json)
 /// - **Text responses**: [`as_text()`](Self::as_text)
 /// - **Binary responses**: [`as_bytes()`](Self::as_bytes)
-/// - **Unknown/mixed responses**: [`as_raw()`](Self::as_raw)
+/// - **Raw response access**: [`as_raw()`](Self::as_raw) (includes status code, content-type, and body)
 ///
 /// ## Example: Correct Usage
 ///
@@ -309,7 +309,7 @@ pub(super) struct CalledOperation {
 ///
 /// // ❌ INCORRECT: This will not generate proper OpenAPI documentation
 /// // let _result = client.get("/users/123")?.exchange().await?;
-/// // // Missing .as_json() or other consumption method!
+/// // // Missing .as_json() or other consumption method! This will not generate proper OpenAPI documentation
 /// # Ok(())
 /// # }
 /// ```
@@ -329,6 +329,107 @@ pub struct CallResult {
     content_type: Option<ContentType>,
     output: Output,
     collectors: Arc<RwLock<Collectors>>,
+}
+
+/// Represents the raw response data from an HTTP request.
+///
+/// This struct provides complete access to the HTTP response including status code,
+/// content type, and body data. It supports both text and binary response bodies.
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::{ApiClient, RawBody};
+/// use http::StatusCode;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut client = ApiClient::builder().build()?;
+/// let raw_result = client
+///     .get("/api/data")?
+///     .exchange()
+///     .await?
+///     .as_raw()
+///     .await?;
+///
+/// println!("Status: {}", raw_result.status_code());
+/// if let Some(content_type) = raw_result.content_type() {
+///     println!("Content-Type: {}", content_type);
+/// }
+/// match raw_result.body() {
+///     RawBody::Text(text) => println!("Text body: {}", text),
+///     RawBody::Binary(bytes) => println!("Binary body: {} bytes", bytes.len()),
+///     RawBody::Empty => println!("Empty body"),
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone)]
+pub struct RawResult {
+    status: StatusCode,
+    content_type: Option<ContentType>,
+    body: RawBody,
+}
+
+/// Represents the body content of a raw HTTP response.
+///
+/// This enum handles different types of response bodies:
+/// - Text content (including JSON, HTML, XML, etc.)
+/// - Binary content (images, files, etc.)
+/// - Empty responses
+#[derive(Debug, Clone)]
+pub enum RawBody {
+    /// Text-based content (UTF-8 encoded)
+    Text(String),
+    /// Binary content
+    Binary(Vec<u8>),
+    /// Empty response body
+    Empty,
+}
+
+impl RawResult {
+    /// Returns the HTTP status code of the response.
+    pub fn status_code(&self) -> StatusCode {
+        self.status
+    }
+
+    /// Returns the content type of the response, if present.
+    pub fn content_type(&self) -> Option<&ContentType> {
+        self.content_type.as_ref()
+    }
+
+    /// Returns the response body.
+    pub fn body(&self) -> &RawBody {
+        &self.body
+    }
+
+    /// Returns the response body as text if it's text content.
+    ///
+    /// # Returns
+    /// - `Some(&str)` if the body contains text
+    /// - `None` if the body is binary or empty
+    pub fn text(&self) -> Option<&str> {
+        match &self.body {
+            RawBody::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// Returns the response body as binary data if it's binary content.
+    ///
+    /// # Returns
+    /// - `Some(&[u8])` if the body contains binary data
+    /// - `None` if the body is text or empty
+    pub fn bytes(&self) -> Option<&[u8]> {
+        match &self.body {
+            RawBody::Binary(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    /// Returns true if the response body is empty.
+    pub fn is_empty(&self) -> bool {
+        matches!(self.body, RawBody::Empty)
+    }
 }
 
 impl CallResult {
@@ -558,55 +659,61 @@ impl CallResult {
         Ok(bytes.as_slice())
     }
 
-    /// Processes the response as raw content with content type information.
+    /// Processes the response as raw content with complete HTTP response information.
     ///
     /// This method records the response in the OpenAPI specification and returns
-    /// the response body as a string along with its content type. If the response
-    /// has no content type, returns `None`.
+    /// a [`RawResult`] containing the HTTP status code, content type, and response body.
+    /// This method supports both text and binary response content.
     ///
     /// # Returns
     ///
-    /// - `Ok(Some((ContentType, &str)))`: The content type and response body
-    /// - `Ok(None)`: If the response has no content type
+    /// - `Ok(RawResult)`: Complete raw response data including status, content type, and body
     /// - `Err(ApiClientError)`: If processing fails
     ///
     /// # Example
     ///
     /// ```rust
-    /// # use clawspec_core::ApiClient;
+    /// use clawspec_core::{ApiClient, RawBody};
+    /// use http::StatusCode;
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
-    /// if let Some((content_type, body)) = client
+    /// let raw_result = client
     ///     .get("/api/data")?
     ///     .exchange()
     ///     .await?
     ///     .as_raw()
-    ///     .await?
-    /// {
+    ///     .await?;
+    ///
+    /// println!("Status: {}", raw_result.status_code());
+    /// if let Some(content_type) = raw_result.content_type() {
     ///     println!("Content-Type: {}", content_type);
-    ///     println!("Body: {}", body);
+    /// }
+    ///
+    /// match raw_result.body() {
+    ///     RawBody::Text(text) => println!("Text body: {}", text),
+    ///     RawBody::Binary(bytes) => println!("Binary body: {} bytes", bytes.len()),
+    ///     RawBody::Empty => println!("Empty body"),
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn as_raw(&mut self) -> Result<Option<(ContentType, &str)>, ApiClientError> {
-        let Some(content_type) = self.content_type.clone() else {
-            return Ok(None);
-        };
+    pub async fn as_raw(&mut self) -> Result<RawResult, ApiClientError> {
         let output = self.get_output(None).await?;
 
         let body = match output {
-            Output::Empty => "",
-            Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => body.as_str(),
-            Output::Bytes(_bytes) => {
-                // For OpenAPI examples, binary data is typically represented as base64
-                return Err(ApiClientError::UnsupportedTextOutput {
-                    output: output.clone(),
-                });
+            Output::Empty => RawBody::Empty,
+            Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => {
+                RawBody::Text(body.clone())
             }
+            Output::Bytes(bytes) => RawBody::Binary(bytes.clone()),
         };
 
-        Ok(Some((content_type, body)))
+        Ok(RawResult {
+            status: self.status,
+            content_type: self.content_type.clone(),
+            body,
+        })
     }
 
     /// Records this response as an empty response in the OpenAPI specification.

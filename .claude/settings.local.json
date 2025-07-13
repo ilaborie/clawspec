@@ -57,7 +57,8 @@
       "Bash(cp:*)",
       "Bash(git restore:*)",
       "Bash(gh milestone:*)",
-      "Bash(time cargo test:*)"
+      "Bash(time cargo test:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

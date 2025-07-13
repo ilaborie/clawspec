@@ -130,19 +130,19 @@ where
         }
     }
 
-    /// Converts the parameter to a JSON value for query string serialization.
-    ///
-    /// Returns `None` if the parameter should not be included in the query string.
-    pub fn as_query_value(&self) -> Option<serde_json::Value> {
-        serde_json::to_value(&self.value).ok()
-    }
-
     /// Get the actual style to use for header parameters
     pub fn header_style(&self) -> ParamStyle {
         match self.style {
             ParamStyle::Default => ParamStyle::Simple,
             style => style,
         }
+    }
+
+    /// Converts the parameter to a JSON value for query string serialization.
+    ///
+    /// Returns `None` if the parameter should not be included in the query string.
+    pub fn as_query_value(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(&self.value).ok()
     }
 
     /// Converts the parameter to a JSON value for header serialization.
@@ -210,7 +210,7 @@ impl ResolvedParamValue {
     ///
     /// - `Ok(String)` - The serialized string value
     /// - `Err(ApiClientError)` - Error if the value cannot be serialized
-    pub fn to_string_value(&self) -> Result<String, ApiClientError> {
+    pub(super) fn to_string_value(&self) -> Result<String, ApiClientError> {
         match &self.value {
             serde_json::Value::Array(arr) => {
                 let string_values = Self::array_to_string_values(arr)?;
@@ -239,7 +239,7 @@ impl ResolvedParamValue {
     ///
     /// - `Ok(Vec<String>)` - Vector of string values for query encoding
     /// - `Err(ApiClientError)` - Error if the value cannot be serialized
-    pub fn to_query_values(&self) -> Result<Vec<String>, ApiClientError> {
+    pub(super) fn to_query_values(&self) -> Result<Vec<String>, ApiClientError> {
         match &self.value {
             serde_json::Value::Array(arr) => {
                 match self.style {

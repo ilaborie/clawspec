@@ -58,7 +58,7 @@
 //!     let mut client = TestClient::start(MyServer).await?;
 //!     
 //!     // Test your API
-//!     let response = client.get("/users")?.exchange().await?;
+//!     let response = client.get("/users")?.exchange().await?.as_json::<serde_json::Value>().await?;
 //!     
 //!     // Write OpenAPI spec
 //!     client.write_openapi("api.yml").await?;
@@ -164,7 +164,8 @@ pub mod test_client;
 // Public API - only expose user-facing types and functions
 pub use self::client::{
     ApiCall, ApiClient, ApiClientBuilder, ApiClientError, CallBody, CallHeaders, CallPath,
-    CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue, ParameterValue,
+    CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue, ParameterValue, RawBody,
+    RawResult,
 };
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below
