@@ -59,9 +59,9 @@ struct OperationMetadata {
 /// - [`with_client_errors()`](Self::with_client_errors) - Accept 2xx and 4xx codes
 ///
 /// ## OpenAPI Metadata
-/// - [`with_operation_id(id)`](Self::with_operation_id) - Set operation ID
-/// - [`with_tags(tags)`](Self::with_tags) - Set operation tags
-/// - [`with_description(desc)`](Self::with_description) - Set operation description
+/// - [`with_operation_id(id)`](Self::with_operation_id) - Set operation ID  
+/// - [`with_tags(tags)`](Self::with_tags) - Set operation tags (or use automatic tagging)
+/// - [`with_description(desc)`](Self::with_description) - Set operation description (or use automatic description)
 ///
 /// ## Execution
 /// - [`exchange()`](Self::exchange) - Execute the request and return response (⚠️ **must consume result for OpenAPI**)
@@ -71,6 +71,45 @@ struct OperationMetadata {
 /// - **Status codes**: Accepts 200-499 (inclusive of 200, exclusive of 500)
 /// - **Content-Type**: Automatically set based on body type
 /// - **Schema collection**: Request/response schemas are automatically captured
+/// - **Operation metadata**: Automatically generated if not explicitly set
+///
+/// ## Automatic OpenAPI Metadata Generation
+///
+/// When you don't explicitly set operation metadata, `ApiCall` automatically generates:
+///
+/// ### **Automatic Tags**
+/// Tags are extracted from the request path using intelligent parsing:
+///
+/// ```text
+/// Path: /api/v1/users/{id}     → Tags: ["users"]
+/// Path: /users                 → Tags: ["users"] 
+/// Path: /users/export          → Tags: ["users", "export"]
+/// Path: /observations/import   → Tags: ["observations", "import"]
+/// ```
+///
+/// **Path Prefix Skipping**: Common API prefixes are automatically skipped:
+/// - `api`, `v1`, `v2`, `v3`, `rest`, `service` (and more)
+/// - `/api/v1/users` becomes `["users"]`, not `["api", "v1", "users"]`
+///
+/// **Special Action Detection**: Certain path segments get their own tags:
+/// - `import`, `upload`, `export`, `search`, `bulk`
+/// - `/users/export` → `["users", "export"]`
+///
+/// ### **Automatic Descriptions** 
+/// Descriptions are generated based on HTTP method and path:
+///
+/// ```text
+/// GET /users          → "Retrieve users"
+/// GET /users/{id}     → "Retrieve user by ID"  
+/// POST /users         → "Create user"
+/// PUT /users/{id}     → "Update user by ID"
+/// DELETE /users/{id}  → "Delete user by ID"
+/// ```
+///
+/// ### **Automatic Operation IDs**
+/// Generated from HTTP method and path: `"get-users-id"`, `"post-users"`, etc.
+///
+/// You can override any of these by calling the corresponding `with_*` methods.
 #[derive(derive_more::Debug)]
 pub struct ApiCall {
     client: reqwest::Client,
