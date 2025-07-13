@@ -11,18 +11,6 @@ servers:
 - url: https://api.birdwatch.example.com/api
   description: Production server
 paths:
-  /api/health:
-    get:
-      tags:
-      - health
-      description: Check if the API service is healthy and operational
-      operationId: get-health
-      parameters: []
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json: {}
   /api/observations:
     get:
       tags:
@@ -620,7 +608,6 @@ tags:
 - name: admin
 - name: bulk-operations
 - name: file-operations
-- name: health
 - name: import
 - name: listing
 - name: modification
