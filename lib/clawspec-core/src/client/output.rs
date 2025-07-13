@@ -26,8 +26,6 @@ impl Output {
     }
 }
 
-// TODO something like axum response extractor - https://github.com/ilaborie/clawspec/issues/24
-
 #[cfg(test)]
 mod tests {
     use super::*;

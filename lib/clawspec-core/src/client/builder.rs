@@ -12,6 +12,15 @@ use super::{ApiClient, ApiClientError};
 /// `ApiClientBuilder` provides a fluent interface for configuring all aspects of an API client,
 /// including network settings, base paths, OpenAPI metadata, and server definitions.
 ///
+/// # Default Configuration
+///
+/// - **Scheme**: HTTP (use `with_scheme()` to change to HTTPS)
+/// - **Host**: 127.0.0.1 (localhost)
+/// - **Port**: 80 (standard HTTP port)
+/// - **Base path**: None (requests go to root path)
+/// - **OpenAPI info**: None (no metadata)
+/// - **Servers**: Empty list
+///
 /// # Example
 ///
 /// ```rust
@@ -130,16 +139,100 @@ impl ApiClientBuilder {
         })
     }
 
+    /// Sets the HTTP scheme (protocol) for the API client.
+    ///
+    /// # Parameters
+    ///
+    /// * `scheme` - The HTTP scheme to use (HTTP or HTTPS)
+    ///
+    /// # Default
+    ///
+    /// If not specified, defaults to `Scheme::HTTP`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    /// use http::uri::Scheme;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_scheme(Scheme::HTTPS)  // Use HTTPS for secure connections
+    ///     .with_host("api.example.com")
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn with_scheme(mut self, scheme: Scheme) -> Self {
         self.scheme = scheme;
         self
     }
 
+    /// Sets the hostname for the API client.
+    ///
+    /// # Parameters
+    ///
+    /// * `host` - The hostname or IP address of the API server
+    ///
+    /// # Default
+    ///
+    /// If not specified, defaults to `"127.0.0.1"` (localhost).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_host("api.example.com")     // Domain name
+    ///     .build()?;
+    ///
+    /// let client = ApiClient::builder()
+    ///     .with_host("192.168.1.10")       // IP address
+    ///     .build()?;
+    ///
+    /// let client = ApiClient::builder()
+    ///     .with_host("localhost")          // Local development
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn with_host(mut self, host: impl Into<String>) -> Self {
         self.host = host.into();
         self
     }
 
+    /// Sets the port number for the API client.
+    ///
+    /// # Parameters
+    ///
+    /// * `port` - The port number to connect to on the server
+    ///
+    /// # Default
+    ///
+    /// If not specified, defaults to `80` (standard HTTP port).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    /// use http::uri::Scheme;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_scheme(Scheme::HTTPS)
+    ///     .with_host("api.example.com")
+    ///     .with_port(443)              // Standard HTTPS port
+    ///     .build()?;
+    ///
+    /// let client = ApiClient::builder()
+    ///     .with_host("localhost")
+    ///     .with_port(8080)             // Common development port
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
         self
@@ -179,15 +272,6 @@ impl ApiClientBuilder {
     ///
     /// Returns `ApiClientError::InvalidBasePath` if the path contains invalid characters
     /// (such as spaces) or cannot be parsed as a valid URI path.
-    ///
-    /// ```rust,should_panic
-    /// use clawspec_core::ApiClient;
-    ///
-    /// // This will fail - paths cannot contain unencoded spaces
-    /// let result = ApiClient::builder()
-    ///     .with_base_path("/invalid path with spaces")
-    ///     .expect("Should fail with invalid path");
-    /// ```
     pub fn with_base_path<P>(mut self, base_path: P) -> Result<Self, ApiClientError>
     where
         P: TryInto<PathAndQuery>,

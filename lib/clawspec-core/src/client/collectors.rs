@@ -262,6 +262,66 @@ pub(super) struct CalledOperation {
 /// This struct contains the response from an HTTP request along with methods to
 /// process the response in various formats (JSON, text, bytes, etc.) while
 /// automatically collecting OpenAPI schema information.
+///
+/// # ⚠️ Important: Response Consumption Required
+///
+/// **You must consume this `CallResult` by calling one of the response processing methods**
+/// to ensure proper OpenAPI documentation generation. Simply calling `exchange()` and not
+/// processing the result will result in incomplete OpenAPI specifications.
+///
+/// ## Required Response Processing
+///
+/// Choose the appropriate method based on your expected response:
+///
+/// - **Empty responses** (204 No Content, etc.): [`as_empty()`](Self::as_empty)
+/// - **JSON responses**: [`as_json::<T>()`](Self::as_json)
+/// - **Text responses**: [`as_text()`](Self::as_text)
+/// - **Binary responses**: [`as_bytes()`](Self::as_bytes)
+/// - **Raw response access**: [`as_raw()`](Self::as_raw) (includes status code, content-type, and body)
+///
+/// ## Example: Correct Usage
+///
+/// ```rust
+/// use clawspec_core::ApiClient;
+/// # use serde::Deserialize;
+/// # use utoipa::ToSchema;
+/// # #[derive(Deserialize, ToSchema)]
+/// # struct User { id: u32, name: String }
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut client = ApiClient::builder().build()?;
+///
+/// // ✅ CORRECT: Always consume the CallResult
+/// let user: User = client
+///     .get("/users/123")?
+///     .exchange()
+///     .await?
+///     .as_json()  // ← This is required!
+///     .await?;
+///
+/// // ✅ CORRECT: For empty responses (like DELETE)
+/// client
+///     .delete("/users/123")?
+///     .exchange()
+///     .await?
+///     .as_empty()  // ← This is required!
+///     .await?;
+///
+/// // ❌ INCORRECT: This will not generate proper OpenAPI documentation
+/// // let _result = client.get("/users/123")?.exchange().await?;
+/// // // Missing .as_json() or other consumption method! This will not generate proper OpenAPI documentation
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ## Why This Matters
+///
+/// The OpenAPI schema generation relies on observing how responses are processed.
+/// Without calling a consumption method:
+/// - Response schemas won't be captured
+/// - Content-Type information may be incomplete  
+/// - Operation examples won't be generated
+/// - The resulting OpenAPI spec will be missing crucial response documentation
 #[derive(Debug, Clone)]
 pub struct CallResult {
     operation_id: String,
@@ -269,6 +329,107 @@ pub struct CallResult {
     content_type: Option<ContentType>,
     output: Output,
     collectors: Arc<RwLock<Collectors>>,
+}
+
+/// Represents the raw response data from an HTTP request.
+///
+/// This struct provides complete access to the HTTP response including status code,
+/// content type, and body data. It supports both text and binary response bodies.
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::{ApiClient, RawBody};
+/// use http::StatusCode;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut client = ApiClient::builder().build()?;
+/// let raw_result = client
+///     .get("/api/data")?
+///     .exchange()
+///     .await?
+///     .as_raw()
+///     .await?;
+///
+/// println!("Status: {}", raw_result.status_code());
+/// if let Some(content_type) = raw_result.content_type() {
+///     println!("Content-Type: {}", content_type);
+/// }
+/// match raw_result.body() {
+///     RawBody::Text(text) => println!("Text body: {}", text),
+///     RawBody::Binary(bytes) => println!("Binary body: {} bytes", bytes.len()),
+///     RawBody::Empty => println!("Empty body"),
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone)]
+pub struct RawResult {
+    status: StatusCode,
+    content_type: Option<ContentType>,
+    body: RawBody,
+}
+
+/// Represents the body content of a raw HTTP response.
+///
+/// This enum handles different types of response bodies:
+/// - Text content (including JSON, HTML, XML, etc.)
+/// - Binary content (images, files, etc.)
+/// - Empty responses
+#[derive(Debug, Clone)]
+pub enum RawBody {
+    /// Text-based content (UTF-8 encoded)
+    Text(String),
+    /// Binary content
+    Binary(Vec<u8>),
+    /// Empty response body
+    Empty,
+}
+
+impl RawResult {
+    /// Returns the HTTP status code of the response.
+    pub fn status_code(&self) -> StatusCode {
+        self.status
+    }
+
+    /// Returns the content type of the response, if present.
+    pub fn content_type(&self) -> Option<&ContentType> {
+        self.content_type.as_ref()
+    }
+
+    /// Returns the response body.
+    pub fn body(&self) -> &RawBody {
+        &self.body
+    }
+
+    /// Returns the response body as text if it's text content.
+    ///
+    /// # Returns
+    /// - `Some(&str)` if the body contains text
+    /// - `None` if the body is binary or empty
+    pub fn text(&self) -> Option<&str> {
+        match &self.body {
+            RawBody::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// Returns the response body as binary data if it's binary content.
+    ///
+    /// # Returns
+    /// - `Some(&[u8])` if the body contains binary data
+    /// - `None` if the body is text or empty
+    pub fn bytes(&self) -> Option<&[u8]> {
+        match &self.body {
+            RawBody::Binary(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    /// Returns true if the response body is empty.
+    pub fn is_empty(&self) -> bool {
+        matches!(self.body, RawBody::Empty)
+    }
 }
 
 impl CallResult {
@@ -498,50 +659,61 @@ impl CallResult {
         Ok(bytes.as_slice())
     }
 
-    /// Processes the response as raw content with content type information.
+    /// Processes the response as raw content with complete HTTP response information.
     ///
     /// This method records the response in the OpenAPI specification and returns
-    /// the response body as a string along with its content type. If the response
-    /// has no content type, returns `None`.
+    /// a [`RawResult`] containing the HTTP status code, content type, and response body.
+    /// This method supports both text and binary response content.
     ///
     /// # Returns
     ///
-    /// - `Ok(Some((ContentType, &str)))`: The content type and response body
-    /// - `Ok(None)`: If the response has no content type
+    /// - `Ok(RawResult)`: Complete raw response data including status, content type, and body
     /// - `Err(ApiClientError)`: If processing fails
     ///
     /// # Example
     ///
     /// ```rust
-    /// # use clawspec_core::ApiClient;
+    /// use clawspec_core::{ApiClient, RawBody};
+    /// use http::StatusCode;
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
-    /// if let Some((content_type, body)) = client
+    /// let raw_result = client
     ///     .get("/api/data")?
     ///     .exchange()
     ///     .await?
     ///     .as_raw()
-    ///     .await?
-    /// {
+    ///     .await?;
+    ///
+    /// println!("Status: {}", raw_result.status_code());
+    /// if let Some(content_type) = raw_result.content_type() {
     ///     println!("Content-Type: {}", content_type);
-    ///     println!("Body: {}", body);
+    /// }
+    ///
+    /// match raw_result.body() {
+    ///     RawBody::Text(text) => println!("Text body: {}", text),
+    ///     RawBody::Binary(bytes) => println!("Binary body: {} bytes", bytes.len()),
+    ///     RawBody::Empty => println!("Empty body"),
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn as_raw(&mut self) -> Result<Option<(ContentType, &str)>, ApiClientError> {
-        let Some(content_type) = self.content_type.clone() else {
-            return Ok(None);
-        };
+    pub async fn as_raw(&mut self) -> Result<RawResult, ApiClientError> {
         let output = self.get_output(None).await?;
 
         let body = match output {
-            Output::Empty => "",
-            Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => body.as_str(),
-            Output::Bytes(_bytes) => todo!("base64 encoding"),
+            Output::Empty => RawBody::Empty,
+            Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => {
+                RawBody::Text(body.clone())
+            }
+            Output::Bytes(bytes) => RawBody::Binary(bytes.clone()),
         };
 
-        Ok(Some((content_type, body)))
+        Ok(RawResult {
+            status: self.status,
+            content_type: self.content_type.clone(),
+            body,
+        })
     }
 
     /// Records this response as an empty response in the OpenAPI specification.
@@ -879,14 +1051,6 @@ const SKIP_PATH_PREFIXES: &[&str] = &[
 ];
 
 /// Generates a human-readable description for an operation based on HTTP method and path.
-///
-/// Examples:
-/// - GET /users -> "Retrieve users"
-/// - POST /users -> "Create user"
-/// - GET /users/{id} -> "Retrieve user by ID"
-/// - PUT /users/{id} -> "Update user by ID"
-/// - DELETE /users/{id} -> "Delete user by ID"
-/// - PATCH /users/{id} -> "Partially update user by ID"
 fn generate_description(method: &http::Method, path: &str) -> Option<String> {
     let path = path.trim_start_matches('/');
     let segments: Vec<&str> = path.split('/').collect();
@@ -984,12 +1148,6 @@ fn generate_description(method: &http::Method, path: &str) -> Option<String> {
 }
 
 /// Generates appropriate tags for an operation based on the path.
-///
-/// Examples:
-/// - /users -> ["users"]
-/// - /users/{id} -> ["users"]
-/// - /observations/import -> ["observations", "import"]
-/// - /api/observations/upload -> ["observations", "upload"]
 fn generate_tags(path: &str) -> Option<Vec<String>> {
     let path = path.trim_start_matches('/');
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();

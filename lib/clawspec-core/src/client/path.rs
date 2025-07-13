@@ -1,124 +1,3 @@
-//! Path parameter handling for HTTP requests with OpenAPI 3.1 support.
-//!
-//! This module provides a type-safe system for building HTTP paths with parameterized
-//! segments that comply with the OpenAPI 3.1 specification. It supports parameter
-//! substitution, URL encoding, and automatic OpenAPI schema generation.
-//!
-//! # Key Features
-//!
-//! - **Type Safety**: Compile-time guarantees that parameters implement required traits
-//! - **OpenAPI Compliance**: Supports different parameter styles for arrays
-//! - **URL Encoding**: Proper percent-encoding of parameter values
-//! - **Parameter Substitution**: Template-based path building with `{param}` syntax
-//! - **Duplicate Parameter Support**: Handles same parameter appearing multiple times in path
-//! - **Automatic Schema Generation**: Integrates with utoipa for OpenAPI documentation
-//! - **Error Handling**: Robust validation and error reporting
-//!
-//! # Quick Start
-//!
-//! ```rust
-//! use clawspec_core::{CallPath, ParamValue, ParamStyle};
-//!
-//! // Basic path with single parameter
-//! let mut path = CallPath::from("/users/{user_id}");
-//! path.add_param("user_id", ParamValue::new(123));
-//!
-//! // Path with multiple parameters
-//! let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
-//! path.add_param("user_id", ParamValue::new(456));
-//! path.add_param("post_id", ParamValue::new("hello-world"));
-//!
-//! // Array parameter with custom style
-//! let mut path = CallPath::from("/search/{tags}");
-//! path.add_param("tags", ParamValue::with_style(
-//!     vec!["rust", "web", "api"],
-//!     ParamStyle::PipeDelimited
-//! ));
-//! // Results in: /search/rust%7Cweb%7Capi
-//!
-//! // Duplicate parameters (same parameter appears multiple times)
-//! let mut path = CallPath::from("/api/{version}/users/{id}/posts/{id}/comments/{version}");
-//! path.add_param("version", ParamValue::new("v1"));
-//! path.add_param("id", ParamValue::new(123));
-//! // Results in: /api/v1/users/123/posts/123/comments/v1
-//! ```
-//!
-//! # Parameter Types
-//!
-//! ## ParamValue
-//!
-//! Use [`ParamValue`] for any type that implements `Serialize` and `ToSchema`.
-//! The parameter value is automatically converted to a string representation
-//! suitable for URL path substitution.
-//!
-//! ```rust
-//! # use clawspec_core::{CallPath, ParamValue, ParamStyle};
-//! let mut path = CallPath::from("/api/items/{id}");
-//!
-//! // String parameter
-//! path.add_param("id", ParamValue::new("item-123"));
-//!
-//! // Numeric parameter
-//! path.add_param("id", ParamValue::new(42));
-//!
-//! // Boolean parameter
-//! path.add_param("id", ParamValue::new(true));
-//!
-//! // Array parameter (comma-separated by default)
-//! path.add_param("id", ParamValue::new(vec![1, 2, 3]));
-//! ```
-//!
-//! # Array Parameter Styles
-//!
-//! Path parameters support different array serialization styles:
-//!
-//! - **Simple/Default**: `value1,value2,value3` (comma-separated)
-//! - **SpaceDelimited**: `value1 value2 value3` (space-separated)
-//! - **PipeDelimited**: `value1|value2|value3` (pipe-separated)
-//!
-//! ```rust
-//! # use clawspec_core::{CallPath, ParamValue, ParamStyle};
-//! let mut path = CallPath::from("/filter/{categories}");
-//!
-//! // Simple style (default): tech,programming,rust
-//! path.add_param("categories", ParamValue::new(vec!["tech", "programming", "rust"]));
-//!
-//! // Space delimited: tech%20programming%20rust
-//! path.add_param("categories", ParamValue::with_style(
-//!     vec!["tech", "programming", "rust"],
-//!     ParamStyle::SpaceDelimited
-//! ));
-//!
-//! // Pipe delimited: tech%7Cprogramming%7Crust
-//! path.add_param("categories", ParamValue::with_style(
-//!     vec!["tech", "programming", "rust"],
-//!     ParamStyle::PipeDelimited
-//! ));
-//! ```
-//!
-//! # URL Encoding
-//!
-//! All parameter values are automatically percent-encoded according to RFC 3986
-//! to ensure URL safety:
-//!
-//! ```rust
-//! # use clawspec_core::{CallPath, ParamValue};
-//! let mut path = CallPath::from("/search/{query}");
-//! path.add_param("query", ParamValue::new("hello world & more"));
-//! // Results in: /search/hello%20world%20%26%20more
-//! ```
-//!
-//! # Error Handling
-//!
-//! The path system provides robust error handling for common issues:
-//!
-//! - **Missing Parameters**: Paths with unresolved `{param}` placeholders
-//! - **Invalid Values**: Object or nested array parameters
-//! - **Type Errors**: Parameters that don't implement required traits
-//!
-//! Path resolution occurs when converting `CallPath` to `PathResolved`,
-//! which validates that all parameters have been provided.
-
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
@@ -138,8 +17,6 @@ use utoipa::openapi::path::{Parameter, ParameterIn};
 static RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\{(?<name>\w+)}").expect("a valid regex"));
 
-/// Optimized string replacement that avoids format! macro allocations
-/// while maintaining correctness for exact parameter matching
 fn replace_path_param(path: &str, param_name: &str, value: &str) -> String {
     // Use concat to avoid format! macro allocation, but keep str::replace for correctness
     let pattern = ["{", param_name, "}"].concat();
@@ -346,8 +223,6 @@ impl TryFrom<CallPath> for PathResolved {
         })
     }
 }
-
-// TODO dsl path!(""/ object / ""...) - https://github.com/ilaborie/clawspec/issues/21
 
 #[cfg(test)]
 mod tests {

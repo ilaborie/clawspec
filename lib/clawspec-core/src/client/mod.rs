@@ -9,7 +9,10 @@ mod builder;
 pub use self::builder::ApiClientBuilder;
 
 mod call;
-pub use self::call::{ApiCall, ExpectedStatusCodes};
+pub use self::call::ApiCall;
+
+mod status;
+pub use self::status::ExpectedStatusCodes;
 
 mod param;
 pub use self::param::{ParamStyle, ParamValue, ParameterValue};
@@ -32,8 +35,8 @@ mod error;
 pub use self::error::ApiClientError;
 
 mod collectors;
-// CallResult is public API, but CalledOperation and Collectors are internal
-pub use self::collectors::CallResult;
+// CallResult, RawResult, and RawBody are public API, but CalledOperation and Collectors are internal
+pub use self::collectors::{CallResult, RawBody, RawResult};
 
 #[cfg(test)]
 mod integration_tests;
@@ -137,10 +140,10 @@ mod output;
 ///
 /// ```rust
 /// use clawspec_core::{ApiClient, expected_status_codes, CallQuery, CallHeaders, ParamValue};
-/// use serde::Serialize;
+/// use serde::{Serialize, Deserialize};
 /// use utoipa::ToSchema;
 ///
-/// #[derive(Serialize, ToSchema)]
+/// #[derive(Serialize, Deserialize, ToSchema)]
 /// struct UserData { name: String }
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -158,6 +161,8 @@ mod output;
 ///     .with_header("Authorization", "Bearer token123")
 ///     .with_expected_status_codes(expected_status_codes!(200, 404))
 ///     .exchange()
+///     .await?
+///     .as_json::<Vec<UserData>>()
 ///     .await?;
 ///
 /// // POST request with JSON body
@@ -166,6 +171,8 @@ mod output;
 ///     .json(&user_data)?
 ///     .with_expected_status_codes(expected_status_codes!(201, 409))
 ///     .exchange()
+///     .await?
+///     .as_json::<UserData>()
 ///     .await?;
 /// # Ok(())
 /// # }
@@ -205,17 +212,17 @@ mod output;
 ///
 /// ```rust
 /// # use clawspec_core::ApiClient;
-/// # use serde::Serialize;
+/// # use serde::{Serialize, Deserialize};
 /// # use utoipa::ToSchema;
-/// # #[derive(Serialize, ToSchema)]
+/// # #[derive(Serialize, Deserialize, ToSchema)]
 /// # struct UserData { name: String }
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = ApiClient::builder().build()?;
 /// let user_data = UserData { name: "John".to_string() };
 ///
 /// // Make some API calls...
-/// client.get("/users")?.exchange().await?;
-/// client.post("/users")?.json(&user_data)?.exchange().await?;
+/// client.get("/users")?.exchange().await?.as_json::<Vec<UserData>>().await?;
+/// client.post("/users")?.json(&user_data)?.exchange().await?.as_json::<UserData>().await?;
 ///
 /// // Generate OpenAPI specification
 /// let openapi = client.collected_openapi().await;
@@ -321,10 +328,10 @@ impl ApiClient {
     /// ```rust
     /// use clawspec_core::ApiClient;
     /// use utoipa::openapi::{InfoBuilder, ServerBuilder};
-    /// use serde::Serialize;
+    /// use serde::{Serialize, Deserialize};
     /// use utoipa::ToSchema;
     ///
-    /// #[derive(Serialize, ToSchema)]
+    /// #[derive(Serialize, Deserialize, ToSchema)]
     /// struct UserData { name: String }
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -347,8 +354,8 @@ impl ApiClient {
     /// let user_data = UserData { name: "John".to_string() };
     ///
     /// // Make some API calls to collect data
-    /// client.get("/users")?.exchange().await?;
-    /// client.post("/users")?.json(&user_data)?.exchange().await?;
+    /// client.get("/users")?.exchange().await?.as_json::<Vec<UserData>>().await?;
+    /// client.post("/users")?.json(&user_data)?.exchange().await?.as_json::<UserData>().await?;
     ///
     /// // Generate complete OpenAPI specification
     /// let openapi = client.collected_openapi().await;
@@ -428,35 +435,6 @@ impl ApiClient {
     }
 
     /// Computes the list of unique tags from all collected operations.
-    ///
-    /// This method analyzes all operations that have been collected during API calls
-    /// and extracts their tags, creating a deduplicated and sorted list for the
-    /// OpenAPI specification.
-    ///
-    /// # Tag Sources
-    ///
-    /// Tags are collected from:
-    /// - Explicit tags set on operations via `.tag()` or `.tags()` methods
-    /// - Auto-generated tags based on path patterns (e.g., "/users" → "users")
-    /// - Operation-specific tags for special endpoints
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use clawspec_core::ApiClient;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build()?;
-    ///
-    /// // Make calls with various tags
-    /// client.get("/users")?.with_tag("users").exchange().await?;
-    /// client.post("/users")?.with_tags(["users", "admin"]).exchange().await?;
-    /// client.get("/orders")?.exchange().await?;  // Auto-generates "orders" tag
-    ///
-    /// let openapi = client.collected_openapi().await;
-    /// // Generated tags: ["admin", "orders", "users"] (sorted alphabetically)
-    /// # Ok(())
-    /// # }
-    /// ```
     async fn compute_tags(&self, collectors: &collectors::Collectors) -> Vec<Tag> {
         let mut tag_names = std::collections::BTreeSet::new();
 

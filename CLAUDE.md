@@ -234,3 +234,7 @@ Always run `mise check` after completing work to ensure:
 ### Issue Creation Guidelines
 
 - When create a github issue, add relevant labels
+
+## Git Workflow Best Practices
+
+- When working on a github issue, start from the up-to-date main branch, and create a new working branch. (unless explicitly mention)
