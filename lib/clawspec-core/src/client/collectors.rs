@@ -262,6 +262,66 @@ pub(super) struct CalledOperation {
 /// This struct contains the response from an HTTP request along with methods to
 /// process the response in various formats (JSON, text, bytes, etc.) while
 /// automatically collecting OpenAPI schema information.
+///
+/// # ⚠️ Important: Response Consumption Required
+///
+/// **You must consume this `CallResult` by calling one of the response processing methods**
+/// to ensure proper OpenAPI documentation generation. Simply calling `exchange()` and not
+/// processing the result will result in incomplete OpenAPI specifications.
+///
+/// ## Required Response Processing
+///
+/// Choose the appropriate method based on your expected response:
+///
+/// - **Empty responses** (204 No Content, etc.): [`as_empty()`](Self::as_empty)
+/// - **JSON responses**: [`as_json::<T>()`](Self::as_json) 
+/// - **Text responses**: [`as_text()`](Self::as_text)
+/// - **Binary responses**: [`as_bytes()`](Self::as_bytes)
+/// - **Unknown/mixed responses**: [`as_raw()`](Self::as_raw)
+///
+/// ## Example: Correct Usage
+///
+/// ```rust
+/// use clawspec_core::ApiClient;
+/// # use serde::Deserialize;
+/// # use utoipa::ToSchema;
+/// # #[derive(Deserialize, ToSchema)]
+/// # struct User { id: u32, name: String }
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut client = ApiClient::builder().build()?;
+///
+/// // ✅ CORRECT: Always consume the CallResult
+/// let user: User = client
+///     .get("/users/123")?
+///     .exchange()
+///     .await?
+///     .as_json()  // ← This is required!
+///     .await?;
+///
+/// // ✅ CORRECT: For empty responses (like DELETE)
+/// client
+///     .delete("/users/123")?
+///     .exchange()
+///     .await?
+///     .as_empty()  // ← This is required!
+///     .await?;
+///
+/// // ❌ INCORRECT: This will not generate proper OpenAPI documentation
+/// // let _result = client.get("/users/123")?.exchange().await?;
+/// // // Missing .as_json() or other consumption method!
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ## Why This Matters
+///
+/// The OpenAPI schema generation relies on observing how responses are processed.
+/// Without calling a consumption method:
+/// - Response schemas won't be captured
+/// - Content-Type information may be incomplete  
+/// - Operation examples won't be generated
+/// - The resulting OpenAPI spec will be missing crucial response documentation
 #[derive(Debug, Clone)]
 pub struct CallResult {
     operation_id: String,
@@ -540,7 +600,9 @@ impl CallResult {
             Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => body.as_str(),
             Output::Bytes(_bytes) => {
                 // For OpenAPI examples, binary data is typically represented as base64
-                return Err(ApiClientError::UnsupportedTextOutput { output: output.clone() });
+                return Err(ApiClientError::UnsupportedTextOutput {
+                    output: output.clone(),
+                });
             }
         };
 

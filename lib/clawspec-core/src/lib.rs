@@ -28,7 +28,7 @@
 //!     .get("/users/123")?
 //!     .exchange()
 //!     .await?
-//!     .as_json()
+//!     .as_json()  // ← Important: Must consume result for OpenAPI generation!
 //!     .await?;
 //!
 //! // Generate OpenAPI specification

@@ -64,7 +64,7 @@ struct OperationMetadata {
 /// - [`with_description(desc)`](Self::with_description) - Set operation description
 ///
 /// ## Execution
-/// - [`exchange()`](Self::exchange) - Execute the request and return response
+/// - [`exchange()`](Self::exchange) - Execute the request and return response (⚠️ **must consume result for OpenAPI**)
 ///
 /// # Default Behavior
 ///
@@ -685,6 +685,66 @@ impl ApiCall {
 
 // Call
 impl ApiCall {
+    /// Executes the HTTP request and returns a result that must be consumed for OpenAPI generation.
+    ///
+    /// This method sends the configured HTTP request to the server and returns a [`CallResult`]
+    /// that contains the response. **You must call one of the response processing methods**
+    /// on the returned `CallResult` to ensure proper OpenAPI documentation generation.
+    ///
+    /// # ⚠️ Important: Response Consumption Required
+    ///
+    /// Simply calling `exchange()` is not sufficient! You must consume the [`CallResult`] by
+    /// calling one of these methods:
+    ///
+    /// - [`CallResult::as_empty()`] - For empty responses (204 No Content, DELETE operations, etc.)
+    /// - [`CallResult::as_json::<T>()`] - For JSON responses that should be deserialized
+    /// - [`CallResult::as_text()`] - For plain text responses
+    /// - [`CallResult::as_bytes()`] - For binary responses
+    /// - [`CallResult::as_raw()`] - For any other response type
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    /// # use serde::Deserialize;
+    /// # use utoipa::ToSchema;
+    /// # #[derive(Deserialize, ToSchema)]
+    /// # struct User { id: u32, name: String }
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // ✅ CORRECT: Always consume the result
+    /// let user: User = client
+    ///     .get("/users/123")?
+    ///     .exchange()
+    ///     .await?
+    ///     .as_json()  // ← Required for OpenAPI generation!
+    ///     .await?;
+    ///
+    /// // ✅ CORRECT: For operations returning empty responses
+    /// client
+    ///     .delete("/users/123")?
+    ///     .exchange()
+    ///     .await?
+    ///     .as_empty()  // ← Required for OpenAPI generation!
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The HTTP request fails (network issues, timeouts, etc.)
+    /// - The response status code is not in the expected range
+    /// - Request building fails (invalid URLs, malformed headers, etc.)
+    ///
+    /// # OpenAPI Documentation
+    ///
+    /// This method automatically collects operation metadata for OpenAPI generation,
+    /// but the response schema and examples are only captured when the [`CallResult`]
+    /// is properly consumed with one of the `as_*` methods.
     // XXX code to abstract if we want multiple client
     pub async fn exchange(self) -> Result<CallResult, ApiClientError> {
         let Self {
