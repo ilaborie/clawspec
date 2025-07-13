@@ -12,6 +12,15 @@ use super::{ApiClient, ApiClientError};
 /// `ApiClientBuilder` provides a fluent interface for configuring all aspects of an API client,
 /// including network settings, base paths, OpenAPI metadata, and server definitions.
 ///
+/// # Default Configuration
+///
+/// - **Scheme**: HTTP (use `with_scheme()` to change to HTTPS)
+/// - **Host**: 127.0.0.1 (localhost)
+/// - **Port**: 80 (standard HTTP port)
+/// - **Base path**: None (requests go to root path)
+/// - **OpenAPI info**: None (no metadata)
+/// - **Servers**: Empty list
+///
 /// # Example
 ///
 /// ```rust
@@ -136,6 +145,10 @@ impl ApiClientBuilder {
     ///
     /// * `scheme` - The HTTP scheme to use (HTTP or HTTPS)
     ///
+    /// # Default
+    ///
+    /// If not specified, defaults to `Scheme::HTTP`.
+    ///
     /// # Example
     ///
     /// ```rust
@@ -160,6 +173,10 @@ impl ApiClientBuilder {
     /// # Parameters
     ///
     /// * `host` - The hostname or IP address of the API server
+    ///
+    /// # Default
+    ///
+    /// If not specified, defaults to `"127.0.0.1"` (localhost).
     ///
     /// # Example
     ///
@@ -191,6 +208,10 @@ impl ApiClientBuilder {
     /// # Parameters
     ///
     /// * `port` - The port number to connect to on the server
+    ///
+    /// # Default
+    ///
+    /// If not specified, defaults to `80` (standard HTTP port).
     ///
     /// # Example
     ///
