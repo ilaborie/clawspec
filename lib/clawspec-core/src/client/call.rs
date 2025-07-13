@@ -519,8 +519,6 @@ mod status_code_tests {
 /// - `add_expected_status_range(range)` - Add additional exclusive ranges
 ///
 /// Default behavior accepts status codes 200..500 (exclusive).
-// TODO: Add comprehensive documentation for all public APIs - https://github.com/ilaborie/clawspec/issues/34
-// TODO: Standardize builder patterns for consistency - https://github.com/ilaborie/clawspec/issues/33
 #[derive(derive_more::Debug)]
 pub struct ApiCall {
     client: reqwest::Client,

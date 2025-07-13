@@ -538,7 +538,10 @@ impl CallResult {
         let body = match output {
             Output::Empty => "",
             Output::Json(body) | Output::Text(body) | Output::Other { body, .. } => body.as_str(),
-            Output::Bytes(_bytes) => todo!("base64 encoding"),
+            Output::Bytes(_bytes) => {
+                // For OpenAPI examples, binary data is typically represented as base64
+                return Err(ApiClientError::UnsupportedTextOutput { output: output.clone() });
+            }
         };
 
         Ok(Some((content_type, body)))
@@ -879,14 +882,6 @@ const SKIP_PATH_PREFIXES: &[&str] = &[
 ];
 
 /// Generates a human-readable description for an operation based on HTTP method and path.
-///
-/// Examples:
-/// - GET /users -> "Retrieve users"
-/// - POST /users -> "Create user"
-/// - GET /users/{id} -> "Retrieve user by ID"
-/// - PUT /users/{id} -> "Update user by ID"
-/// - DELETE /users/{id} -> "Delete user by ID"
-/// - PATCH /users/{id} -> "Partially update user by ID"
 fn generate_description(method: &http::Method, path: &str) -> Option<String> {
     let path = path.trim_start_matches('/');
     let segments: Vec<&str> = path.split('/').collect();
@@ -984,12 +979,6 @@ fn generate_description(method: &http::Method, path: &str) -> Option<String> {
 }
 
 /// Generates appropriate tags for an operation based on the path.
-///
-/// Examples:
-/// - /users -> ["users"]
-/// - /users/{id} -> ["users"]
-/// - /observations/import -> ["observations", "import"]
-/// - /api/observations/upload -> ["observations", "upload"]
 fn generate_tags(path: &str) -> Option<Vec<String>> {
     let path = path.trim_start_matches('/');
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();

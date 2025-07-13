@@ -27,7 +27,8 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
         LngLat,
         ImportResponse,
         UploadResponse
-    );
+    )
+    .await;
 
     basic_crud(&mut app).await?;
     alternate_content_types(&mut app).await?;

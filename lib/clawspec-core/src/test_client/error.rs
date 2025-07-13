@@ -20,109 +20,13 @@ use crate::ApiClientError;
 /// - **Serialization Errors**: JSON/YAML parsing and generation errors
 /// - **Server Health Errors**: Server startup and health check failures
 ///
-/// # Examples
-///
-/// ## Handling Different Error Types
-///
-/// ```rust,no_run
-/// use clawspec_core::test_client::{TestClient, TestServer, TestAppError};
-/// use std::net::TcpListener;
-///
-/// #[derive(Debug)]
-/// struct MyServer;
-///
-/// impl TestServer for MyServer {
-///     type Error = std::io::Error;
-///
-///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
-///         listener.set_nonblocking(true)?;
-///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
-///         // Server implementation
-///         Ok(())
-///     }
-/// }
-///
-/// #[tokio::test]
-/// async fn handle_errors() {
-///     match TestClient::start(MyServer).await {
-///         Ok(client) => {
-///             // Test succeeded
-///             println!("Server started successfully");
-///         }
-///         Err(TestAppError::UnhealthyServer { timeout }) => {
-///             println!("Server failed to become healthy within {:?}", timeout);
-///         }
-///         Err(TestAppError::IoError(io_err)) => {
-///             println!("I/O error during server startup: {}", io_err);
-///         }
-///         Err(TestAppError::ClientError(client_err)) => {
-///             println!("ApiClient configuration error: {}", client_err);
-///         }
-///         Err(err) => {
-///             println!("Other error: {}", err);
-///         }
-///     }
-/// }
-/// ```
-///
-/// ## Error Context and Debugging
-///
-/// ```rust,no_run
-/// use clawspec_core::test_client::{TestClient, TestServer, TestAppError};
-/// use std::net::TcpListener;
-///
-/// #[derive(Debug)]
-/// struct MyServer;
-///
-/// impl TestServer for MyServer {
-///     type Error = std::io::Error;
-///
-///     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
-///         listener.set_nonblocking(true)?;
-///         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
-///         // Server implementation
-///         Ok(())
-///     }
-/// }
-///
-/// #[tokio::test]
-/// async fn debug_errors() -> Result<(), Box<dyn std::error::Error>> {
-///     let client = TestClient::start(MyServer).await
-///         .map_err(|err| {
-///             eprintln!("Detailed error: {:?}", err);
-///             eprintln!("Display error: {}", err);
-///             err
-///         })?;
-///     
-///     client.write_openapi("output.yml").await
-///         .map_err(|err| {
-///             match &err {
-///                 TestAppError::YamlError { error } => {
-///                     eprintln!("YAML serialization failed: {}", error);
-///                 }
-///                 TestAppError::IoError(io_err) => {
-///                     eprintln!("File write failed: {}", io_err);
-///                 }
-///                 _ => eprintln!("Unexpected error: {}", err),
-///             }
-///             err
-///         })?;
-///     
-///     Ok(())
-/// }
-/// ```
+/// All variants implement standard error traits and provide detailed context for debugging.
 #[derive(Debug, derive_more::Error, derive_more::Display, derive_more::From)]
 pub enum TestAppError {
     /// I/O operation failed.
     ///
     /// This includes file operations (creating directories, writing files)
     /// and network operations (binding to ports, socket operations).
-    ///
-    /// # Examples
-    ///
-    /// - Port already in use during server startup
-    /// - Permission denied when writing OpenAPI files
-    /// - Disk full when creating output directories
     #[display("I/O error: {_0}")]
     IoError(tokio::io::Error),
 
@@ -130,12 +34,6 @@ pub enum TestAppError {
     ///
     /// This wraps errors from the underlying ApiClient, including
     /// configuration errors, request failures, and response parsing issues.
-    ///
-    /// # Examples
-    ///
-    /// - Invalid base path configuration
-    /// - HTTP request timeout
-    /// - Response parsing errors
     #[display("API client error: {_0}")]
     ClientError(ApiClientError),
 
@@ -143,12 +41,6 @@ pub enum TestAppError {
     ///
     /// This occurs when generating OpenAPI specifications in JSON format
     /// or when processing JSON request/response data.
-    ///
-    /// # Examples
-    ///
-    /// - Invalid Unicode in OpenAPI specification
-    /// - Circular references in schema generation
-    /// - Malformed JSON data structures
     #[display("JSON error: {_0}")]
     JsonError(serde_json::Error),
 
@@ -156,12 +48,6 @@ pub enum TestAppError {
     ///
     /// This occurs specifically when generating OpenAPI specifications
     /// in YAML format. Contains the detailed error message.
-    ///
-    /// # Examples
-    ///
-    /// - Invalid characters in YAML output
-    /// - Schema too complex for YAML representation
-    /// - Memory allocation failure during YAML generation
     #[display("YAML serialization error: {error}")]
     YamlError {
         /// Detailed error message from the YAML serializer.
@@ -179,12 +65,6 @@ pub enum TestAppError {
     /// - Verify health check implementation
     /// - Increase timeout if server startup is slow
     /// - Ensure no port conflicts with other services
-    ///
-    /// # Examples
-    ///
-    /// - Server startup failure due to missing dependencies
-    /// - Network configuration issues preventing health checks
-    /// - Resource constraints causing slow server initialization
     #[from(ignore)]
     #[display("Server failed to become healthy within {timeout:?}")]
     UnhealthyServer {
@@ -196,12 +76,6 @@ pub enum TestAppError {
     ///
     /// This wraps errors from the TestServer implementation, including
     /// launch failures and health check errors.
-    ///
-    /// # Examples
-    ///
-    /// - Port binding failures during server startup
-    /// - Framework-specific server configuration errors
-    /// - Network errors during health checks
     #[display("Server error: {_0}")]
     ServerError(Box<dyn std::error::Error + Send + Sync + 'static>),
 }

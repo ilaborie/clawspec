@@ -13,6 +13,8 @@
 //!
 //! # Quick Start
 //!
+//! For a complete working example, see the [axum example](https://github.com/ilaborie/clawspec/tree/main/examples/axum-example).
+//!
 //! ```rust,no_run
 //! use clawspec_core::test_client::{TestClient, TestServer, TestServerConfig};
 //! use std::net::TcpListener;

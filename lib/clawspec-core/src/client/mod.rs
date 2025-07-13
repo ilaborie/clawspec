@@ -428,35 +428,6 @@ impl ApiClient {
     }
 
     /// Computes the list of unique tags from all collected operations.
-    ///
-    /// This method analyzes all operations that have been collected during API calls
-    /// and extracts their tags, creating a deduplicated and sorted list for the
-    /// OpenAPI specification.
-    ///
-    /// # Tag Sources
-    ///
-    /// Tags are collected from:
-    /// - Explicit tags set on operations via `.tag()` or `.tags()` methods
-    /// - Auto-generated tags based on path patterns (e.g., "/users" → "users")
-    /// - Operation-specific tags for special endpoints
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use clawspec_core::ApiClient;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut client = ApiClient::builder().build()?;
-    ///
-    /// // Make calls with various tags
-    /// client.get("/users")?.with_tag("users").exchange().await?;
-    /// client.post("/users")?.with_tags(["users", "admin"]).exchange().await?;
-    /// client.get("/orders")?.exchange().await?;  // Auto-generates "orders" tag
-    ///
-    /// let openapi = client.collected_openapi().await;
-    /// // Generated tags: ["admin", "orders", "users"] (sorted alphabetically)
-    /// # Ok(())
-    /// # }
-    /// ```
     async fn compute_tags(&self, collectors: &collectors::Collectors) -> Vec<Tag> {
         let mut tag_names = std::collections::BTreeSet::new();
 
