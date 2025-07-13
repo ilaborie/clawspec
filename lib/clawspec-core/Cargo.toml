@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 
-utoipa = { workspace = true, features = ["debug"] }
+utoipa = { workspace = true, features = ["debug", "yaml"] }
 
 tokio = { workspace = true , features = ["sync"]}
 
@@ -28,6 +28,7 @@ slug = { workspace = true }
 uuid = { workspace = true, features = ["v4"]}
 mime = { workspace = true }
 cruet = { workspace = true }
+backon = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

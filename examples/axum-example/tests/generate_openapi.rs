@@ -320,8 +320,8 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     let created_id = app
         .post("/observations")?
         .json(&test_observation)?
-        .tag("observations")
-        .description("Create a new bird observation with comprehensive metadata")
+        .with_tag("observations")
+        .with_description("Create a new bird observation with comprehensive metadata")
         .exchange()
         .await
         .context("should create observation with tag")?
@@ -331,8 +331,8 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     // Demonstrate multiple tags for cross-cutting concerns
     let _list_result = app
         .get("/observations")?
-        .tags(["observations", "listing"])
-        .description("List all observations with pagination support")
+        .with_tags(["observations", "listing"])
+        .with_description("List all observations with pagination support")
         .exchange()
         .await
         .context("should list observations with multiple tags")?;
@@ -340,8 +340,8 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     // Demonstrate administrative operations
     let _import_result = app
         .post("/observations/import")?
-        .tags(["import", "bulk-operations", "admin"])
-        .description("Bulk import observations from external data sources")
+        .with_tags(["import", "bulk-operations", "admin"])
+        .with_description("Bulk import observations from external data sources")
         .raw(
             br#"{"name":"Import Demo","position":{"lng":1.0,"lat":1.0}}"#.to_vec(),
             headers::ContentType::octet_stream(),
@@ -353,8 +353,8 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     // Demonstrate upload operations
     let _upload_result = app
         .post("/observations/upload")?
-        .tags(["upload", "file-operations"])
-        .description("Upload observations via multipart form data")
+        .with_tags(["upload", "file-operations"])
+        .with_description("Upload observations via multipart form data")
         .multipart(vec![(
             "demo",
             r#"{"name":"Upload Demo","position":{"lng":2.0,"lat":2.0}}"#,
@@ -370,8 +370,8 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     };
     app.put(format!("/observations/{created_id}"))?
         .json(&updated_observation)?
-        .tags(["observations", "modification"])
-        .description("Update an existing observation with new data")
+        .with_tags(["observations", "modification"])
+        .with_description("Update an existing observation with new data")
         .exchange()
         .await
         .context("should update with modification tags")?
@@ -382,8 +382,8 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     // Clean up demonstration data
     let _delete_result = app
         .delete(format!("/observations/{created_id}"))?
-        .tag("observations")
-        .description("Remove observation from the system")
+        .with_tag("observations")
+        .with_description("Remove observation from the system")
         .exchange()
         .await
         .context("should delete demonstration observation")?

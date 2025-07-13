@@ -8,13 +8,21 @@ info:
     email: api-support@birdwatch.example.com
   version: 1.0.0
 servers:
-- url: http://localhost:8080/api
-  description: Development server for testing
 - url: https://api.birdwatch.example.com/api
   description: Production server
-- url: https://staging.birdwatch.example.com/api
-  description: Staging server for pre-production testing
 paths:
+  /api/health:
+    get:
+      tags:
+      - health
+      description: Check if the API service is healthy and operational
+      operationId: get-health
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json: {}
   /api/observations:
     get:
       tags:
@@ -612,6 +620,7 @@ tags:
 - name: admin
 - name: bulk-operations
 - name: file-operations
+- name: health
 - name: import
 - name: listing
 - name: modification

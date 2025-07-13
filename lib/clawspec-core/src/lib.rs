@@ -320,6 +320,66 @@
 //! }
 //! ```
 //!
+//! ## Test Server Framework
+//!
+//! For testing web servers with automatic OpenAPI generation:
+//!
+//! ```rust,no_run
+//! use clawspec_core::test_client::{TestClient, TestServer, TestServerConfig};
+//! use std::net::TcpListener;
+//! use std::time::Duration;
+//!
+//! #[derive(Debug)]
+//! struct MyTestServer;
+//!
+//! impl TestServer for MyTestServer {
+//!     type Error = std::io::Error;
+//!
+//!     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+//!         listener.set_nonblocking(true)?;
+//!         let _tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+//!         // Start your web server here
+//!         Ok(())
+//!     }
+//!
+//!     async fn is_healthy(&self, client: &mut clawspec_core::ApiClient) -> Result<clawspec_core::test_client::HealthStatus, Self::Error> {
+//!         // Custom health check
+//!         match client.get("/health").unwrap().exchange().await {
+//!             Ok(_) => Ok(clawspec_core::test_client::HealthStatus::Healthy),
+//!             Err(_) => Ok(clawspec_core::test_client::HealthStatus::Unhealthy),
+//!         }
+//!     }
+//!
+//!     fn config(&self) -> TestServerConfig {
+//!         TestServerConfig {
+//!             api_client: Some(
+//!                 clawspec_core::ApiClient::builder()
+//!                     .with_host("localhost")
+//!                     .with_base_path("/api").unwrap()
+//!             ),
+//!             min_backoff_delay: Duration::from_millis(10),
+//!             max_backoff_delay: Duration::from_secs(1),
+//!             backoff_jitter: true,
+//!             max_retry_attempts: 10,
+//!         }
+//!     }
+//! }
+//!
+//! #[tokio::test]
+//! async fn test_with_server() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut client = TestClient::start(MyTestServer).await?;
+//!     
+//!     // Test your API
+//!     let response = client.get("/users")?.exchange().await?;
+//!     assert_eq!(response.status_code(), 200);
+//!     
+//!     // Generate comprehensive OpenAPI docs
+//!     client.write_openapi("docs/openapi.yml").await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ## Re-exports
 //!
 //! All commonly used types are re-exported from the crate root for convenience.
@@ -328,6 +388,8 @@
 // TODO: Add comprehensive unit tests for all modules - https://github.com/ilaborie/clawspec/issues/30
 
 mod client;
+
+pub mod test_client;
 
 // Public API - only expose user-facing types and functions
 pub use self::client::{

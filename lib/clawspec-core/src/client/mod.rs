@@ -448,8 +448,8 @@ impl ApiClient {
     /// let mut client = ApiClient::builder().build()?;
     ///
     /// // Make calls with various tags
-    /// client.get("/users")?.tag("users").exchange().await?;
-    /// client.post("/users")?.tags(["users", "admin"]).exchange().await?;
+    /// client.get("/users")?.with_tag("users").exchange().await?;
+    /// client.post("/users")?.with_tags(["users", "admin"]).exchange().await?;
     /// client.get("/orders")?.exchange().await?;  // Auto-generates "orders" tag
     ///
     /// let openapi = client.collected_openapi().await;
