@@ -480,6 +480,52 @@ impl CallResult {
         })
     }
 
+    pub(super) async fn new_without_collection(response: Response) -> Result<Self, ApiClientError> {
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get_all(CONTENT_TYPE)
+            .iter()
+            .collect::<Vec<_>>();
+        let content_type = if content_type.is_empty() {
+            None
+        } else {
+            let ct = ContentType::decode(&mut content_type.into_iter())?;
+            Some(ct)
+        };
+
+        let output = if let Some(content_type) = content_type.clone()
+            && status != StatusCode::NO_CONTENT
+        {
+            if content_type == ContentType::json() {
+                let json = response.text().await?;
+                Output::Json(json)
+            } else if content_type == ContentType::octet_stream() {
+                let bytes = response.bytes().await?;
+                Output::Bytes(bytes.to_vec())
+            } else if content_type.to_string().starts_with("text/") {
+                let text = response.text().await?;
+                Output::Text(text)
+            } else {
+                let body = response.text().await?;
+                Output::Other { body }
+            }
+        } else {
+            Output::Empty
+        };
+
+        // Create a dummy collectors instance that won't be used
+        let collectors = Arc::new(RwLock::new(Collectors::default()));
+
+        Ok(Self {
+            operation_id: String::new(), // Empty operation_id since it won't be used
+            status,
+            content_type,
+            output,
+            collectors,
+        })
+    }
+
     async fn get_output(&self, schema: Option<RefOr<Schema>>) -> Result<&Output, ApiClientError> {
         // add operation response desc
         let mut cs = self.collectors.write().await;

@@ -131,6 +131,8 @@ pub struct ApiCall {
     expected_status_codes: ExpectedStatusCodes,
     /// Operation metadata for OpenAPI documentation
     metadata: OperationMetadata,
+    /// Whether to skip collection for OpenAPI documentation (default: false)
+    skip_collection: bool,
 }
 
 impl ApiCall {
@@ -158,6 +160,7 @@ impl ApiCall {
                 tags: None,
                 description: None,
             },
+            skip_collection: false,
         };
         Ok(result)
     }
@@ -235,6 +238,47 @@ impl ApiCall {
             .tags
             .get_or_insert_with(Vec::new)
             .push(tag.into());
+        self
+    }
+
+    /// Excludes this API call from OpenAPI collection and documentation generation.
+    ///
+    /// When called, this API call will be executed normally but will not appear
+    /// in the generated OpenAPI specification. This is useful for:
+    /// - Health check endpoints
+    /// - Debug/diagnostic endpoints  
+    /// - Authentication/session management calls
+    /// - Test setup/teardown calls
+    /// - Internal utility endpoints
+    /// - Administrative endpoints not part of public API
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Health check that won't appear in OpenAPI spec
+    /// client
+    ///     .get("/health")?
+    ///     .without_collection()
+    ///     .await?
+    ///     .as_empty()
+    ///     .await?;
+    ///
+    /// // Debug endpoint excluded from documentation
+    /// client
+    ///     .get("/debug/status")?
+    ///     .without_collection()
+    ///     .await?
+    ///     .as_text()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn without_collection(mut self) -> Self {
+        self.skip_collection = true;
         self
     }
 
@@ -797,6 +841,7 @@ impl ApiCall {
             body,
             expected_status_codes,
             metadata,
+            skip_collection,
         } = self;
 
         // Build URL and request
@@ -831,11 +876,16 @@ impl ApiCall {
             return Err(ApiClientError::UnexpectedStatusCode { status_code, body });
         }
 
-        // Process response and collect schemas
-        let call_result = CallResult::new(operation_id, Arc::clone(&collectors), response).await?;
-        operation.add_response(call_result.clone());
-
-        Self::collect_schemas_and_operation(collectors, &path, &headers, operation).await;
+        // Process response and collect schemas (only if collection is enabled)
+        let call_result = if skip_collection {
+            CallResult::new_without_collection(response).await?
+        } else {
+            let call_result =
+                CallResult::new(operation_id, Arc::clone(&collectors), response).await?;
+            operation.add_response(call_result.clone());
+            Self::collect_schemas_and_operation(collectors, &path, &headers, operation).await;
+            call_result
+        };
 
         Ok(call_result)
     }
@@ -1467,6 +1517,36 @@ mod tests {
     #[test]
     fn test_body_max_length_constant() {
         assert_eq!(BODY_MAX_LENGTH, 1024);
+    }
+
+    // Test collection exclusion functionality
+    #[test]
+    fn test_without_collection_sets_flag() {
+        let call = create_test_api_call().without_collection();
+        assert!(call.skip_collection);
+    }
+
+    #[test]
+    fn test_default_collection_flag() {
+        let call = create_test_api_call();
+        assert!(!call.skip_collection);
+    }
+
+    #[test]
+    fn test_without_collection_chaining() {
+        let call = create_test_api_call()
+            .with_operation_id("test-operation")
+            .with_description("Test operation")
+            .without_collection()
+            .with_header("Authorization", "Bearer token");
+
+        assert!(call.skip_collection);
+        assert_eq!(call.metadata.operation_id, "test-operation");
+        assert_eq!(
+            call.metadata.description,
+            Some("Test operation".to_string())
+        );
+        assert!(call.headers.is_some());
     }
 
     // Test IntoFuture implementation
