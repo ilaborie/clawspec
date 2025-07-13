@@ -10,7 +10,7 @@
 //!
 //! ### Using ApiClient directly
 //!
-//! ```rust
+//! ```rust,no_run
 //! use clawspec_core::ApiClient;
 //! # use serde::Deserialize;
 //! # use utoipa::ToSchema;

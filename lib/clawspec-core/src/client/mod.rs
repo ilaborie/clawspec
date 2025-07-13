@@ -9,7 +9,10 @@ mod builder;
 pub use self::builder::ApiClientBuilder;
 
 mod call;
-pub use self::call::{ApiCall, ExpectedStatusCodes};
+pub use self::call::ApiCall;
+
+mod status;
+pub use self::status::ExpectedStatusCodes;
 
 mod param;
 pub use self::param::{ParamStyle, ParamValue, ParameterValue};
