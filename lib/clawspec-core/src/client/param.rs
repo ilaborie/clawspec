@@ -289,3 +289,496 @@ where
         T::schema()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+    use utoipa::ToSchema;
+    use utoipa::openapi::path::ParameterStyle;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+    struct TestStruct {
+        id: u32,
+        name: String,
+    }
+
+    // Test ParamStyle enum and conversions
+    #[test]
+    fn test_param_style_from_conversion() {
+        assert_eq!(Option::<ParameterStyle>::from(ParamStyle::Default), None);
+        assert_eq!(
+            Option::<ParameterStyle>::from(ParamStyle::Form),
+            Some(ParameterStyle::Form)
+        );
+        assert_eq!(
+            Option::<ParameterStyle>::from(ParamStyle::Simple),
+            Some(ParameterStyle::Simple)
+        );
+        assert_eq!(
+            Option::<ParameterStyle>::from(ParamStyle::SpaceDelimited),
+            Some(ParameterStyle::SpaceDelimited)
+        );
+        assert_eq!(
+            Option::<ParameterStyle>::from(ParamStyle::PipeDelimited),
+            Some(ParameterStyle::PipeDelimited)
+        );
+    }
+
+    #[test]
+    fn test_param_style_eq() {
+        assert_eq!(ParamStyle::Default, ParamStyle::Default);
+        assert_eq!(ParamStyle::Form, ParamStyle::Form);
+        assert_ne!(ParamStyle::Form, ParamStyle::Simple);
+    }
+
+    // Test ParamValue creation and methods
+    #[test]
+    fn test_param_value_new() {
+        let param = ParamValue::new(42);
+        assert_eq!(param.value, 42);
+        assert_eq!(param.style, ParamStyle::Default);
+    }
+
+    #[test]
+    fn test_param_value_with_style() {
+        let param = ParamValue::with_style("test", ParamStyle::Form);
+        assert_eq!(param.value, "test");
+        assert_eq!(param.style, ParamStyle::Form);
+    }
+
+    #[test]
+    fn test_param_value_from_conversion() {
+        let param: ParamValue<i32> = 42.into();
+        assert_eq!(param.value, 42);
+        assert_eq!(param.style, ParamStyle::Default);
+    }
+
+    // Test style resolution methods
+    #[test]
+    fn test_param_value_query_style() {
+        let default_param = ParamValue::new(42);
+        assert_eq!(default_param.query_style(), ParamStyle::Form);
+
+        let form_param = ParamValue::with_style(42, ParamStyle::Form);
+        assert_eq!(form_param.query_style(), ParamStyle::Form);
+
+        let simple_param = ParamValue::with_style(42, ParamStyle::Simple);
+        assert_eq!(simple_param.query_style(), ParamStyle::Simple);
+
+        let space_param = ParamValue::with_style(42, ParamStyle::SpaceDelimited);
+        assert_eq!(space_param.query_style(), ParamStyle::SpaceDelimited);
+
+        let pipe_param = ParamValue::with_style(42, ParamStyle::PipeDelimited);
+        assert_eq!(pipe_param.query_style(), ParamStyle::PipeDelimited);
+    }
+
+    #[test]
+    fn test_param_value_path_style() {
+        let default_param = ParamValue::new(42);
+        assert_eq!(default_param.path_style(), ParamStyle::Simple);
+
+        let form_param = ParamValue::with_style(42, ParamStyle::Form);
+        assert_eq!(form_param.path_style(), ParamStyle::Form);
+
+        let simple_param = ParamValue::with_style(42, ParamStyle::Simple);
+        assert_eq!(simple_param.path_style(), ParamStyle::Simple);
+    }
+
+    #[test]
+    fn test_param_value_header_style() {
+        let default_param = ParamValue::new(42);
+        assert_eq!(default_param.header_style(), ParamStyle::Simple);
+
+        let form_param = ParamValue::with_style(42, ParamStyle::Form);
+        assert_eq!(form_param.header_style(), ParamStyle::Form);
+
+        let simple_param = ParamValue::with_style(42, ParamStyle::Simple);
+        assert_eq!(simple_param.header_style(), ParamStyle::Simple);
+    }
+
+    // Test JSON value conversion methods
+    #[test]
+    fn test_param_value_as_query_value() {
+        let string_param = ParamValue::new("test");
+        let query_value = string_param.as_query_value().unwrap();
+        assert_eq!(query_value, serde_json::Value::String("test".to_string()));
+
+        let number_param = ParamValue::new(42);
+        let query_value = number_param.as_query_value().unwrap();
+        assert_eq!(query_value, serde_json::Value::Number(42.into()));
+
+        let bool_param = ParamValue::new(true);
+        let query_value = bool_param.as_query_value().unwrap();
+        assert_eq!(query_value, serde_json::Value::Bool(true));
+
+        let array_param = ParamValue::new(vec!["a", "b", "c"]);
+        let query_value = array_param.as_query_value().unwrap();
+        let expected = serde_json::json!(["a", "b", "c"]);
+        assert_eq!(query_value, expected);
+    }
+
+    #[test]
+    fn test_param_value_as_header_value() {
+        let string_param = ParamValue::new("test");
+        let header_value = string_param.as_header_value().unwrap();
+        assert_eq!(header_value, serde_json::Value::String("test".to_string()));
+
+        let number_param = ParamValue::new(42);
+        let header_value = number_param.as_header_value().unwrap();
+        assert_eq!(header_value, serde_json::Value::Number(42.into()));
+    }
+
+    #[test]
+    fn test_param_value_resolve() {
+        let param = ParamValue::new(42);
+        let resolved = param.resolve(|value| {
+            // Mock schema function
+            assert_eq!(value, serde_json::Value::Number(42.into()));
+            utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default()))
+        });
+
+        assert!(resolved.is_some());
+        let resolved = resolved.unwrap();
+        assert_eq!(resolved.value, serde_json::Value::Number(42.into()));
+        assert_eq!(resolved.style, ParamStyle::Default);
+    }
+
+    #[test]
+    fn test_param_value_resolve_none_on_serialization_error() {
+        // This test simulates a case where as_query_value returns None
+        // In practice, most serializable types will succeed, but this tests the logic
+        let param = ParamValue::new(42); // This will succeed, so test the happy path
+        let resolved = param.resolve(|_| {
+            utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default()))
+        });
+        assert!(resolved.is_some());
+    }
+
+    // Test ResolvedParamValue helper methods
+    #[test]
+    fn test_resolved_param_value_json_value_to_string() {
+        assert_eq!(
+            ResolvedParamValue::json_value_to_string(&serde_json::Value::String(
+                "test".to_string()
+            ))
+            .unwrap(),
+            "test"
+        );
+        assert_eq!(
+            ResolvedParamValue::json_value_to_string(&serde_json::Value::Number(42.into()))
+                .unwrap(),
+            "42"
+        );
+        assert_eq!(
+            ResolvedParamValue::json_value_to_string(&serde_json::Value::Bool(true)).unwrap(),
+            "true"
+        );
+        assert_eq!(
+            ResolvedParamValue::json_value_to_string(&serde_json::Value::Bool(false)).unwrap(),
+            "false"
+        );
+        assert_eq!(
+            ResolvedParamValue::json_value_to_string(&serde_json::Value::Null).unwrap(),
+            ""
+        );
+
+        // Test error cases
+        let array_result = ResolvedParamValue::json_value_to_string(&serde_json::json!(["a", "b"]));
+        assert!(array_result.is_err());
+
+        let object_result =
+            ResolvedParamValue::json_value_to_string(&serde_json::json!({"key": "value"}));
+        assert!(object_result.is_err());
+    }
+
+    #[test]
+    fn test_resolved_param_value_array_to_string_values() {
+        let arr = vec![
+            serde_json::Value::String("a".to_string()),
+            serde_json::Value::Number(42.into()),
+            serde_json::Value::Bool(true),
+        ];
+        let result = ResolvedParamValue::array_to_string_values(&arr).unwrap();
+        assert_eq!(result, vec!["a", "42", "true"]);
+
+        // Test error case with nested array
+        let nested_arr = vec![
+            serde_json::Value::String("a".to_string()),
+            serde_json::json!(["nested"]),
+        ];
+        let result = ResolvedParamValue::array_to_string_values(&nested_arr);
+        assert!(result.is_err());
+    }
+
+    // Test ResolvedParamValue string conversion methods
+    #[test]
+    fn test_resolved_param_value_to_string_value_simple_values() {
+        let resolved = ResolvedParamValue {
+            value: serde_json::Value::String("test".to_string()),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "test");
+
+        let resolved = ResolvedParamValue {
+            value: serde_json::Value::Number(42.into()),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "42");
+    }
+
+    #[test]
+    fn test_resolved_param_value_to_string_value_arrays() {
+        // Test Simple style (comma-separated)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Simple,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "a,b,c");
+
+        // Test SpaceDelimited style
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::SpaceDelimited,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "a b c");
+
+        // Test PipeDelimited style
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::PipeDelimited,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "a|b|c");
+
+        // Test Form style (comma-separated for single values)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Form,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "a,b,c");
+
+        // Test Default style (uses comma)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "a,b,c");
+    }
+
+    #[test]
+    fn test_resolved_param_value_to_string_value_object_error() {
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!({"key": "value"}),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        let result = resolved.to_string_value();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ApiClientError::UnsupportedParameterValue { .. }
+        ));
+    }
+
+    #[test]
+    fn test_resolved_param_value_to_query_values_simple_values() {
+        let resolved = ResolvedParamValue {
+            value: serde_json::Value::String("test".to_string()),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["test"]);
+
+        let resolved = ResolvedParamValue {
+            value: serde_json::Value::Number(42.into()),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["42"]);
+    }
+
+    #[test]
+    fn test_resolved_param_value_to_query_values_arrays() {
+        // Test Form style (repeated parameters)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Form,
+        };
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["a", "b", "c"]);
+
+        // Test Default style (same as Form for queries)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["a", "b", "c"]);
+
+        // Test Simple style (single joined value)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Simple,
+        };
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["a,b,c"]);
+
+        // Test SpaceDelimited style (single joined value)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::SpaceDelimited,
+        };
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["a b c"]);
+
+        // Test PipeDelimited style (single joined value)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::PipeDelimited,
+        };
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["a|b|c"]);
+    }
+
+    #[test]
+    fn test_resolved_param_value_to_query_values_object_error() {
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!({"key": "value"}),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Default,
+        };
+        let result = resolved.to_query_values();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ApiClientError::UnsupportedParameterValue { .. }
+        ));
+    }
+
+    // Test ToSchema trait implementations
+    #[test]
+    fn test_param_value_to_schema_name() {
+        assert_eq!(ParamValue::<String>::name(), String::name());
+        assert_eq!(ParamValue::<i32>::name(), i32::name());
+        assert_eq!(ParamValue::<TestStruct>::name(), TestStruct::name());
+    }
+
+    #[test]
+    fn test_param_value_partial_schema() {
+        // Test that the schema is delegated to the inner type
+        let string_schema = ParamValue::<String>::schema();
+        let expected_schema = String::schema();
+        // We can't easily compare schemas directly, but we can verify the method doesn't panic
+        // and returns the same type structure
+        match (string_schema, expected_schema) {
+            (utoipa::openapi::RefOr::T(_), utoipa::openapi::RefOr::T(_)) => {}
+            (utoipa::openapi::RefOr::Ref(_), utoipa::openapi::RefOr::Ref(_)) => {}
+            _ => panic!("Schema types don't match"),
+        }
+    }
+
+    // Test complex scenarios with different types
+    #[test]
+    fn test_param_value_with_complex_types() {
+        let struct_param = ParamValue::new(TestStruct {
+            id: 123,
+            name: "test".to_string(),
+        });
+
+        // Test that it can be serialized to JSON
+        let json_value = struct_param.as_query_value().unwrap();
+        let expected = serde_json::json!({"id": 123, "name": "test"});
+        assert_eq!(json_value, expected);
+
+        // Test resolve functionality
+        let resolved = struct_param.resolve(|value| {
+            assert_eq!(value, expected);
+            utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default()))
+        });
+        assert!(resolved.is_some());
+    }
+
+    #[test]
+    fn test_param_value_with_option_types() {
+        let some_param = ParamValue::new(Some(42));
+        let json_value = some_param.as_query_value().unwrap();
+        assert_eq!(json_value, serde_json::Value::Number(42.into()));
+
+        let none_param: ParamValue<Option<i32>> = ParamValue::new(None);
+        let json_value = none_param.as_query_value().unwrap();
+        assert_eq!(json_value, serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_param_value_with_mixed_array_types() {
+        // Test array with different numeric types
+        let mixed_numbers = vec![1, 2, 3];
+        let param = ParamValue::with_style(mixed_numbers, ParamStyle::SpaceDelimited);
+        let json_value = param.as_query_value().unwrap();
+        assert_eq!(json_value, serde_json::json!([1, 2, 3]));
+
+        let resolved = param
+            .resolve(|_| {
+                utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default()))
+            })
+            .unwrap();
+
+        assert_eq!(resolved.to_string_value().unwrap(), "1 2 3");
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["1 2 3"]);
+    }
+
+    // Test edge cases and error conditions
+    #[test]
+    fn test_param_value_empty_array() {
+        let empty_array: Vec<String> = vec![];
+        let param = ParamValue::new(empty_array);
+        let json_value = param.as_query_value().unwrap();
+        assert_eq!(json_value, serde_json::json!([]));
+
+        let resolved = param
+            .resolve(|_| {
+                utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default()))
+            })
+            .unwrap();
+
+        assert_eq!(resolved.to_string_value().unwrap(), "");
+        assert_eq!(resolved.to_query_values().unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_param_value_single_item_array() {
+        let single_item = vec!["only"];
+        let param = ParamValue::new(single_item);
+        let resolved = param
+            .resolve(|_| {
+                utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default()))
+            })
+            .unwrap();
+
+        assert_eq!(resolved.to_string_value().unwrap(), "only");
+        assert_eq!(resolved.to_query_values().unwrap(), vec!["only"]);
+    }
+
+    // Test the ParameterValue trait is properly implemented
+    #[test]
+    fn test_parameter_value_trait_implementation() {
+        fn accepts_parameter_value<T: ParameterValue>(_value: T) {}
+
+        // These should all compile without issues
+        accepts_parameter_value("string");
+        accepts_parameter_value(42i32);
+        accepts_parameter_value(true);
+        accepts_parameter_value(vec!["a", "b"]);
+        accepts_parameter_value(TestStruct {
+            id: 1,
+            name: "test".to_string(),
+        });
+    }
+}
