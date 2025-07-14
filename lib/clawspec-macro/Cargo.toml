@@ -2,6 +2,13 @@
 name = "clawspec-macro"
 version = "0.1.0"
 edition = "2024"
+description = "Procedural macros for clawspec OpenAPI generation"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["openapi", "macro", "proc-macro", "api", "documentation"]
+categories = ["development-tools::testing", "development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true
