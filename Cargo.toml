@@ -4,6 +4,10 @@ resolver = "2"
 
 [workspace.package]
 rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+authors = ["Igor Laborie <ilaborie@gmail.com>"]
+repository = "https://github.com/ilaborie/clawspec"
+homepage = "https://github.com/ilaborie/clawspec"
 
 [workspace.dependencies]
 serde = "1.0.219"

@@ -60,7 +60,10 @@
       "Bash(time cargo test:*)",
       "Bash(sed:*)",
       "WebFetch(domain:doc.rust-lang.org)",
-      "WebFetch(domain:condacity.io)"
+      "WebFetch(domain:condacity.io)",
+      "Bash(for:*)",
+      "Bash(do echo \"=== $f ===\")",
+      "Bash(done)"
     ],
     "deny": []
   }

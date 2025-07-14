@@ -10,6 +10,7 @@ cargo = { binstall = true }
 "cargo:cargo-audit" = "latest"
 "cargo:cargo-nextest" = "0.9"
 "cargo:git-cliff" = "2.8"
+"cargo:release-plz" = "latest"
 "npm:@anthropic-ai/claude-code" = "latest"
 "npm:@stoplight/spectral-cli" = "latest"
 
