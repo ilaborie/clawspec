@@ -1,0 +1,13 @@
+[workspace]
+
+[[package]]
+name = "axum-example"
+publish = false
+
+[[package]]
+name = "clawspec-core"
+publish = true
+
+[[package]]
+name = "clawspec-macro"
+publish = true
