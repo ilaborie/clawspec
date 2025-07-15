@@ -828,7 +828,7 @@ impl ApiCall {
     /// This method automatically collects operation metadata for OpenAPI generation,
     /// but the response schema and examples are only captured when the [`CallResult`]
     /// is properly consumed with one of the `as_*` methods.
-    // XXX code to abstract if we want multiple client
+    // TODO: Abstract client implementation to support multiple clients - https://github.com/ilaborie/clawspec/issues/78
     async fn exchange(self) -> Result<CallResult, ApiClientError> {
         let Self {
             client,

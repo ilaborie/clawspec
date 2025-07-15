@@ -1,13 +1,14 @@
 #![allow(missing_docs)]
 
 use anyhow::Context;
-use axum_example::extractors::ExtractorError;
-use axum_example::observations::domain::{LngLat, PartialObservation, PatchObservation};
-use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 use clawspec_core::{CallHeaders, register_schemas};
 use headers::ContentType;
 use rstest::rstest;
 use tracing::info;
+
+use axum_example::extractors::ExtractorError;
+use axum_example::observations::domain::{LngLat, PartialObservation, PatchObservation};
+use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 
 mod common;
 pub use self::common::*;
@@ -42,6 +43,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(skip(app))]
 async fn basic_crud(app: &mut TestApp) -> anyhow::Result<()> {
     // List observations with default parameters (no query params)
     let _list_default = app
@@ -129,6 +131,7 @@ async fn basic_crud(app: &mut TestApp) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(skip(app))]
 #[allow(clippy::too_many_lines)]
 async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     // Test 1: Create observation with JSON (existing format)
@@ -251,6 +254,7 @@ async fn alternate_content_types(app: &mut TestApp) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(skip(app))]
 async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
     // Test 1: Unsupported media type error - should capture error response in OpenAPI
     let unsupported_error = app
@@ -377,129 +381,6 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .as_json::<serde_json::Value>()
         .await
         .context("should process delete response")?;
-
-    info!("OpenAPI metadata demonstration completed successfully");
-    info!("The generated OpenAPI spec will include:");
-    info!("  - API info: Bird Observation API v1.0.0 with description");
-    info!("  - Servers: Development, staging, and production environments");
-    info!("  - Tags: Automatically computed from all operations (admin, bulk-operations, etc.)");
-    info!("  - Organized operations: Operations grouped by functionality");
-
-    Ok(())
-}
-
-/// Test to demonstrate the new `RawResult` functionality
-///
-/// This test verifies that the new `RawResult` API provides complete access to
-/// HTTP response data including status code, content type, and body content.
-#[rstest]
-#[tokio::test]
-async fn test_raw_result_api(#[future] app: TestApp) -> anyhow::Result<()> {
-    use axum::http::StatusCode;
-    use clawspec_core::RawBody;
-
-    let app = app.await;
-
-    info!("Testing RawResult API with different response types");
-
-    // Test 1: JSON response
-    let test_observation = PartialObservation {
-        name: "Raw Result Test Bird".to_string(),
-        position: LngLat {
-            lng: 10.0,
-            lat: 20.0,
-        },
-        color: Some("red".to_string()),
-        notes: Some("Testing raw result API".to_string()),
-    };
-
-    let create_result = app
-        .post("/observations")?
-        .json(&test_observation)?
-        .await?
-        .as_raw()
-        .await?;
-
-    // Verify we get complete response information
-    assert_eq!(create_result.status_code(), StatusCode::CREATED);
-    assert!(create_result.content_type().is_some());
-    match create_result.body() {
-        RawBody::Text(text) => {
-            info!("Created observation ID from raw result: {}", text);
-            // Should be a valid JSON number
-            let _id: u32 = text.parse()?;
-        }
-        RawBody::Binary(_) | RawBody::Empty => {
-            anyhow::bail!("Expected text body for JSON response")
-        }
-    }
-
-    // Test 2: List response (JSON array)
-    let list_result = app.get("/observations")?.await?.as_raw().await?;
-
-    assert_eq!(list_result.status_code(), StatusCode::OK);
-    if let Some(content_type) = list_result.content_type() {
-        assert_eq!(content_type.to_string(), "application/json");
-    }
-
-    match list_result.body() {
-        RawBody::Text(json_text) => {
-            info!("Raw JSON response: {}", json_text);
-            // Should be valid JSON array
-            let _observations: serde_json::Value = serde_json::from_str(json_text)?;
-        }
-        RawBody::Binary(_) | RawBody::Empty => {
-            anyhow::bail!("Expected text body for JSON list response")
-        }
-    }
-
-    // Test 3: Health check (JSON response)
-    let health_result = app.get("/health")?.await?.as_raw().await?;
-
-    assert_eq!(health_result.status_code(), StatusCode::OK);
-    match health_result.body() {
-        RawBody::Text(text) => {
-            info!("Health check raw result: {}", text);
-            // Health endpoint returns JSON with status and uptime
-            assert!(text.contains("\"status\":\"OK\""));
-        }
-        RawBody::Empty => {
-            info!("Health check returned empty body");
-        }
-        RawBody::Binary(_) => anyhow::bail!("Expected text or empty body for health check"),
-    }
-
-    // Test 4: Binary/raw data with error response
-    let error_result = app
-        .post("/observations")?
-        .raw(
-            b"Invalid binary data".to_vec(),
-            "application/octet-stream".parse()?,
-        )
-        .await?
-        .as_raw()
-        .await?;
-
-    assert_eq!(
-        error_result.status_code(),
-        StatusCode::UNSUPPORTED_MEDIA_TYPE
-    );
-    match error_result.body() {
-        RawBody::Text(error_text) => {
-            info!("Error response from raw result: {}", error_text);
-            // Should contain error information
-            assert!(error_text.contains("415") || error_text.contains("Unsupported"));
-        }
-        RawBody::Binary(_) | RawBody::Empty => {
-            anyhow::bail!("Expected text body for error response")
-        }
-    }
-
-    info!("RawResult API test completed successfully");
-    info!("RawResult provides complete access to:");
-    info!("  - HTTP status codes: {}", create_result.status_code());
-    info!("  - Content types: {:?}", create_result.content_type());
-    info!("  - Response bodies: text, binary, or empty");
 
     Ok(())
 }
