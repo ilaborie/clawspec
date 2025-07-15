@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.1.1...clawspec-core-v0.1.2) - 2025-07-15
+
+### Added
+
+- Add documentation and code cleanup improvements ([#79](https://github.com/ilaborie/clawspec/pull/79))
+
 ## [0.1.1](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.1.0...clawspec-core-v0.1.1) - 2025-07-14
 
 ### Other
