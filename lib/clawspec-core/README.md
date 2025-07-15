@@ -1,10 +1,6 @@
 # Clawspec
 
-[![Crates.io](https://img.shields.io/crates/v/clawspec.svg)](https://crates.io/crates/clawspec-core)
-[![Documentation](https://docs.rs/clawspec/badge.svg)](https://docs.rs/clawspec-core)
-[![CI](https://github.com/ilaborie/clawspec/workflows/CI/badge.svg)](https://github.com/ilaborie/clawspec/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Crates.io](https://img.shields.io/crates/v/clawspec-core.svg)](https://crates.io/crates/clawspec-core) [![Documentation](https://docs.rs/clawspec-core/badge.svg)](https://docs.rs/clawspec-core) [![CI](https://github.com/ilaborie/clawspec/workflows/CI/badge.svg)](https://github.com/ilaborie/clawspec/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 A Rust library for generating [OpenAPI] specifications from your HTTP client test code. Write tests, get documentation.
 
@@ -28,7 +24,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-clawspec = "0.1.0"
+clawspec-core = "0.1.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -37,7 +33,7 @@ tokio = { version = "1", features = ["full"] }
 ### Basic Example with ApiClient
 
 ```rust
-use clawspec::ApiClient;
+use clawspec_core::ApiClient;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -58,7 +54,6 @@ async fn test_user_api() -> Result<(), Box<dyn std::error::Error>> {
     // Make requests - schemas are automatically captured
     let user: User = client
         .get("/users/123")?
-        .exchange()
         .await?
         .as_json()
         .await?;
@@ -77,7 +72,7 @@ async fn test_user_api() -> Result<(), Box<dyn std::error::Error>> {
 For testing complete web applications. See the [axum example](https://github.com/ilaborie/clawspec/tree/main/examples/axum-example) for a full working implementation:
 
 ```rust
-use clawspec::test_client::{TestClient, TestServer};
+use clawspec_core::test_client::{TestClient, TestServer};
 use std::net::TcpListener;
 
 #[derive(Debug)]
@@ -101,12 +96,11 @@ async fn test_with_server() -> Result<(), Box<dyn std::error::Error>> {
     // Test your API
     let response = client
         .post("/users")?
-        .json(&User { 
-            id: 1, 
-            name: "Alice".into(), 
-            email: "alice@example.com".into() 
+        .json(&User {
+            id: 1,
+            name: "Alice".into(),
+            email: "alice@example.com".into()
         })
-        .exchange()
         .await?;
 
     assert_eq!(response.status_code(), 201);
@@ -142,7 +136,7 @@ A test-focused wrapper providing:
 ### Parameter Handling
 
 ```rust
-use clawspec::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue};
+use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue};
 
 let mut path = CallPath::from("/users/{id}/posts/{post_id}");
 path.add_param("id", ParamValue::new(123));
@@ -169,31 +163,28 @@ let response = client
 By default, requests expect status codes in the range 200-499. You can customize this:
 
 ```rust
-use clawspec::{ApiClient, expected_status_codes};
+use clawspec_core::{ApiClient, expected_status_codes};
 
 // Accept specific codes
 client.post("/users")?
     .with_expected_status_codes(expected_status_codes!(201, 202))
-    .exchange()
     .await?;
 
 // Accept ranges
 client.get("/health")?
     .with_expected_status_codes(expected_status_codes!(200-299))
-    .exchange()
     .await?;
 
 // Complex patterns
 client.delete("/users/123")?
     .with_expected_status_codes(expected_status_codes!(204, 404, 400-403))
-    .exchange()
     .await?;
 ```
 
 ### Schema Registration
 
 ```rust
-use clawspec::{ApiClient, register_schemas};
+use clawspec_core::{ApiClient, register_schemas};
 
 #[derive(serde::Deserialize, utoipa::ToSchema)]
 struct CreateUserRequest {
@@ -219,7 +210,7 @@ For a complete working example, see the [axum example implementation](https://gi
 
 ```rust
 use axum::{Router, routing::get};
-use clawspec::test_client::{TestClient, TestServer, HealthStatus};
+use clawspec_core::test_client::{TestClient, TestServer, HealthStatus};
 
 struct AxumTestServer {
     router: Router,
@@ -231,14 +222,14 @@ impl TestServer for AxumTestServer {
     async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
         listener.set_nonblocking(true)?;
         let listener = tokio::net::TcpListener::from_std(listener)?;
-        
+
         axum::serve(listener, self.router.clone())
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 
     async fn is_healthy(&self, client: &mut ApiClient) -> Result<HealthStatus, Self::Error> {
-        match client.get("/health").unwrap().exchange().await {
+        match client.get("/health").unwrap().await {
             Ok(_) => Ok(HealthStatus::Healthy),
             Err(_) => Ok(HealthStatus::Unhealthy),
         }
@@ -253,7 +244,7 @@ impl TestServer for AxumTestServer {
 Configure test server behavior:
 
 ```rust
-use clawspec::test_client::TestServerConfig;
+use clawspec_core::test_client::TestServerConfig;
 use std::time::Duration;
 
 let config = TestServerConfig {
@@ -277,7 +268,7 @@ All errors implement standard error traits and provide detailed context for debu
 ## Best Practices
 
 1. **Write focused tests** - Each test should document specific endpoints
-2. **Use descriptive types** - Well-named structs generate better documentation  
+2. **Use descriptive types** - Well-named structs generate better documentation
 3. **Register schemas** - Explicitly register types for complete documentation
 4. **Validate status codes** - Be explicit about expected responses
 5. **Organize tests** - Group related endpoint tests together
@@ -300,6 +291,8 @@ at your option.
 ## Acknowledgments
 
 Built with excellent crates from the Rust ecosystem:
+
 - [utoipa](https://github.com/juhaku/utoipa) - OpenAPI schema generation
 - [reqwest](https://github.com/seanmonstar/reqwest) - HTTP client
 - [tokio](https://github.com/tokio-rs/tokio) - Async runtime
+
