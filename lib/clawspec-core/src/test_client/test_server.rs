@@ -520,14 +520,6 @@ mod tests {
             }
         }
 
-        #[allow(dead_code)]
-        fn with_config(config: TestServerConfig) -> Self {
-            Self {
-                config,
-                should_be_healthy: true,
-            }
-        }
-
         fn with_health_status(mut self, healthy: bool) -> Self {
             self.should_be_healthy = healthy;
             self
