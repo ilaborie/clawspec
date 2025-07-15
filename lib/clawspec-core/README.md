@@ -1,7 +1,7 @@
 # Clawspec
 
-[![Crates.io](https://img.shields.io/crates/v/clawspec.svg)](https://crates.io/crates/clawspec)
-[![Documentation](https://docs.rs/clawspec/badge.svg)](https://docs.rs/clawspec)
+[![Crates.io](https://img.shields.io/crates/v/clawspec.svg)](https://crates.io/crates/clawspec-core)
+[![Documentation](https://docs.rs/clawspec/badge.svg)](https://docs.rs/clawspec-core)
 [![CI](https://github.com/ilaborie/clawspec/workflows/CI/badge.svg)](https://github.com/ilaborie/clawspec/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
