@@ -138,9 +138,9 @@ A test-focused wrapper providing:
 ```rust
 use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue};
 
-let mut path = CallPath::from("/users/{id}/posts/{post_id}");
-path.add_param("id", ParamValue::new(123));
-path.add_param("post_id", ParamValue::new(456));
+let path = CallPath::from("/users/{id}/posts/{post_id}")
+    .add_param("id", ParamValue::new(123))
+    .add_param("post_id", ParamValue::new(456));
 
 let query = CallQuery::new()
     .add_param("page", ParamValue::new(1))

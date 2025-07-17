@@ -63,8 +63,8 @@ impl TestApp {
         id: ObservationId,
         observation: &PartialObservation,
     ) -> anyhow::Result<()> {
-        let mut path = CallPath::from("/observations/{observation_id}");
-        path.add_param("observation_id", ParamValue::new(id));
+        let path = CallPath::from("/observations/{observation_id}")
+            .add_param("observation_id", ParamValue::new(id));
 
         self.put(path)?
             .json(observation)?
@@ -80,8 +80,8 @@ impl TestApp {
         id: ObservationId,
         patch: &PatchObservation,
     ) -> anyhow::Result<Observation> {
-        let mut call_path = CallPath::from("/observations/{observation_id}");
-        call_path.add_param("observation_id", ParamValue::new(id));
+        let call_path = CallPath::from("/observations/{observation_id}")
+            .add_param("observation_id", ParamValue::new(id));
 
         let result = self
             .patch(call_path)?
@@ -94,8 +94,8 @@ impl TestApp {
     }
 
     pub async fn delete_observation(&mut self, id: ObservationId) -> anyhow::Result<()> {
-        let mut path = CallPath::from("/observations/{observation_id}");
-        path.add_param("observation_id", ParamValue::new(id));
+        let path = CallPath::from("/observations/{observation_id}")
+            .add_param("observation_id", ParamValue::new(id));
 
         self.delete(path)?
             .await

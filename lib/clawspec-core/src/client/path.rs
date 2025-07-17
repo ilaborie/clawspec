@@ -41,12 +41,10 @@ fn encode_path_param_value(value: &str) -> String {
 /// ```rust
 /// use clawspec_core::{CallPath, ParamValue};
 ///
-/// // Create a path template
-/// let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
-///
-/// // Add typed parameters
-/// path.add_param("user_id", ParamValue::new(123));
-/// path.add_param("post_id", ParamValue::new("my-post"));
+/// // Create a path template with method chaining
+/// let path = CallPath::from("/users/{user_id}/posts/{post_id}")
+///     .add_param("user_id", ParamValue::new(123))
+///     .add_param("post_id", ParamValue::new("my-post"));
 ///
 /// // Path is now ready for resolution to: /users/123/posts/my-post
 /// ```
@@ -59,13 +57,13 @@ fn encode_path_param_value(value: &str) -> String {
 ///
 /// ```rust
 /// # use clawspec_core::{CallPath, ParamValue};
-/// let mut path = CallPath::from("/api/v1/users/{user_id}/documents/{doc_id}");
-/// path.add_param("user_id", ParamValue::new(456));
-/// path.add_param("doc_id", ParamValue::new("report-2023"));
+/// let path = CallPath::from("/api/v1/users/{user_id}/documents/{doc_id}")
+///     .add_param("user_id", ParamValue::new(456))
+///     .add_param("doc_id", ParamValue::new("report-2023"));
 ///
 /// // Duplicate parameters are supported
-/// let mut path = CallPath::from("/test/{id}/{id}");
-/// path.add_param("id", ParamValue::new(123));
+/// let path = CallPath::from("/test/{id}/{id}")
+///     .add_param("id", ParamValue::new(123));
 /// // Results in: /test/123/123
 /// ```
 #[derive(Debug, Clone, Default, derive_more::Display)]
@@ -96,24 +94,25 @@ impl CallPath {
     /// ```rust
     /// use clawspec_core::{CallPath, ParamValue, ParamStyle};
     ///
-    /// let mut path = CallPath::from("/users/{id}");
-    ///
-    /// // Ergonomic usage - pass values directly
-    /// path.add_param("id", 123);
+    /// // Ergonomic usage - pass values directly with method chaining
+    /// let path = CallPath::from("/users/{id}")
+    ///     .add_param("id", 123);
     ///
     /// // Explicit ParamValue usage for custom styles
-    /// path.add_param("id", ParamValue::with_style(456, ParamStyle::Simple));
+    /// let path = CallPath::from("/users/{id}")
+    ///     .add_param("id", ParamValue::with_style(456, ParamStyle::Simple));
     /// ```
     pub fn add_param<T: ParameterValue>(
-        &mut self,
+        mut self,
         name: impl Into<String>,
         param: impl Into<ParamValue<T>>,
-    ) {
+    ) -> Self {
         let name = name.into();
         let param = param.into();
         if let Some(resolved) = param.resolve(|value| self.schemas.add_example::<T>(value)) {
             self.args.insert(name, resolved);
         }
+        self
     }
 
     /// Creates an iterator over OpenAPI parameters for path parameters.
@@ -231,8 +230,8 @@ mod tests {
 
     #[test]
     fn should_build_call_path() {
-        let mut path = CallPath::from("/breed/{breed}/images");
-        path.add_param("breed", ParamValue::new("hound"));
+        let path =
+            CallPath::from("/breed/{breed}/images").add_param("breed", ParamValue::new("hound"));
 
         insta::assert_debug_snapshot!(path, @r#"
         CallPath {
@@ -299,9 +298,9 @@ mod tests {
 
     #[test]
     fn test_path_resolved_with_multiple_parameters() {
-        let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
-        path.add_param("user_id", ParamValue::new(123));
-        path.add_param("post_id", ParamValue::new("abc"));
+        let path = CallPath::from("/users/{user_id}/posts/{post_id}")
+            .add_param("user_id", ParamValue::new(123))
+            .add_param("post_id", ParamValue::new("abc"));
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
 
@@ -314,8 +313,8 @@ mod tests {
 
     #[test]
     fn test_path_resolved_with_missing_parameters() {
-        let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
-        path.add_param("user_id", ParamValue::new(123));
+        let path = CallPath::from("/users/{user_id}/posts/{post_id}")
+            .add_param("user_id", ParamValue::new(123));
         // Missing post_id parameter
 
         let result = PathResolved::try_from(path);
@@ -324,8 +323,8 @@ mod tests {
 
     #[test]
     fn test_path_resolved_with_url_encoding() {
-        let mut path = CallPath::from("/search/{query}");
-        path.add_param("query", ParamValue::new("hello world"));
+        let path =
+            CallPath::from("/search/{query}").add_param("query", ParamValue::new("hello world"));
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
 
@@ -334,8 +333,8 @@ mod tests {
 
     #[test]
     fn test_path_resolved_with_special_characters() {
-        let mut path = CallPath::from("/items/{name}");
-        path.add_param("name", ParamValue::new("test@example.com"));
+        let path =
+            CallPath::from("/items/{name}").add_param("name", ParamValue::new("test@example.com"));
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
 
@@ -344,8 +343,7 @@ mod tests {
 
     #[test]
     fn test_path_with_duplicate_parameter_names() {
-        let mut path = CallPath::from("/test/{id}/{id}");
-        path.add_param("id", ParamValue::new(123));
+        let path = CallPath::from("/test/{id}/{id}").add_param("id", ParamValue::new(123));
 
         // The algorithm now properly handles duplicates using names.retain()
         // It removes all occurrences of the parameter name from the list
@@ -359,9 +357,9 @@ mod tests {
 
     #[test]
     fn test_path_with_multiple_duplicate_parameters() {
-        let mut path = CallPath::from("/api/{version}/users/{id}/posts/{id}/comments/{version}");
-        path.add_param("version", ParamValue::new("v1"));
-        path.add_param("id", ParamValue::new(456));
+        let path = CallPath::from("/api/{version}/users/{id}/posts/{id}/comments/{version}")
+            .add_param("version", ParamValue::new("v1"))
+            .add_param("id", ParamValue::new(456));
 
         // Test with multiple parameters that appear multiple times
         let result = PathResolved::try_from(path);
@@ -373,9 +371,9 @@ mod tests {
 
     #[test]
     fn test_add_param_overwrites_existing() {
-        let mut path = CallPath::from("/test/{id}");
-        path.add_param("id", ParamValue::new(123));
-        path.add_param("id", ParamValue::new(456)); // Overwrite
+        let path = CallPath::from("/test/{id}")
+            .add_param("id", ParamValue::new(123))
+            .add_param("id", ParamValue::new(456)); // Overwrite
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
         assert_eq!(resolved.path, "/test/456");
@@ -383,8 +381,7 @@ mod tests {
 
     #[test]
     fn test_path_with_array_simple_style() {
-        let mut path = CallPath::from("/search/{tags}");
-        path.add_param(
+        let path = CallPath::from("/search/{tags}").add_param(
             "tags",
             ParamValue::with_style(vec!["rust", "web", "api"], ParamStyle::Simple),
         );
@@ -395,8 +392,8 @@ mod tests {
 
     #[test]
     fn test_path_with_array_default_style() {
-        let mut path = CallPath::from("/search/{tags}");
-        path.add_param("tags", ParamValue::new(vec!["rust", "web", "api"])); // Default style
+        let path = CallPath::from("/search/{tags}")
+            .add_param("tags", ParamValue::new(vec!["rust", "web", "api"])); // Default style
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
         assert_eq!(resolved.path, "/search/rust%2Cweb%2Capi"); // Default is Simple for paths
@@ -404,8 +401,7 @@ mod tests {
 
     #[test]
     fn test_path_with_array_space_delimited_style() {
-        let mut path = CallPath::from("/search/{tags}");
-        path.add_param(
+        let path = CallPath::from("/search/{tags}").add_param(
             "tags",
             ParamValue::with_style(vec!["rust", "web", "api"], ParamStyle::SpaceDelimited),
         );
@@ -416,8 +412,7 @@ mod tests {
 
     #[test]
     fn test_path_with_array_pipe_delimited_style() {
-        let mut path = CallPath::from("/search/{tags}");
-        path.add_param(
+        let path = CallPath::from("/search/{tags}").add_param(
             "tags",
             ParamValue::with_style(vec!["rust", "web", "api"], ParamStyle::PipeDelimited),
         );
@@ -428,8 +423,7 @@ mod tests {
 
     #[test]
     fn test_path_with_mixed_array_types() {
-        let mut path = CallPath::from("/items/{values}");
-        path.add_param(
+        let path = CallPath::from("/items/{values}").add_param(
             "values",
             ParamValue::with_style(vec![1, 2, 3], ParamStyle::Simple),
         );

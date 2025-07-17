@@ -24,8 +24,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     // Get call with a parameter
-    let mut path = CallPath::from("/breed/{breed}/images");
-    path.add_param("breed", ParamValue::new("hound"));
+    let path = CallPath::from("/breed/{breed}/images").add_param("breed", ParamValue::new("hound"));
 
     let _result = client.get(path)?.await?.as_json::<BreedImages>().await?;
 

@@ -81,7 +81,7 @@ fn benchmark_path_replacement_regression(c: &mut Criterion) {
                 b.iter(|| {
                     let mut path = CallPath::from(black_box(*path_template));
                     for (param_name, param_value) in params {
-                        path.add_param(
+                        path = path.add_param(
                             black_box(*param_name),
                             ParamValue::new(black_box(*param_value)),
                         );
@@ -221,9 +221,9 @@ fn benchmark_api_client_regression(c: &mut Criterion) {
 
     group.bench_function("path_creation_with_params", |b| {
         b.iter(|| {
-            let mut path = CallPath::from("/users/{user_id}/posts/{post_id}");
-            path.add_param("user_id", ParamValue::new(black_box(123)));
-            path.add_param("post_id", ParamValue::new(black_box("hello-world")));
+            let path = CallPath::from("/users/{user_id}/posts/{post_id}")
+                .add_param("user_id", ParamValue::new(black_box(123)))
+                .add_param("post_id", ParamValue::new(black_box("hello-world")));
             black_box(path);
         })
     });
@@ -231,16 +231,14 @@ fn benchmark_api_client_regression(c: &mut Criterion) {
     group.bench_function("complex_path_operations", |b| {
         b.iter(|| {
             // Simulate a complex API call setup
-            let mut path = CallPath::from(
+            let path = CallPath::from(
                 "/api/{version}/users/{user_id}/posts/{post_id}/comments/{comment_id}",
-            );
-            path.add_param("version", ParamValue::new(black_box("v1")));
-            path.add_param("user_id", ParamValue::new(black_box(456)));
-            path.add_param("post_id", ParamValue::new(black_box("my-post")));
-            path.add_param("comment_id", ParamValue::new(black_box(789)));
-
-            // Add some array parameters
-            path.add_param(
+            )
+            .add_param("version", ParamValue::new(black_box("v1")))
+            .add_param("user_id", ParamValue::new(black_box(456)))
+            .add_param("post_id", ParamValue::new(black_box("my-post")))
+            .add_param("comment_id", ParamValue::new(black_box(789)))
+            .add_param(
                 "tags",
                 ParamValue::new(black_box(vec!["rust", "web", "api"])),
             );
