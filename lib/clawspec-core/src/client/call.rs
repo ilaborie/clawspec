@@ -896,7 +896,12 @@ impl ApiCall {
         query: &CallQuery,
     ) -> Result<Url, ApiClientError> {
         let path_resolved = PathResolved::try_from(path.clone())?;
-        let url = format!("{base_uri}/{}", path_resolved.path.trim_start_matches('/'));
+        let base_uri = base_uri.to_string();
+        let url = format!(
+            "{}/{}",
+            base_uri.trim_end_matches('/'),
+            path_resolved.path.trim_start_matches('/')
+        );
         let mut url = url.parse::<Url>()?;
 
         if !query.is_empty() {
@@ -1369,7 +1374,7 @@ mod tests {
 
         let url = ApiCall::build_url(&base_uri, &path, &query).expect("should build URL");
         // The actual implementation results in double slash due to URI parsing
-        assert_eq!(url.to_string(), "http://localhost:8080//users");
+        assert_eq!(url.to_string(), "http://localhost:8080/users");
     }
 
     #[test]
@@ -1383,7 +1388,7 @@ mod tests {
         let url = ApiCall::build_url(&base_uri, &path, &query).expect("should build URL");
         // Query order might vary, so check both possibilities
         let url_str = url.to_string();
-        assert!(url_str.starts_with("http://localhost:8080//users?"));
+        assert!(url_str.starts_with("http://localhost:8080/users?"));
         assert!(url_str.contains("page=1"));
         assert!(url_str.contains("limit=10"));
     }
@@ -1396,14 +1401,14 @@ mod tests {
         let query = CallQuery::default();
 
         let url = ApiCall::build_url(&base_uri, &path, &query).expect("should build URL");
-        assert_eq!(url.to_string(), "http://localhost:8080//users/123");
+        assert_eq!(url.to_string(), "http://localhost:8080/users/123");
     }
 
     // Test request building (helper function tests)
     #[test]
     fn test_build_request_simple() {
         let method = Method::GET;
-        let url: Url = "http://localhost:8080//users".parse().unwrap();
+        let url: Url = "http://localhost:8080/users".parse().unwrap();
         let headers = None;
         let body = None;
 
@@ -1418,7 +1423,7 @@ mod tests {
     #[test]
     fn test_build_request_with_headers() {
         let method = Method::GET;
-        let url: Url = "http://localhost:8080//users".parse().unwrap();
+        let url: Url = "http://localhost:8080/users".parse().unwrap();
         let headers = Some(CallHeaders::new().add_header("Authorization", "Bearer token"));
         let body = None;
 
@@ -1431,7 +1436,7 @@ mod tests {
     #[test]
     fn test_build_request_with_body() {
         let method = Method::POST;
-        let url: Url = "http://localhost:8080//users".parse().unwrap();
+        let url: Url = "http://localhost:8080/users".parse().unwrap();
         let headers = None;
         let test_data = TestData {
             id: 1,
