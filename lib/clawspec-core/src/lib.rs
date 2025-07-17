@@ -71,9 +71,9 @@
 //! use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue};
 //!
 //! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
-//! // Path parameters
-//! let mut path = CallPath::from("/users/{id}");
-//! path.add_param("id", ParamValue::new(123));
+//! // Path parameters  
+//! let path = CallPath::from("/users/{id}")
+//!     .add_param("id", ParamValue::new(123));
 //!
 //! // Query parameters
 //! let query = CallQuery::new()

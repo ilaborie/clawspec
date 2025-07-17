@@ -9,8 +9,8 @@ fn benchmark_path_creation(c: &mut Criterion) {
     // Test simple path with single parameter
     group.bench_function("simple_path", |b| {
         b.iter(|| {
-            let mut path = CallPath::from("/users/{user_id}");
-            path.add_param("user_id", ParamValue::new(black_box(123)));
+            let path = CallPath::from("/users/{user_id}")
+                .add_param("user_id", ParamValue::new(black_box(123)));
             black_box(path);
         })
     });
@@ -18,10 +18,10 @@ fn benchmark_path_creation(c: &mut Criterion) {
     // Test path with multiple parameters
     group.bench_function("multiple_params", |b| {
         b.iter(|| {
-            let mut path = CallPath::from("/users/{user_id}/posts/{post_id}/comments/{comment_id}");
-            path.add_param("user_id", ParamValue::new(black_box(123)));
-            path.add_param("post_id", ParamValue::new(black_box("hello-world")));
-            path.add_param("comment_id", ParamValue::new(black_box(456)));
+            let path = CallPath::from("/users/{user_id}/posts/{post_id}/comments/{comment_id}")
+                .add_param("user_id", ParamValue::new(black_box(123)))
+                .add_param("post_id", ParamValue::new(black_box("hello-world")))
+                .add_param("comment_id", ParamValue::new(black_box(456)));
             black_box(path);
         })
     });
@@ -29,10 +29,9 @@ fn benchmark_path_creation(c: &mut Criterion) {
     // Test path with duplicate parameters
     group.bench_function("duplicate_params", |b| {
         b.iter(|| {
-            let mut path =
-                CallPath::from("/api/{version}/users/{id}/posts/{id}/comments/{version}");
-            path.add_param("version", ParamValue::new(black_box("v1")));
-            path.add_param("id", ParamValue::new(black_box(123)));
+            let path = CallPath::from("/api/{version}/users/{id}/posts/{id}/comments/{version}")
+                .add_param("version", ParamValue::new(black_box("v1")))
+                .add_param("id", ParamValue::new(black_box(123)));
             black_box(path);
         })
     });
@@ -40,8 +39,7 @@ fn benchmark_path_creation(c: &mut Criterion) {
     // Test path with array parameters
     group.bench_function("array_params", |b| {
         b.iter(|| {
-            let mut path = CallPath::from("/search/{tags}");
-            path.add_param(
+            let path = CallPath::from("/search/{tags}").add_param(
                 "tags",
                 ParamValue::with_style(
                     black_box(vec!["rust", "web", "api", "performance", "optimization"]),
@@ -55,8 +53,7 @@ fn benchmark_path_creation(c: &mut Criterion) {
     // Test path with special characters requiring encoding
     group.bench_function("special_chars", |b| {
         b.iter(|| {
-            let mut path = CallPath::from("/search/{query}");
-            path.add_param(
+            let path = CallPath::from("/search/{query}").add_param(
                 "query",
                 ParamValue::new(black_box("hello world & more @#$%")),
             );
@@ -82,8 +79,7 @@ fn benchmark_path_parameter_styles(c: &mut Criterion) {
             &style,
             |b, &style| {
                 b.iter(|| {
-                    let mut path = CallPath::from("/search/{tags}");
-                    path.add_param(
+                    let path = CallPath::from("/search/{tags}").add_param(
                         "tags",
                         ParamValue::with_style(black_box(test_array.clone()), style),
                     );

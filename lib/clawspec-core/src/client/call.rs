@@ -1396,8 +1396,7 @@ mod tests {
     #[test]
     fn test_build_url_with_path_params() {
         let base_uri: Uri = "http://localhost:8080".parse().unwrap();
-        let mut path = CallPath::from("/users/{id}");
-        path.add_param("id", ParamValue::new(123));
+        let path = CallPath::from("/users/{id}").add_param("id", ParamValue::new(123));
         let query = CallQuery::default();
 
         let url = ApiCall::build_url(&base_uri, &path, &query).expect("should build URL");
@@ -1605,8 +1604,7 @@ mod tests {
                 let client = ApiClient::builder().build()?;
 
                 // Create path with parameters
-                let mut path = CallPath::from("/users/{id}");
-                path.add_param("id", 123);
+                let path = CallPath::from("/users/{id}").add_param("id", 123);
 
                 let query = CallQuery::new().add_param("include_details", true);
 
