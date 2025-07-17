@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.1.3...clawspec-core-v0.1.4) - 2025-07-17
+
+### Fixed
+
+- Remove double slashes from URL building ([#84](https://github.com/ilaborie/clawspec/pull/84))
+
 ## [0.1.3](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.1.2...clawspec-core-v0.1.3) - 2025-07-15
 
 ### Fixed
