@@ -65,6 +65,9 @@ struct OperationMetadata {
 /// - [`with_tags(tags)`](Self::with_tags) - Set operation tags (or use automatic tagging)
 /// - [`with_description(desc)`](Self::with_description) - Set operation description (or use automatic description)
 ///
+/// ## Response Descriptions
+/// - [`with_response_description(desc)`](Self::with_response_description) - Set description for the actual returned status code
+///
 /// ## Execution
 /// - [`exchange()`](Self::exchange) - Execute the request and return response (⚠️ **must consume result for OpenAPI**)
 ///
@@ -131,6 +134,8 @@ pub struct ApiCall {
     expected_status_codes: ExpectedStatusCodes,
     /// Operation metadata for OpenAPI documentation
     metadata: OperationMetadata,
+    /// Response description for the actual returned status code
+    response_description: Option<String>,
     /// Whether to skip collection for OpenAPI documentation (default: false)
     skip_collection: bool,
 }
@@ -160,6 +165,7 @@ impl ApiCall {
                 tags: None,
                 description: None,
             },
+            response_description: None,
             skip_collection: false,
         };
         Ok(result)
@@ -238,6 +244,28 @@ impl ApiCall {
             .tags
             .get_or_insert_with(Vec::new)
             .push(tag.into());
+        self
+    }
+
+    /// Sets a response description for the actual returned status code.
+    ///
+    /// This method allows you to document what the response means for your API endpoint.
+    /// The description will be applied to whatever status code is actually returned by the server
+    /// and included in the generated OpenAPI specification.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.get("/users/{id}")?
+    ///     .with_response_description("User details if found, or error information");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_response_description(mut self, description: impl Into<String>) -> Self {
+        self.response_description = Some(description.into());
         self
     }
 
@@ -841,6 +869,7 @@ impl ApiCall {
             body,
             expected_status_codes,
             metadata,
+            response_description,
             skip_collection,
         } = self;
 
@@ -850,8 +879,15 @@ impl ApiCall {
 
         // Create operation for OpenAPI documentation
         let operation_id = metadata.operation_id.clone();
-        let mut operation =
-            Self::build_operation(metadata, &method, &path, query.clone(), &headers, &body);
+        let mut operation = Self::build_operation(
+            metadata,
+            &method,
+            &path,
+            query.clone(),
+            &headers,
+            &body,
+            response_description,
+        );
 
         // Execute HTTP request
         debug!(?request, "sending...");
@@ -948,6 +984,7 @@ impl ApiCall {
         query: CallQuery,
         headers: &Option<CallHeaders>,
         body: &Option<CallBody>,
+        response_description: Option<String>,
     ) -> CalledOperation {
         let OperationMetadata {
             operation_id,
@@ -965,6 +1002,7 @@ impl ApiCall {
             body.as_ref(),
             tags,
             description,
+            response_description,
         )
     }
 
@@ -1627,5 +1665,35 @@ mod tests {
         #[allow(clippy::let_underscore_future)]
         let _: Pin<Box<dyn Future<Output = Result<CallResult, ApiClientError>> + Send>> =
             call.into_future();
+    }
+
+    #[test]
+    fn test_api_call_with_response_description() {
+        let call = create_test_api_call();
+        let call = call.with_response_description("Success response");
+        assert_eq!(
+            call.response_description,
+            Some("Success response".to_string())
+        );
+    }
+
+    #[test]
+    fn test_api_call_response_description_method_chaining() {
+        let call = create_test_api_call();
+        let call = call
+            .with_response_description("Original description")
+            .with_response_description("Overridden description");
+
+        // Latest description should override the previous one
+        assert_eq!(
+            call.response_description,
+            Some("Overridden description".to_string())
+        );
+    }
+
+    #[test]
+    fn test_api_call_response_description_none_by_default() {
+        let call = create_test_api_call();
+        assert_eq!(call.response_description, None);
     }
 }
