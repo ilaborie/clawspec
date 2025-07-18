@@ -141,22 +141,79 @@
 //!
 //! ## Schema Registration
 //!
+//! ### Automatic Schema Capture
+//!
+//! JSON request and response body schemas are **automatically captured** when using `.json()` and `.as_json()` methods:
+//!
 //! ```rust
-//! use clawspec_core::{ApiClient, register_schemas};
-//! # use serde::Deserialize;
+//! use clawspec_core::ApiClient;
+//! # use serde::{Serialize, Deserialize};
 //! # use utoipa::ToSchema;
 //!
-//! #[derive(Deserialize, ToSchema)]
+//! #[derive(Serialize, Deserialize, ToSchema)]
 //! struct CreateUser { name: String, email: String }
+//!
+//! #[derive(Deserialize, ToSchema)]
+//! struct User { id: u32, name: String, email: String }
+//!
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! // Schemas are captured automatically - no explicit registration needed
+//! let user: User = client
+//!     .post("/users")?
+//!     .json(&CreateUser { name: "Alice".to_string(), email: "alice@example.com".to_string() })?
+//!     .await?
+//!     .as_json()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Manual Schema Registration
+//!
+//! For nested schemas or when you need to ensure all dependencies are included, use the `register_schemas!` macro:
+//!
+//! ```rust
+//! use clawspec_core::{ApiClient, register_schemas};
+//! # use serde::{Serialize, Deserialize};
+//! # use utoipa::ToSchema;
+//!
+//! #[derive(Serialize, Deserialize, ToSchema)]
+//! struct Address { street: String, city: String }
+//!
+//! #[derive(Serialize, Deserialize, ToSchema)]
+//! struct CreateUser { name: String, email: String, address: Address }
 //!
 //! #[derive(Deserialize, ToSchema)]
 //! struct ErrorResponse { code: String, message: String }
 //!
-//! # fn example(client: &mut ApiClient) {
-//! // Register schemas for complete documentation
-//! register_schemas!(client, CreateUser, ErrorResponse);
+//! # async fn example(client: &mut ApiClient) {
+//! // Register nested schemas and error types for complete documentation
+//! register_schemas!(client, CreateUser, Address, ErrorResponse).await;
 //! # }
 //! ```
+//!
+//! ### ⚠️ Nested Schema Limitation
+//!
+//! **Current Limitation**: While main JSON body schemas are captured automatically, nested schemas may not be fully resolved. If you encounter missing nested schemas in your OpenAPI specification, use the `register_schemas!` macro to explicitly register them:
+//!
+//! ```rust
+//! use clawspec_core::{ApiClient, register_schemas};
+//! # use serde::{Serialize, Deserialize};
+//! # use utoipa::ToSchema;
+//!
+//! #[derive(Serialize, Deserialize, ToSchema)]
+//! struct Position { lat: f64, lng: f64 }
+//!
+//! #[derive(Serialize, Deserialize, ToSchema)]
+//! struct Location { name: String, position: Position }  // Position is nested
+//!
+//! # async fn example(client: &mut ApiClient) {
+//! // Register both main and nested schemas to ensure complete OpenAPI generation
+//! register_schemas!(client, Location, Position).await;
+//! # }
+//! ```
+//!
+//! **Workaround**: Always register nested schemas explicitly when you need complete OpenAPI documentation with all referenced types properly defined.
 //!
 //! ## Error Handling
 //!
@@ -312,7 +369,20 @@ macro_rules! expected_status_codes {
 /// This macro simplifies the process of registering multiple types that implement
 /// [`utoipa::ToSchema`] with an [`ApiClient`] instance.
 ///
+/// # When to Use
+///
+/// - **Nested Schemas**: When your JSON types contain nested structures that need to be fully resolved
+/// - **Error Types**: To ensure error response schemas are included in the OpenAPI specification
+/// - **Complex Dependencies**: When automatic schema capture doesn't include all referenced types
+///
+/// # Automatic vs Manual Registration
+///
+/// Most JSON request/response schemas are captured automatically when using `.json()` and `.as_json()` methods.
+/// Use this macro when you need to ensure complete schema coverage, especially for nested types.
+///
 /// # Examples
+///
+/// ## Basic Usage
 ///
 /// ```rust
 /// use clawspec_core::{ApiClient, register_schemas};
@@ -337,6 +407,35 @@ macro_rules! expected_status_codes {
 ///
 /// // Register multiple schemas at once
 /// register_schemas!(client, User, Post).await;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ## Nested Schemas
+///
+/// ```rust
+/// use clawspec_core::{ApiClient, register_schemas};
+/// use serde::{Serialize, Deserialize};
+/// use utoipa::ToSchema;
+///
+/// #[derive(Serialize, Deserialize, ToSchema)]
+/// struct Address {
+///     street: String,
+///     city: String,
+/// }
+///
+/// #[derive(Serialize, Deserialize, ToSchema)]
+/// struct User {
+///     id: u64,
+///     name: String,
+///     address: Address,  // Nested schema
+/// }
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut client = ApiClient::builder().build()?;
+///
+/// // Register both main and nested schemas for complete OpenAPI generation
+/// register_schemas!(client, User, Address).await;
 /// # Ok(())
 /// # }
 /// ```
