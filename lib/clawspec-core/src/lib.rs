@@ -184,7 +184,7 @@
 //!     .add_cookie("selected_tags", vec!["rust", "web", "api"]);
 //!
 //! // Custom types with automatic serialization
-//! #[derive(serde::Serialize, utoipa::ToSchema)]
+//! #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 //! struct UserId(u64);
 //!
 //! let cookies = CallCookies::new()

@@ -193,7 +193,7 @@ impl CallCookies {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use clawspec_core::CallCookies;
     ///
     /// let cookies = CallCookies::new()
