@@ -9,7 +9,7 @@ use tracing::warn;
 use super::param::ParameterValue;
 use super::param::ResolvedParamValue;
 use super::schema::Schemas;
-use super::{ApiClientError, ParamValue};
+use super::{ApiClientError, ParamStyle, ParamValue};
 use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterIn};
 
@@ -204,9 +204,29 @@ impl TryFrom<CallPath> for PathResolved {
                 }
             };
 
+            // Apply path parameter style formatting
+            let formatted_value = match resolved.style {
+                ParamStyle::Label => {
+                    // Label style: /users/.value
+                    format!(".{path_value}")
+                }
+                ParamStyle::Matrix => {
+                    // Matrix style: /users/;name=value
+                    format!(";{name}={path_value}")
+                }
+                ParamStyle::DeepObject => {
+                    warn!(?resolved.style, "DeepObject style not supported for path parameters");
+                    continue;
+                }
+                _ => {
+                    // Default, Simple, Form, SpaceDelimited, PipeDelimited
+                    path_value
+                }
+            };
+
             // TODO explore [URI template](https://datatracker.ietf.org/doc/html/rfc6570) - https://github.com/ilaborie/clawspec/issues/21
             // See <https://crates.io/crates/iri-string>, <https://crates.io/crates/uri-template-system>
-            let encoded_value = encode_path_param_value(&path_value);
+            let encoded_value = encode_path_param_value(&formatted_value);
 
             // Optimized: Use custom replacement function that avoids string allocations
             path = replace_path_param(&path, &name, &encoded_value);
@@ -419,6 +439,46 @@ mod tests {
 
         let resolved = PathResolved::try_from(path).expect("should resolve");
         assert_eq!(resolved.path, "/search/rust%7Cweb%7Capi");
+    }
+
+    #[test]
+    fn test_path_with_label_style() {
+        let path = CallPath::from("/users/{id}")
+            .add_param("id", ParamValue::with_style(123, ParamStyle::Label));
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/users/%2E123");
+    }
+
+    #[test]
+    fn test_path_with_label_style_array() {
+        let path = CallPath::from("/search/{tags}").add_param(
+            "tags",
+            ParamValue::with_style(vec!["rust", "web"], ParamStyle::Label),
+        );
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/search/%2Erust%2Cweb");
+    }
+
+    #[test]
+    fn test_path_with_matrix_style() {
+        let path = CallPath::from("/users/{id}")
+            .add_param("id", ParamValue::with_style(123, ParamStyle::Matrix));
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/users/%3Bid%3D123");
+    }
+
+    #[test]
+    fn test_path_with_matrix_style_array() {
+        let path = CallPath::from("/search/{tags}").add_param(
+            "tags",
+            ParamValue::with_style(vec!["rust", "web"], ParamStyle::Matrix),
+        );
+
+        let resolved = PathResolved::try_from(path).expect("should resolve");
+        assert_eq!(resolved.path, "/search/%3Btags%3Drust%2Cweb");
     }
 
     #[test]
