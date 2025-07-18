@@ -60,7 +60,7 @@ paths:
           type: string
       responses:
         '200':
-          description: ''
+          description: Status code 200
           content:
             application/json:
               schema:
@@ -106,7 +106,7 @@ paths:
               format: binary
       responses:
         '201':
-          description: ''
+          description: Status code 201
           content:
             application/json:
               schema:
@@ -114,13 +114,13 @@ paths:
                 format: int32
                 minimum: 0
         '400':
-          description: ''
+          description: Status code 400
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TestClientError'
         '415':
-          description: ''
+          description: Status code 415
           content:
             application/json:
               schema:
@@ -147,7 +147,7 @@ paths:
                 lng: 45.0
       responses:
         '200':
-          description: ''
+          description: Status code 200
     delete:
       tags:
       - observations
@@ -156,7 +156,7 @@ paths:
       parameters: []
       responses:
         '200':
-          description: ''
+          description: Status code 200
           content:
             application/json:
               schema:
@@ -179,7 +179,7 @@ paths:
               format: binary
       responses:
         '201':
-          description: ''
+          description: Status code 201
           content:
             application/json:
               schema:
@@ -201,7 +201,7 @@ paths:
               format: binary
       responses:
         '201':
-          description: ''
+          description: Status code 201
           content:
             application/json:
               schema:
@@ -232,7 +232,7 @@ paths:
                 lng: 13.5
       responses:
         '200':
-          description: ''
+          description: Status code 200
     delete:
       tags:
       - observations
@@ -246,7 +246,7 @@ paths:
           $ref: '#/components/schemas/ObservationId'
       responses:
         '200':
-          description: ''
+          description: Status code 200
           content:
             application/json: {}
     patch:
@@ -272,7 +272,7 @@ paths:
               position: null
       responses:
         '200':
-          description: ''
+          description: Status code 200
           content:
             application/json:
               schema:

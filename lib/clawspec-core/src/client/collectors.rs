@@ -255,6 +255,7 @@ pub(super) struct CalledOperation {
     path: String,
     operation: Operation,
     result: Option<CallResult>,
+    response_description: Option<String>,
 }
 
 /// Represents the result of an API call with response processing capabilities.
@@ -526,15 +527,23 @@ impl CallResult {
             });
         };
 
+        // Get response description from the operation, if available
+        let status_code = self.status.as_u16();
+        let description = operation
+            .response_description
+            .clone()
+            .unwrap_or_else(|| format!("Status code {status_code}"));
+
         let response = if let Some(content_type) = &self.content_type {
             // Create content
             let content = Content::builder().schema(schema).build();
             ResponseBuilder::new()
+                .description(description)
                 .content(content_type.to_string(), content)
                 .build()
         } else {
             // Empty response
-            ResponseBuilder::new().build()
+            ResponseBuilder::new().description(description).build()
         };
 
         operation
@@ -786,6 +795,7 @@ impl CalledOperation {
         request_body: Option<&CallBody>,
         tags: Option<Vec<String>>,
         description: Option<String>,
+        response_description: Option<String>,
         // TODO cookie - https://github.com/ilaborie/clawspec/issues/18
     ) -> Self {
         // Build parameters
@@ -846,6 +856,7 @@ impl CalledOperation {
             path: path_name.to_string(),
             operation,
             result: None,
+            response_description,
         }
     }
 

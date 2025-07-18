@@ -118,6 +118,27 @@
 //! # }
 //! ```
 //!
+//! ## Response Descriptions
+//!
+//! Add descriptive text to your OpenAPI responses for better documentation:
+//!
+//! ```rust
+//! use clawspec_core::ApiClient;
+//!
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! // Set a description for the actual returned status code
+//! client.get("/users/{id}")?
+//!     .with_response_description("User details if found, or error information")
+//!     .await?;
+//!
+//! // The description applies to whatever status code is actually returned
+//! client.post("/users")?
+//!     .with_response_description("User created successfully or validation error")
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Schema Registration
 //!
 //! ```rust
