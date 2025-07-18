@@ -66,6 +66,7 @@ pub struct ApiClientBuilder {
     base_path: Option<PathAndQuery>,
     info: Option<Info>,
     servers: Vec<Server>,
+    authentication: Option<super::Authentication>,
 }
 
 impl ApiClientBuilder {
@@ -110,6 +111,7 @@ impl ApiClientBuilder {
             base_path,
             info,
             servers,
+            authentication,
         } = self;
 
         let builder = Uri::builder()
@@ -136,6 +138,7 @@ impl ApiClientBuilder {
             info,
             servers,
             collectors,
+            authentication,
         })
     }
 
@@ -414,6 +417,58 @@ impl ApiClientBuilder {
         self.servers.push(server);
         self
     }
+
+    /// Sets the authentication configuration for the API client.
+    ///
+    /// This authentication will be applied to all requests made by the client,
+    /// unless overridden on a per-request basis.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, Authentication};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Bearer token authentication
+    /// let client = ApiClient::builder()
+    ///     .with_authentication(Authentication::Bearer("my-api-token".to_string()))
+    ///     .build()?;
+    ///
+    /// // Basic authentication
+    /// let client = ApiClient::builder()
+    ///     .with_authentication(Authentication::Basic {
+    ///         username: "user".to_string(),
+    ///         password: "pass".to_string(),
+    ///     })
+    ///     .build()?;
+    ///
+    /// // API key authentication
+    /// let client = ApiClient::builder()
+    ///     .with_authentication(Authentication::ApiKey {
+    ///         header_name: "X-API-Key".to_string(),
+    ///         key: "secret-key".to_string(),
+    ///     })
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Authentication Types
+    ///
+    /// - **Bearer**: Adds `Authorization: Bearer <token>` header
+    /// - **Basic**: Adds `Authorization: Basic <base64(username:password)>` header
+    /// - **ApiKey**: Adds custom header with API key
+    ///
+    /// # Security Considerations
+    ///
+    /// - Authentication credentials are stored in memory and may be logged
+    /// - Use secure token storage and rotation practices
+    /// - Avoid hardcoding credentials in source code
+    /// - Consider using environment variables or secure vaults
+    pub fn with_authentication(mut self, authentication: super::Authentication) -> Self {
+        self.authentication = Some(authentication);
+        self
+    }
 }
 
 impl Default for ApiClientBuilder {
@@ -426,6 +481,7 @@ impl Default for ApiClientBuilder {
             base_path: None,
             info: None,
             servers: Vec::new(),
+            authentication: None,
         }
     }
 }
@@ -585,5 +641,63 @@ mod tests {
             client.base_uri.to_string(),
             "https://api.example.com:443/v2"
         );
+    }
+
+    #[test]
+    fn test_builder_with_authentication_bearer() {
+        let client = ApiClientBuilder::default()
+            .with_authentication(super::super::Authentication::Bearer(
+                "test-token".to_string(),
+            ))
+            .build()
+            .expect("should build client");
+
+        assert!(matches!(
+            client.authentication,
+            Some(super::super::Authentication::Bearer(ref token)) if token == "test-token"
+        ));
+    }
+
+    #[test]
+    fn test_builder_with_authentication_basic() {
+        let client = ApiClientBuilder::default()
+            .with_authentication(super::super::Authentication::Basic {
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            })
+            .build()
+            .expect("should build client");
+
+        assert!(matches!(
+            client.authentication,
+            Some(super::super::Authentication::Basic { ref username, ref password })
+                if username == "user" && password == "pass"
+        ));
+    }
+
+    #[test]
+    fn test_builder_with_authentication_api_key() {
+        let client = ApiClientBuilder::default()
+            .with_authentication(super::super::Authentication::ApiKey {
+                header_name: "X-API-Key".to_string(),
+                key: "secret-key".to_string(),
+            })
+            .build()
+            .expect("should build client");
+
+        assert!(matches!(
+            client.authentication,
+            Some(super::super::Authentication::ApiKey { ref header_name, ref key })
+                if header_name == "X-API-Key" && key == "secret-key"
+        ));
+    }
+
+    #[test]
+    fn test_builder_without_authentication() {
+        let client = ApiClientBuilder::default()
+            .build()
+            .expect("should build client");
+
+        assert!(client.authentication.is_none());
     }
 }

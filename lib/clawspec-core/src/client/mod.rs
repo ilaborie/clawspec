@@ -29,6 +29,9 @@ pub use self::headers::CallHeaders;
 mod cookies;
 pub use self::cookies::CallCookies;
 
+mod auth;
+pub use self::auth::Authentication;
+
 mod call_parameters;
 
 mod body;
@@ -291,6 +294,7 @@ pub struct ApiClient {
     info: Option<Info>,
     servers: Vec<Server>,
     collectors: Arc<RwLock<collectors::Collectors>>,
+    authentication: Option<Authentication>,
 }
 
 // Create
@@ -509,6 +513,7 @@ impl ApiClient {
             Arc::clone(&self.collectors),
             method,
             path,
+            self.authentication.clone(),
         )
     }
 

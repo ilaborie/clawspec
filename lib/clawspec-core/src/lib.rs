@@ -192,6 +192,88 @@
 //! # }
 //! ```
 //!
+//! ## Authentication
+//!
+//! The library supports various authentication methods that can be configured at the client level
+//! or overridden for individual requests.
+//!
+//! ### Client-Level Authentication
+//!
+//! ```rust
+//! use clawspec_core::{ApiClient, Authentication};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Bearer token authentication
+//! let client = ApiClient::builder()
+//!     .with_host("api.example.com")
+//!     .with_authentication(Authentication::Bearer("my-api-token".to_string()))
+//!     .build()?;
+//!
+//! // Basic authentication
+//! let client = ApiClient::builder()
+//!     .with_host("api.example.com")
+//!     .with_authentication(Authentication::Basic {
+//!         username: "user".to_string(),
+//!         password: "pass".to_string(),
+//!     })
+//!     .build()?;
+//!
+//! // API key authentication
+//! let client = ApiClient::builder()
+//!     .with_host("api.example.com")
+//!     .with_authentication(Authentication::ApiKey {
+//!         header_name: "X-API-Key".to_string(),
+//!         key: "secret-key".to_string(),
+//!     })
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Per-Request Authentication Override
+//!
+//! ```rust
+//! use clawspec_core::{ApiClient, Authentication};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Client with default authentication
+//! let mut client = ApiClient::builder()
+//!     .with_host("api.example.com")
+//!     .with_authentication(Authentication::Bearer("default-token".to_string()))
+//!     .build()?;
+//!
+//! // Use different authentication for admin endpoints
+//! let admin_users = client
+//!     .get("/admin/users")?
+//!     .with_authentication(Authentication::Bearer("admin-token".to_string()))
+//!     .await?
+//!     .as_json::<serde_json::Value>()
+//!     .await?;
+//!
+//! // Remove authentication for public endpoints
+//! let public_data = client
+//!     .get("/public/health")?
+//!     .with_authentication_none()
+//!     .await?
+//!     .as_text()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Authentication Types
+//!
+//! - **Bearer**: Adds `Authorization: Bearer <token>` header
+//! - **Basic**: Adds `Authorization: Basic <base64(username:password)>` header  
+//! - **ApiKey**: Adds custom header with API key
+//!
+//! ### Security Best Practices
+//!
+//! - Store credentials securely using environment variables or secret management tools
+//! - Rotate tokens regularly
+//! - Use HTTPS for all authenticated requests
+//! - Avoid logging authentication headers
+//!
 //! ## Status Code Validation
 //!
 //! By default, requests expect status codes in the range 200-499 (inclusive of 200, exclusive of 500).
@@ -338,9 +420,9 @@ pub mod test_client;
 
 // Public API - only expose user-facing types and functions
 pub use self::client::{
-    ApiCall, ApiClient, ApiClientBuilder, ApiClientError, CallBody, CallCookies, CallHeaders,
-    CallPath, CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue, ParameterValue,
-    RawBody, RawResult,
+    ApiCall, ApiClient, ApiClientBuilder, ApiClientError, Authentication, CallBody, CallCookies,
+    CallHeaders, CallPath, CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue,
+    ParameterValue, RawBody, RawResult,
 };
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below
