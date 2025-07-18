@@ -150,6 +150,10 @@ impl Collectors {
         self.schemas.merge(schemas);
     }
 
+    pub(super) fn collect_schema_entry(&mut self, entry: super::schema::SchemaEntry) {
+        self.schemas.add_entry(entry);
+    }
+
     pub(super) fn collect_operation(
         &mut self,
         operation: CalledOperation,

@@ -919,7 +919,8 @@ impl ApiCall {
             let call_result =
                 CallResult::new(operation_id, Arc::clone(&collectors), response).await?;
             operation.add_response(call_result.clone());
-            Self::collect_schemas_and_operation(collectors, &path, &headers, operation).await;
+            Self::collect_schemas_and_operation(collectors, &path, &headers, &body, operation)
+                .await;
             call_result
         };
 
@@ -1010,12 +1011,16 @@ impl ApiCall {
         collectors: Arc<RwLock<Collectors>>,
         path: &CallPath,
         headers: &Option<CallHeaders>,
+        body: &Option<CallBody>,
         operation: CalledOperation,
     ) {
         let mut cs = collectors.write().await;
         cs.collect_schemas(path.schemas().clone());
         if let Some(headers) = headers {
             cs.collect_schemas(headers.schemas().clone());
+        }
+        if let Some(body) = body {
+            cs.collect_schema_entry(body.entry.clone());
         }
         cs.collect_operation(operation);
     }
