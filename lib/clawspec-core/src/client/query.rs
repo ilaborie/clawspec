@@ -147,6 +147,18 @@ impl CallQuery {
                 ParamStyle::SpaceDelimited | ParamStyle::PipeDelimited | ParamStyle::Simple => {
                     self.encode_delimited_style(name, resolved, &mut pairs)?;
                 }
+                ParamStyle::DeepObject => {
+                    self.encode_deep_object_style(name, resolved, &mut pairs)?;
+                }
+                ParamStyle::Label | ParamStyle::Matrix => {
+                    return Err(ApiClientError::UnsupportedParameterValue {
+                        message: format!(
+                            "Parameter style {:?} is not supported for query parameters",
+                            resolved.style
+                        ),
+                        value: resolved.value.clone(),
+                    });
+                }
             }
         }
 
@@ -184,6 +196,43 @@ impl CallQuery {
                 Ok(())
             }
             Err(err) => Err(err),
+        }
+    }
+
+    /// Encode a parameter using deep object style (?obj[key]=value)
+    fn encode_deep_object_style(
+        &self,
+        name: &str,
+        resolved: &ResolvedParamValue,
+        pairs: &mut Vec<(String, String)>,
+    ) -> Result<(), ApiClientError> {
+        match &resolved.value {
+            serde_json::Value::Object(obj) => {
+                // Deep object style: param[key]=value
+                for (key, value) in obj {
+                    let param_name = format!("{name}[{key}]");
+                    let param_value = match value {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        serde_json::Value::Null => String::new(),
+                        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                            return Err(ApiClientError::UnsupportedParameterValue {
+                                message:
+                                    "nested arrays and objects not supported in DeepObject style"
+                                        .to_string(),
+                                value: value.clone(),
+                            });
+                        }
+                    };
+                    pairs.push((param_name, param_value));
+                }
+                Ok(())
+            }
+            _ => Err(ApiClientError::UnsupportedParameterValue {
+                message: "DeepObject style requires object values".to_string(),
+                value: resolved.value.clone(),
+            }),
         }
     }
 }
@@ -464,5 +513,81 @@ mod tests {
             .to_query_string()
             .expect("serialization should succeed");
         insta::assert_debug_snapshot!(query_string, @r#""special=hello+%26+goodbye&unicode=caf%C3%A9+r%C3%A9sum%C3%A9&symbols=100%25+guaranteed%21""#);
+    }
+
+    #[test]
+    fn test_deep_object_style_with_object() {
+        use serde_json::json;
+
+        let query = CallQuery::new().add_param(
+            "user",
+            ParamValue::with_style(
+                json!({"name": "john", "age": 30, "active": true}),
+                ParamStyle::DeepObject,
+            ),
+        );
+
+        let query_string = query
+            .to_query_string()
+            .expect("serialization should succeed");
+
+        // The order of parameters may vary, so check that it contains the expected parts
+        assert!(query_string.contains("user%5Bname%5D=john"));
+        assert!(query_string.contains("user%5Bage%5D=30"));
+        assert!(query_string.contains("user%5Bactive%5D=true"));
+    }
+
+    #[test]
+    fn test_deep_object_style_with_nested_object_error() {
+        use serde_json::json;
+
+        let query = CallQuery::new().add_param(
+            "user",
+            ParamValue::with_style(
+                json!({"name": "john", "address": {"street": "123 Main St"}}),
+                ParamStyle::DeepObject,
+            ),
+        );
+
+        let result = query.to_query_string();
+        assert!(matches!(
+            result,
+            Err(ApiClientError::UnsupportedParameterValue { .. })
+        ));
+    }
+
+    #[test]
+    fn test_deep_object_style_with_array_error() {
+        let query = CallQuery::new().add_param(
+            "tags",
+            ParamValue::with_style(vec!["rust", "web"], ParamStyle::DeepObject),
+        );
+
+        let result = query.to_query_string();
+        assert!(matches!(
+            result,
+            Err(ApiClientError::UnsupportedParameterValue { .. })
+        ));
+    }
+
+    #[test]
+    fn test_label_and_matrix_styles_error_in_query() {
+        let query =
+            CallQuery::new().add_param("test", ParamValue::with_style("value", ParamStyle::Label));
+
+        let result = query.to_query_string();
+        assert!(matches!(
+            result,
+            Err(ApiClientError::UnsupportedParameterValue { .. })
+        ));
+
+        let query =
+            CallQuery::new().add_param("test", ParamValue::with_style("value", ParamStyle::Matrix));
+
+        let result = query.to_query_string();
+        assert!(matches!(
+            result,
+            Err(ApiClientError::UnsupportedParameterValue { .. })
+        ));
     }
 }

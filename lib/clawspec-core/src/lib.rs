@@ -68,7 +68,7 @@
 //! ## Working with Parameters
 //!
 //! ```rust
-//! use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue};
+//! use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue, ParamStyle};
 //!
 //! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
 //! // Path parameters  
@@ -91,6 +91,72 @@
 //!     .with_headers(headers)
 //!     .await?;  // Direct await using IntoFuture
 //! # Ok(())
+//! # }
+//! ```
+//!
+//! ## OpenAPI 3.1.0 Parameter Styles
+//!
+//! This library supports all OpenAPI 3.1.0 parameter styles for different parameter types:
+//!
+//! ### Path Parameters
+//!
+//! ```rust
+//! use clawspec_core::{CallPath, ParamValue, ParamStyle};
+//!
+//! # async fn example() {
+//! // Simple style (default): /users/123
+//! let path = CallPath::from("/users/{id}")
+//!     .add_param("id", ParamValue::new(123));
+//!
+//! // Label style: /users/.123
+//! let path = CallPath::from("/users/{id}")
+//!     .add_param("id", ParamValue::with_style(123, ParamStyle::Label));
+//!
+//! // Matrix style: /users/;id=123
+//! let path = CallPath::from("/users/{id}")
+//!     .add_param("id", ParamValue::with_style(123, ParamStyle::Matrix));
+//!
+//! // Arrays with different styles
+//! let tags = vec!["rust", "web", "api"];
+//!
+//! // Simple: /search/rust,web,api
+//! let path = CallPath::from("/search/{tags}")
+//!     .add_param("tags", ParamValue::with_style(tags.clone(), ParamStyle::Simple));
+//!
+//! // Label: /search/.rust,web,api
+//! let path = CallPath::from("/search/{tags}")
+//!     .add_param("tags", ParamValue::with_style(tags.clone(), ParamStyle::Label));
+//!
+//! // Matrix: /search/;tags=rust,web,api
+//! let path = CallPath::from("/search/{tags}")
+//!     .add_param("tags", ParamValue::with_style(tags, ParamStyle::Matrix));
+//! # }
+//! ```
+//!
+//! ### Query Parameters
+//!
+//! ```rust
+//! use clawspec_core::{CallQuery, ParamValue, ParamStyle};
+//!
+//! # async fn example() {
+//! let tags = vec!["rust", "web", "api"];
+//!
+//! // Form style (default): ?tags=rust&tags=web&tags=api
+//! let query = CallQuery::new()
+//!     .add_param("tags", ParamValue::new(tags.clone()));
+//!
+//! // Space delimited: ?tags=rust%20web%20api
+//! let query = CallQuery::new()
+//!     .add_param("tags", ParamValue::with_style(tags.clone(), ParamStyle::SpaceDelimited));
+//!
+//! // Pipe delimited: ?tags=rust|web|api
+//! let query = CallQuery::new()
+//!     .add_param("tags", ParamValue::with_style(tags, ParamStyle::PipeDelimited));
+//!
+//! // Deep object style: ?user[name]=john&user[age]=30
+//! let user_data = serde_json::json!({"name": "john", "age": 30});
+//! let query = CallQuery::new()
+//!     .add_param("user", ParamValue::with_style(user_data, ParamStyle::DeepObject));
 //! # }
 //! ```
 //!

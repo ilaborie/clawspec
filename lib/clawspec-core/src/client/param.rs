@@ -56,6 +56,12 @@ pub enum ParamStyle {
     SpaceDelimited,
     /// Pipe delimited: `param=value1|value2`
     PipeDelimited,
+    /// Label style: `/users/.value` (path parameter with . prefix)
+    Label,
+    /// Matrix style: `/users/;name=value` (path parameter with ; prefix)
+    Matrix,
+    /// Deep object style: `?obj[key]=value` (query parameter for nested objects)
+    DeepObject,
 }
 
 impl From<ParamStyle> for Option<ParameterStyle> {
@@ -66,6 +72,9 @@ impl From<ParamStyle> for Option<ParameterStyle> {
             ParamStyle::Simple => ParameterStyle::Simple,
             ParamStyle::SpaceDelimited => ParameterStyle::SpaceDelimited,
             ParamStyle::PipeDelimited => ParameterStyle::PipeDelimited,
+            ParamStyle::Label => ParameterStyle::Label,
+            ParamStyle::Matrix => ParameterStyle::Matrix,
+            ParamStyle::DeepObject => ParameterStyle::DeepObject,
         };
         Some(result)
     }
@@ -219,13 +228,34 @@ impl ResolvedParamValue {
                     ParamStyle::Form => ",", // Form style uses comma for single values in paths
                     ParamStyle::SpaceDelimited => " ",
                     ParamStyle::PipeDelimited => "|",
+                    ParamStyle::Label => ",", // Label style uses comma for arrays
+                    ParamStyle::Matrix => ",", // Matrix style uses comma for arrays
+                    ParamStyle::DeepObject => {
+                        return Err(ApiClientError::UnsupportedParameterValue {
+                            message:
+                                "DeepObject style not supported for arrays, use objects instead"
+                                    .to_string(),
+                            value: self.value.clone(),
+                        });
+                    }
                 };
                 Ok(string_values.join(delimiter))
             }
-            serde_json::Value::Object(_) => Err(ApiClientError::UnsupportedParameterValue {
-                message: "object values not supported in parameters".to_string(),
-                value: self.value.clone(),
-            }),
+            serde_json::Value::Object(_) => {
+                match self.style {
+                    ParamStyle::DeepObject => {
+                        // DeepObject style is handled differently in query parameters
+                        Err(ApiClientError::UnsupportedParameterValue {
+                            message: "DeepObject style objects require special handling in query parameters".to_string(),
+                            value: self.value.clone(),
+                        })
+                    }
+                    _ => Err(ApiClientError::UnsupportedParameterValue {
+                        message: "object values not supported in parameters".to_string(),
+                        value: self.value.clone(),
+                    }),
+                }
+            }
             _ => Self::json_value_to_string(&self.value),
         }
     }
@@ -253,10 +283,21 @@ impl ResolvedParamValue {
                     }
                 }
             }
-            serde_json::Value::Object(_) => Err(ApiClientError::UnsupportedParameterValue {
-                message: "object values not supported in parameters".to_string(),
-                value: self.value.clone(),
-            }),
+            serde_json::Value::Object(_) => {
+                match self.style {
+                    ParamStyle::DeepObject => {
+                        // DeepObject style is handled differently in query parameters
+                        Err(ApiClientError::UnsupportedParameterValue {
+                            message: "DeepObject style objects require special handling in query parameters".to_string(),
+                            value: self.value.clone(),
+                        })
+                    }
+                    _ => Err(ApiClientError::UnsupportedParameterValue {
+                        message: "object values not supported in parameters".to_string(),
+                        value: self.value.clone(),
+                    }),
+                }
+            }
             _ => Self::json_value_to_string(&self.value).map(|s| vec![s]),
         }
     }
@@ -322,6 +363,18 @@ mod tests {
         assert_eq!(
             Option::<ParameterStyle>::from(ParamStyle::PipeDelimited),
             Some(ParameterStyle::PipeDelimited)
+        );
+        assert_eq!(
+            Option::<ParameterStyle>::from(ParamStyle::Label),
+            Some(ParameterStyle::Label)
+        );
+        assert_eq!(
+            Option::<ParameterStyle>::from(ParamStyle::Matrix),
+            Some(ParameterStyle::Matrix)
+        );
+        assert_eq!(
+            Option::<ParameterStyle>::from(ParamStyle::DeepObject),
+            Some(ParameterStyle::DeepObject)
         );
     }
 
@@ -555,6 +608,22 @@ mod tests {
         };
         assert_eq!(resolved.to_string_value().unwrap(), "a|b|c");
 
+        // Test Label style (comma-separated for arrays)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Label,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "a,b,c");
+
+        // Test Matrix style (comma-separated for arrays)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::Matrix,
+        };
+        assert_eq!(resolved.to_string_value().unwrap(), "a,b,c");
+
         // Test Form style (comma-separated for single values)
         let resolved = ResolvedParamValue {
             value: serde_json::json!(["a", "b", "c"]),
@@ -578,6 +647,35 @@ mod tests {
             value: serde_json::json!({"key": "value"}),
             schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
             style: ParamStyle::Default,
+        };
+        let result = resolved.to_string_value();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ApiClientError::UnsupportedParameterValue { .. }
+        ));
+    }
+
+    #[test]
+    fn test_resolved_param_value_deep_object_style_errors() {
+        // Test DeepObject style with array (should error)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!(["a", "b", "c"]),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::DeepObject,
+        };
+        let result = resolved.to_string_value();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ApiClientError::UnsupportedParameterValue { .. }
+        ));
+
+        // Test DeepObject style with object (should error for to_string_value)
+        let resolved = ResolvedParamValue {
+            value: serde_json::json!({"key": "value"}),
+            schema: utoipa::openapi::RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
+            style: ParamStyle::DeepObject,
         };
         let result = resolved.to_string_value();
         assert!(result.is_err());
