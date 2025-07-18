@@ -190,19 +190,6 @@ impl CallCookies {
     ///
     /// Returns a Result containing the formatted cookie header value, or an error
     /// if any cookie value cannot be serialized.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use clawspec_core::CallCookies;
-    ///
-    /// let cookies = CallCookies::new()
-    ///     .add_cookie("session_id", "abc123")
-    ///     .add_cookie("user_id", 456);
-    ///
-    /// let cookie_header = cookies.to_cookie_header().unwrap();
-    /// // Result: "session_id=abc123; user_id=456"
-    /// ```
     pub(super) fn to_cookie_header(&self) -> Result<String, ApiClientError> {
         if self.cookies.is_empty() {
             return Ok(String::new());

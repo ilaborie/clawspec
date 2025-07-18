@@ -9,6 +9,18 @@ pub struct CallParameters {
     pub(super) cookies: Option<super::CallCookies>,
 }
 
+/// Metadata for an OpenAPI operation.
+///
+/// This struct contains optional metadata that can be associated with an API operation
+/// to provide additional context in the generated OpenAPI specification.
+#[derive(Debug, Clone, Default)]
+pub(super) struct OperationMetadata {
+    pub(super) operation_id: String,
+    pub(super) tags: Option<Vec<String>>,
+    pub(super) description: Option<String>,
+    pub(super) response_description: Option<String>,
+}
+
 impl CallParameters {
     /// Creates CallParameters with the specified values.
     pub(super) fn with_all(

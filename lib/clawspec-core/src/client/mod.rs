@@ -29,8 +29,7 @@ pub use self::headers::CallHeaders;
 mod cookies;
 pub use self::cookies::CallCookies;
 
-mod parameters;
-pub use self::parameters::CallParameters;
+mod call_parameters;
 
 mod body;
 pub use self::body::CallBody;

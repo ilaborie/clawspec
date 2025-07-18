@@ -15,6 +15,7 @@ use utoipa::openapi::path::{Operation, Parameter};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::{Content, PathItem, RefOr, ResponseBuilder, Schema};
 
+use super::call_parameters::{CallParameters, OperationMetadata};
 use super::output::Output;
 use super::schema::Schemas;
 use super::{ApiClientError, CallBody, CallPath};
@@ -787,21 +788,12 @@ impl CallResult {
     }
 }
 
-/// Metadata for operation documentation.
-#[derive(Debug, Clone)]
-pub(super) struct OperationMetadata {
-    pub(super) operation_id: String,
-    pub(super) tags: Option<Vec<String>>,
-    pub(super) description: Option<String>,
-    pub(super) response_description: Option<String>,
-}
-
 impl CalledOperation {
     pub(super) fn build(
         method: http::Method,
         path_name: &str,
         path: &CallPath,
-        parameters: super::CallParameters,
+        parameters: CallParameters,
         request_body: Option<&CallBody>,
         metadata: OperationMetadata,
     ) -> Self {

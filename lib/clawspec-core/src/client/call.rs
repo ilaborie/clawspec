@@ -13,27 +13,16 @@ use tracing::debug;
 use url::Url;
 use utoipa::ToSchema;
 
+use super::call_parameters::{CallParameters, OperationMetadata};
 use super::collectors::{CalledOperation, Collectors};
 use super::param::ParameterValue;
 use super::path::PathResolved;
 use super::status::ExpectedStatusCodes;
 use super::{
-    ApiClientError, CallBody, CallCookies, CallHeaders, CallParameters, CallPath, CallQuery,
-    CallResult, ParamValue,
+    ApiClientError, CallBody, CallCookies, CallHeaders, CallPath, CallQuery, CallResult, ParamValue,
 };
 
 const BODY_MAX_LENGTH: usize = 1024;
-
-/// Metadata for OpenAPI operation documentation.
-#[derive(Debug, Clone, Default)]
-struct OperationMetadata {
-    /// Operation ID for the OpenAPI operation
-    operation_id: String,
-    /// Operation tags for categorization
-    tags: Option<Vec<String>>,
-    /// Operation description for documentation
-    description: Option<String>,
-}
 
 /// Builder for configuring HTTP API calls with comprehensive parameter and validation support.
 ///
@@ -168,6 +157,7 @@ impl ApiCall {
                 operation_id,
                 tags: None,
                 description: None,
+                response_description: None,
             },
             response_description: None,
             skip_collection: false,
@@ -1079,6 +1069,7 @@ impl ApiCall {
             operation_id,
             tags,
             description,
+            response_description: _,
         } = metadata;
 
         CalledOperation::build(
@@ -1087,7 +1078,7 @@ impl ApiCall {
             path,
             parameters,
             body.as_ref(),
-            super::collectors::OperationMetadata {
+            OperationMetadata {
                 operation_id: operation_id.to_string(),
                 tags,
                 description,
@@ -1175,6 +1166,7 @@ mod tests {
             operation_id: "test-operation".to_string(),
             tags: Some(vec!["users".to_string(), "admin".to_string()]),
             description: Some("Test operation description".to_string()),
+            response_description: Some("Test response description".to_string()),
         };
 
         assert_eq!(metadata.operation_id, "test-operation");
