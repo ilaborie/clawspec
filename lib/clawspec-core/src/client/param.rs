@@ -205,9 +205,11 @@ impl ResolvedParamValue {
     /// This helper method handles the common logic for converting array items
     /// to their string representations.
     fn array_to_string_values(arr: &[serde_json::Value]) -> Result<Vec<String>, ApiClientError> {
-        arr.iter()
-            .map(Self::json_value_to_string)
-            .collect::<Result<Vec<_>, _>>()
+        let mut result = Vec::with_capacity(arr.len());
+        for value in arr {
+            result.push(Self::json_value_to_string(value)?);
+        }
+        Ok(result)
     }
 
     /// Converts the JSON value to a string representation for use in URLs.
