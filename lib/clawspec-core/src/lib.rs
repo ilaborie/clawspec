@@ -68,7 +68,7 @@
 //! ## Working with Parameters
 //!
 //! ```rust
-//! use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue, ParamStyle};
+//! use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, CallCookies, ParamValue, ParamStyle};
 //!
 //! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
 //! // Path parameters  
@@ -84,11 +84,17 @@
 //! let headers = CallHeaders::new()
 //!     .add_header("Authorization", "Bearer token");
 //!
+//! // Cookies
+//! let cookies = CallCookies::new()
+//!     .add_cookie("session_id", "abc123")
+//!     .add_cookie("user_id", 456);
+//!
 //! // Direct await with parameters:
 //! let response = client
 //!     .get(path)?
 //!     .with_query(query)
 //!     .with_headers(headers)
+//!     .with_cookies(cookies)
 //!     .await?;  // Direct await using IntoFuture
 //! # Ok(())
 //! # }
@@ -157,6 +163,32 @@
 //! let user_data = serde_json::json!({"name": "john", "age": 30});
 //! let query = CallQuery::new()
 //!     .add_param("user", ParamValue::with_style(user_data, ParamStyle::DeepObject));
+//! # }
+//! ```
+//!
+//! ### Cookie Parameters
+//!
+//! ```rust
+//! use clawspec_core::{CallCookies, ParamValue};
+//!
+//! # async fn example() {
+//! // Simple cookie values
+//! let cookies = CallCookies::new()
+//!     .add_cookie("session_id", "abc123")
+//!     .add_cookie("user_id", 456)
+//!     .add_cookie("is_admin", true);
+//!
+//! // Array values in cookies (comma-separated)
+//! let cookies = CallCookies::new()
+//!     .add_cookie("preferences", vec!["dark_mode", "notifications"])
+//!     .add_cookie("selected_tags", vec!["rust", "web", "api"]);
+//!
+//! // Custom types with automatic serialization
+//! #[derive(serde::Serialize, utoipa::ToSchema)]
+//! struct UserId(u64);
+//!
+//! let cookies = CallCookies::new()
+//!     .add_cookie("user", UserId(12345));
 //! # }
 //! ```
 //!
@@ -306,9 +338,9 @@ pub mod test_client;
 
 // Public API - only expose user-facing types and functions
 pub use self::client::{
-    ApiCall, ApiClient, ApiClientBuilder, ApiClientError, CallBody, CallHeaders, CallPath,
-    CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue, ParameterValue, RawBody,
-    RawResult,
+    ApiCall, ApiClient, ApiClientBuilder, ApiClientError, CallBody, CallCookies, CallHeaders,
+    CallPath, CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue, ParameterValue,
+    RawBody, RawResult,
 };
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below

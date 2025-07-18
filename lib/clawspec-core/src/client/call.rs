@@ -17,7 +17,10 @@ use super::collectors::{CalledOperation, Collectors};
 use super::param::ParameterValue;
 use super::path::PathResolved;
 use super::status::ExpectedStatusCodes;
-use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery, CallResult, ParamValue};
+use super::{
+    ApiClientError, CallBody, CallCookies, CallHeaders, CallParameters, CallPath, CallQuery,
+    CallResult, ParamValue,
+};
 
 const BODY_MAX_LENGTH: usize = 1024;
 
@@ -129,7 +132,7 @@ pub struct ApiCall {
     #[debug(ignore)]
     body: Option<CallBody>,
     // TODO auth - https://github.com/ilaborie/clawspec/issues/17
-    // TODO cookiess - https://github.com/ilaborie/clawspec/issues/18
+    cookies: Option<CallCookies>,
     /// Expected status codes for this request (default: 200..500)
     expected_status_codes: ExpectedStatusCodes,
     /// Operation metadata for OpenAPI documentation
@@ -159,6 +162,7 @@ impl ApiCall {
             query: CallQuery::default(),
             headers: None,
             body: None,
+            cookies: None,
             expected_status_codes: ExpectedStatusCodes::default(),
             metadata: OperationMetadata {
                 operation_id,
@@ -380,6 +384,83 @@ impl ApiCall {
     ) -> Self {
         let headers = CallHeaders::new().add_header(name, value);
         self.with_headers(headers)
+    }
+
+    /// Adds cookies to the API call, merging with any existing cookies.
+    ///
+    /// This method accepts a `CallCookies` instance and merges it with any existing
+    /// cookies on the request. Cookies are sent in the HTTP Cookie header and can
+    /// be used for session management, authentication, and storing user preferences.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_core::{ApiClient, CallCookies};
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let cookies = CallCookies::new()
+    ///     .add_cookie("session_id", "abc123")
+    ///     .add_cookie("user_id", 456);
+    ///
+    /// let call = client.get("/dashboard")?
+    ///     .with_cookies(cookies);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_cookies(mut self, cookies: CallCookies) -> Self {
+        self.cookies = match self.cookies.take() {
+            Some(existing) => Some(existing.merge(cookies)),
+            None => Some(cookies),
+        };
+        self
+    }
+
+    /// Convenience method to add a single cookie.
+    ///
+    /// This method automatically handles type conversion and merges with existing cookies.
+    /// If a cookie with the same name already exists, the new value will override it.
+    ///
+    /// # Examples
+    ///
+    /// ## Basic Usage
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client.get("/dashboard")?
+    ///     .with_cookie("session_id", "abc123")
+    ///     .with_cookie("user_id", 456);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Type Flexibility and Edge Cases
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Different value types are automatically converted
+    /// let call = client.get("/preferences")?
+    ///     .with_cookie("theme", "dark")                    // String values
+    ///     .with_cookie("user_id", 12345_u64)              // Numeric values
+    ///     .with_cookie("is_premium", true)                // Boolean values
+    ///     .with_cookie("selected_tags", vec!["rust", "web"]); // Array values
+    ///
+    /// // Cookies can be chained and overridden
+    /// let call = client.get("/profile")?
+    ///     .with_cookie("session_id", "old-session")
+    ///     .with_cookie("session_id", "new-session");      // Overrides previous value
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_cookie<T: ParameterValue>(
+        self,
+        name: impl Into<String>,
+        value: impl Into<ParamValue<T>>,
+    ) -> Self {
+        let cookies = CallCookies::new().add_cookie(name, value);
+        self.with_cookies(cookies)
     }
 
     // =============================================================================
@@ -867,6 +948,7 @@ impl ApiCall {
             query,
             headers,
             body,
+            cookies,
             expected_status_codes,
             metadata,
             response_description,
@@ -875,7 +957,8 @@ impl ApiCall {
 
         // Build URL and request
         let url = Self::build_url(&base_uri, &path, &query)?;
-        let request = Self::build_request(method.clone(), url, &headers, &body)?;
+        let parameters = CallParameters::with_all(query.clone(), headers.clone(), cookies.clone());
+        let request = Self::build_request(method.clone(), url, &parameters, &body)?;
 
         // Create operation for OpenAPI documentation
         let operation_id = metadata.operation_id.clone();
@@ -883,8 +966,7 @@ impl ApiCall {
             metadata,
             &method,
             &path,
-            query.clone(),
-            &headers,
+            parameters.clone(),
             &body,
             response_description,
         );
@@ -919,7 +1001,7 @@ impl ApiCall {
             let call_result =
                 CallResult::new(operation_id, Arc::clone(&collectors), response).await?;
             operation.add_response(call_result.clone());
-            Self::collect_schemas_and_operation(collectors, &path, &headers, &body, operation)
+            Self::collect_schemas_and_operation(collectors, &path, &parameters, &body, operation)
                 .await;
             call_result
         };
@@ -952,20 +1034,27 @@ impl ApiCall {
     fn build_request(
         method: Method,
         url: Url,
-        headers: &Option<CallHeaders>,
+        parameters: &CallParameters,
         body: &Option<CallBody>,
     ) -> Result<Request, ApiClientError> {
         let mut request = Request::new(method, url);
         let req_headers = request.headers_mut();
 
         // Add custom headers
-        if let Some(headers) = headers {
-            for (name, value) in headers.to_http_headers()? {
-                req_headers.insert(
-                    HeaderName::from_bytes(name.as_bytes())?,
-                    HeaderValue::from_str(&value)?,
-                );
-            }
+        for (name, value) in parameters.to_http_headers()? {
+            req_headers.insert(
+                HeaderName::from_bytes(name.as_bytes())?,
+                HeaderValue::from_str(&value)?,
+            );
+        }
+
+        // Add cookies as Cookie header
+        let cookie_header = parameters.to_cookie_header()?;
+        if !cookie_header.is_empty() {
+            req_headers.insert(
+                HeaderName::from_static("cookie"),
+                HeaderValue::from_str(&cookie_header)?,
+            );
         }
 
         // Set body
@@ -982,8 +1071,7 @@ impl ApiCall {
         metadata: OperationMetadata,
         method: &Method,
         path: &CallPath,
-        query: CallQuery,
-        headers: &Option<CallHeaders>,
+        parameters: CallParameters,
         body: &Option<CallBody>,
         response_description: Option<String>,
     ) -> CalledOperation {
@@ -994,31 +1082,30 @@ impl ApiCall {
         } = metadata;
 
         CalledOperation::build(
-            operation_id.to_string(),
             method.clone(),
             &path.path,
             path,
-            query,
-            headers.as_ref(),
+            parameters,
             body.as_ref(),
-            tags,
-            description,
-            response_description,
+            super::collectors::OperationMetadata {
+                operation_id: operation_id.to_string(),
+                tags,
+                description,
+                response_description,
+            },
         )
     }
 
     async fn collect_schemas_and_operation(
         collectors: Arc<RwLock<Collectors>>,
         path: &CallPath,
-        headers: &Option<CallHeaders>,
+        parameters: &CallParameters,
         body: &Option<CallBody>,
         operation: CalledOperation,
     ) {
         let mut cs = collectors.write().await;
         cs.collect_schemas(path.schemas().clone());
-        if let Some(headers) = headers {
-            cs.collect_schemas(headers.schemas().clone());
-        }
+        cs.collect_schemas(parameters.collect_schemas());
         if let Some(body) = body {
             cs.collect_schema_entry(body.entry.clone());
         }
@@ -1451,10 +1538,10 @@ mod tests {
     fn test_build_request_simple() {
         let method = Method::GET;
         let url: Url = "http://localhost:8080/users".parse().unwrap();
-        let headers = None;
         let body = None;
+        let parameters = CallParameters::default();
 
-        let request = ApiCall::build_request(method.clone(), url.clone(), &headers, &body)
+        let request = ApiCall::build_request(method.clone(), url.clone(), &parameters, &body)
             .expect("should build request");
 
         assert_eq!(request.method(), &method);
@@ -1468,9 +1555,10 @@ mod tests {
         let url: Url = "http://localhost:8080/users".parse().unwrap();
         let headers = Some(CallHeaders::new().add_header("Authorization", "Bearer token"));
         let body = None;
+        let parameters = CallParameters::with_all(CallQuery::new(), headers, None);
 
         let request =
-            ApiCall::build_request(method, url, &headers, &body).expect("should build request");
+            ApiCall::build_request(method, url, &parameters, &body).expect("should build request");
 
         assert!(request.headers().get("authorization").is_some());
     }
@@ -1479,15 +1567,15 @@ mod tests {
     fn test_build_request_with_body() {
         let method = Method::POST;
         let url: Url = "http://localhost:8080/users".parse().unwrap();
-        let headers = None;
         let test_data = TestData {
             id: 1,
             name: "test".to_string(),
         };
         let body = Some(CallBody::json(&test_data).expect("should create JSON body"));
+        let parameters = CallParameters::default();
 
         let request =
-            ApiCall::build_request(method, url, &headers, &body).expect("should build request");
+            ApiCall::build_request(method, url, &parameters, &body).expect("should build request");
 
         assert!(request.body().is_some());
         assert_eq!(

@@ -17,7 +17,7 @@ use utoipa::openapi::{Content, PathItem, RefOr, ResponseBuilder, Schema};
 
 use super::output::Output;
 use super::schema::Schemas;
-use super::{ApiClientError, CallBody, CallHeaders, CallPath, CallQuery};
+use super::{ApiClientError, CallBody, CallPath};
 
 /// Normalizes content types for OpenAPI specification by removing parameters
 /// that are implementation details (like multipart boundaries, charset, etc.).
@@ -787,47 +787,42 @@ impl CallResult {
     }
 }
 
+/// Metadata for operation documentation.
+#[derive(Debug, Clone)]
+pub(super) struct OperationMetadata {
+    pub(super) operation_id: String,
+    pub(super) tags: Option<Vec<String>>,
+    pub(super) description: Option<String>,
+    pub(super) response_description: Option<String>,
+}
+
 impl CalledOperation {
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn build(
-        operation_id: String,
         method: http::Method,
         path_name: &str,
         path: &CallPath,
-        query: CallQuery,
-        headers: Option<&CallHeaders>,
+        parameters: super::CallParameters,
         request_body: Option<&CallBody>,
-        tags: Option<Vec<String>>,
-        description: Option<String>,
-        response_description: Option<String>,
-        // TODO cookie - https://github.com/ilaborie/clawspec/issues/18
+        metadata: OperationMetadata,
     ) -> Self {
-        // Build parameters
-        let mut parameters: Vec<_> = path.to_parameters().collect();
+        // Build parameters from path and CallParameters
+        let mut all_parameters: Vec<_> = path.to_parameters().collect();
+        all_parameters.extend(parameters.to_parameters());
 
         let mut schemas = path.schemas().clone();
-
-        // Add query parameters
-        if !query.is_empty() {
-            parameters.extend(query.to_parameters());
-            schemas.merge(query.schemas);
-        }
-
-        // Add header parameters
-        if let Some(headers) = headers {
-            parameters.extend(headers.to_parameters());
-            schemas.merge(headers.schemas().clone());
-        }
+        schemas.merge(parameters.collect_schemas());
 
         // Generate automatic description if none provided
-        let final_description = description.or_else(|| generate_description(&method, path_name));
+        let final_description = metadata
+            .description
+            .or_else(|| generate_description(&method, path_name));
 
         // Generate automatic tags if none provided
-        let final_tags = tags.or_else(|| generate_tags(path_name));
+        let final_tags = metadata.tags.or_else(|| generate_tags(path_name));
 
         let builder = Operation::builder()
-            .operation_id(Some(&operation_id))
-            .parameters(Some(parameters))
+            .operation_id(Some(&metadata.operation_id))
+            .parameters(Some(all_parameters))
             .description(final_description)
             .tags(final_tags);
 
@@ -855,12 +850,12 @@ impl CalledOperation {
 
         let operation = builder.build();
         Self {
-            operation_id,
+            operation_id: metadata.operation_id,
             method,
             path: path_name.to_string(),
             operation,
             result: None,
-            response_description,
+            response_description: metadata.response_description,
         }
     }
 

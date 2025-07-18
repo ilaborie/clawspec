@@ -26,6 +26,12 @@ pub use self::query::CallQuery;
 mod headers;
 pub use self::headers::CallHeaders;
 
+mod cookies;
+pub use self::cookies::CallCookies;
+
+mod parameters;
+pub use self::parameters::CallParameters;
+
 mod body;
 pub use self::body::CallBody;
 
