@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.1.4...clawspec-core-v0.2.0) - 2025-07-19
+
+### Added
+
+- Implement authentication support for API client ([#92](https://github.com/ilaborie/clawspec/pull/92))
+- Implement cookie support in API client (fixes #18) ([#91](https://github.com/ilaborie/clawspec/pull/91))
+- Add full OpenAPI 3.1.0 parameter styles support ([#90](https://github.com/ilaborie/clawspec/pull/90))
+- Add OpenAPI response descriptions support ([#88](https://github.com/ilaborie/clawspec/pull/88))
+- Enable method chaining for CallPath::add_param ([#86](https://github.com/ilaborie/clawspec/pull/86))
+
+### Fixed
+
+- Enable automatic JSON schema capture for request/response bodies ([#89](https://github.com/ilaborie/clawspec/pull/89))
+
 ### Added
 - Authentication support with Bearer, Basic, and API Key methods
 - Cookie support for comprehensive parameter handling
