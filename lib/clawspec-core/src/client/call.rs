@@ -61,7 +61,7 @@ const BODY_MAX_LENGTH: usize = 1024;
 /// - [`with_response_description(desc)`](Self::with_response_description) - Set description for the actual returned status code
 ///
 /// ## Execution
-/// - [`exchange()`](Self::exchange) - Execute the request and return response (⚠️ **must consume result for OpenAPI**)
+/// - `.await` - Execute the request and return response (⚠️ **must consume result for OpenAPI**)
 ///
 /// # Default Behavior
 ///

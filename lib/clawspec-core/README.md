@@ -17,6 +17,9 @@ Clawspec automatically generates OpenAPI documentation by observing HTTP client 
 - 🚀 **Zero Runtime Overhead** - Documentation generation only runs during tests
 - 🛠️ **Framework Agnostic** - Works with any async HTTP server
 - 📝 **OpenAPI 3.1 Compliant** - Generate standard-compliant specifications
+- 🔐 **Authentication Support** - Bearer, Basic, and API Key authentication
+- 🍪 **Cookie Support** - Full cookie parameter handling and documentation
+- 📋 **Parameter Styles** - Complete OpenAPI 3.1.0 parameter style support
 
 ## Quick Start
 
@@ -24,7 +27,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-clawspec-core = "0.1.1"
+clawspec-core = "0.1.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -119,8 +122,10 @@ The main HTTP client that captures request/response schemas:
 
 - **Builder pattern** for configuration
 - **Automatic schema extraction** from Rust types
-- **Flexible parameter handling** (path, query, headers)
+- **Flexible parameter handling** (path, query, headers, cookies)
+- **Authentication support** (Bearer, Basic, API Key)
 - **Status code validation** with ranges and specific codes
+- **OpenAPI 3.1.0 parameter styles** support
 
 ### TestClient
 
@@ -136,7 +141,7 @@ A test-focused wrapper providing:
 ### Parameter Handling
 
 ```rust
-use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, ParamValue};
+use clawspec_core::{ApiClient, CallPath, CallQuery, CallHeaders, CallCookies, ParamValue};
 
 let path = CallPath::from("/users/{id}/posts/{post_id}")
     .add_param("id", ParamValue::new(123))
@@ -150,10 +155,15 @@ let headers = CallHeaders::new()
     .add_header("Authorization", "Bearer token")
     .add_header("X-Request-ID", "abc123");
 
+let cookies = CallCookies::new()
+    .add_cookie("session_id", "abc123")
+    .add_cookie("user_id", 456);
+
 let response = client
     .get(path)?
     .with_query(query)
     .with_headers(headers)
+    .with_cookies(cookies)
     .exchange()
     .await?;
 ```
@@ -200,6 +210,66 @@ struct ErrorResponse {
 
 // Register schemas for better documentation
 register_schemas!(client, CreateUserRequest, ErrorResponse);
+```
+
+### Authentication
+
+Clawspec supports various authentication methods for your API tests:
+
+```rust
+use clawspec_core::{ApiClient, Authentication};
+
+// Bearer token authentication
+let client = ApiClient::builder()
+    .with_host("api.example.com")
+    .with_authentication(Authentication::Bearer("my-api-token".to_string()))
+    .build()?;
+
+// Basic authentication
+let client = ApiClient::builder()
+    .with_authentication(Authentication::Basic {
+        username: "user".to_string(),
+        password: "pass".to_string(),
+    })
+    .build()?;
+
+// API key authentication
+let client = ApiClient::builder()
+    .with_authentication(Authentication::ApiKey {
+        header_name: "X-API-Key".to_string(),
+        key: "secret-key".to_string(),
+    })
+    .build()?;
+
+// Per-request authentication override
+let response = client
+    .get("/admin/users")?
+    .with_authentication(Authentication::Bearer("admin-token".to_string()))
+    .await?;
+
+// Disable authentication for public endpoints
+let public_data = client
+    .get("/public/health")?
+    .with_authentication_none()
+    .await?;
+```
+
+### Cookie Support
+
+Handle cookie parameters with full OpenAPI documentation:
+
+```rust
+use clawspec_core::{ApiClient, CallCookies};
+
+let cookies = CallCookies::new()
+    .add_cookie("session_id", "abc123")
+    .add_cookie("user_preferences", vec!["dark_mode", "notifications"])
+    .add_cookie("is_admin", true);
+
+let response = client
+    .get("/dashboard")?
+    .with_cookies(cookies)
+    .await?;
 ```
 
 ## Integration Examples
