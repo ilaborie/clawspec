@@ -36,6 +36,8 @@ uuid = { workspace = true, features = ["v4"]}
 mime = { workspace = true }
 cruet = { workspace = true }
 backon = { workspace = true }
+base64 = { workspace = true }
+zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }

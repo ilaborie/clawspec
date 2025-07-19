@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Authentication support with Bearer, Basic, and API Key methods
+- Cookie support for comprehensive parameter handling
+- Complete OpenAPI 3.1.0 parameter styles support
+
 ## [0.1.4](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.1.3...clawspec-core-v0.1.4) - 2025-07-17
 
 ### Fixed

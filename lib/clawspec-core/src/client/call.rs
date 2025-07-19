@@ -61,7 +61,7 @@ const BODY_MAX_LENGTH: usize = 1024;
 /// - [`with_response_description(desc)`](Self::with_response_description) - Set description for the actual returned status code
 ///
 /// ## Execution
-/// - [`exchange()`](Self::exchange) - Execute the request and return response (⚠️ **must consume result for OpenAPI**)
+/// - `.await` - Execute the request and return response (⚠️ **must consume result for OpenAPI**)
 ///
 /// # Default Behavior
 ///
@@ -120,7 +120,8 @@ pub struct ApiCall {
 
     #[debug(ignore)]
     body: Option<CallBody>,
-    // TODO auth - https://github.com/ilaborie/clawspec/issues/17
+
+    authentication: Option<super::Authentication>,
     cookies: Option<CallCookies>,
     /// Expected status codes for this request (default: 200..500)
     expected_status_codes: ExpectedStatusCodes,
@@ -139,6 +140,7 @@ impl ApiCall {
         collectors: Arc<RwLock<Collectors>>,
         method: Method,
         path: CallPath,
+        authentication: Option<super::Authentication>,
     ) -> Result<Self, ApiClientError> {
         let operation_id = slug::slugify(format!("{method} {}", path.path));
 
@@ -151,6 +153,7 @@ impl ApiCall {
             query: CallQuery::default(),
             headers: None,
             body: None,
+            authentication,
             cookies: None,
             expected_status_codes: ExpectedStatusCodes::default(),
             metadata: OperationMetadata {
@@ -451,6 +454,70 @@ impl ApiCall {
     ) -> Self {
         let cookies = CallCookies::new().add_cookie(name, value);
         self.with_cookies(cookies)
+    }
+
+    /// Overrides the authentication for this specific request.
+    ///
+    /// This method allows you to use different authentication for a specific request,
+    /// overriding the default authentication configured on the API client.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, Authentication};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Client with default authentication
+    /// let mut client = ApiClient::builder()
+    ///     .with_authentication(Authentication::Bearer("default-token".into()))
+    ///     .build()?;
+    ///
+    /// // Use different authentication for a specific request
+    /// let response = client
+    ///     .get("/admin/users")?
+    ///     .with_authentication(Authentication::Bearer("admin-token".into()))
+    ///     .await?;
+    ///
+    /// // Remove authentication for a public endpoint
+    /// let response = client
+    ///     .get("/public/health")?
+    ///     .with_authentication_none()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_authentication(mut self, authentication: super::Authentication) -> Self {
+        self.authentication = Some(authentication);
+        self
+    }
+
+    /// Removes authentication for this specific request.
+    ///
+    /// This is useful when making requests to public endpoints that don't require
+    /// authentication, even when the client has default authentication configured.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, Authentication};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Client with default authentication
+    /// let mut client = ApiClient::builder()
+    ///     .with_authentication(Authentication::Bearer("token".into()))
+    ///     .build()?;
+    ///
+    /// // Remove authentication for public endpoint
+    /// let response = client
+    ///     .get("/public/status")?
+    ///     .with_authentication_none()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_authentication_none(mut self) -> Self {
+        self.authentication = None;
+        self
     }
 
     // =============================================================================
@@ -938,6 +1005,7 @@ impl ApiCall {
             query,
             headers,
             body,
+            authentication,
             cookies,
             expected_status_codes,
             metadata,
@@ -948,7 +1016,8 @@ impl ApiCall {
         // Build URL and request
         let url = Self::build_url(&base_uri, &path, &query)?;
         let parameters = CallParameters::with_all(query.clone(), headers.clone(), cookies.clone());
-        let request = Self::build_request(method.clone(), url, &parameters, &body)?;
+        let request =
+            Self::build_request(method.clone(), url, &parameters, &body, &authentication)?;
 
         // Create operation for OpenAPI documentation
         let operation_id = metadata.operation_id.clone();
@@ -1026,9 +1095,16 @@ impl ApiCall {
         url: Url,
         parameters: &CallParameters,
         body: &Option<CallBody>,
+        authentication: &Option<super::Authentication>,
     ) -> Result<Request, ApiClientError> {
         let mut request = Request::new(method, url);
         let req_headers = request.headers_mut();
+
+        // Add authentication header if present
+        if let Some(auth) = authentication {
+            let (header_name, header_value) = auth.to_header()?;
+            req_headers.insert(header_name, header_value);
+        }
 
         // Add custom headers
         for (name, value) in parameters.to_http_headers()? {
@@ -1148,7 +1224,7 @@ mod tests {
         let method = Method::GET;
         let path = CallPath::from("/test");
 
-        ApiCall::build(client, base_uri, collectors, method, path).unwrap()
+        ApiCall::build(client, base_uri, collectors, method, path, None).unwrap()
     }
 
     // Test OperationMetadata creation and defaults
@@ -1533,8 +1609,9 @@ mod tests {
         let body = None;
         let parameters = CallParameters::default();
 
-        let request = ApiCall::build_request(method.clone(), url.clone(), &parameters, &body)
-            .expect("should build request");
+        let request =
+            ApiCall::build_request(method.clone(), url.clone(), &parameters, &body, &None)
+                .expect("should build request");
 
         assert_eq!(request.method(), &method);
         assert_eq!(request.url(), &url);
@@ -1549,8 +1626,8 @@ mod tests {
         let body = None;
         let parameters = CallParameters::with_all(CallQuery::new(), headers, None);
 
-        let request =
-            ApiCall::build_request(method, url, &parameters, &body).expect("should build request");
+        let request = ApiCall::build_request(method, url, &parameters, &body, &None)
+            .expect("should build request");
 
         assert!(request.headers().get("authorization").is_some());
     }
@@ -1566,8 +1643,8 @@ mod tests {
         let body = Some(CallBody::json(&test_data).expect("should create JSON body"));
         let parameters = CallParameters::default();
 
-        let request =
-            ApiCall::build_request(method, url, &parameters, &body).expect("should build request");
+        let request = ApiCall::build_request(method, url, &parameters, &body, &None)
+            .expect("should build request");
 
         assert!(request.body().is_some());
         assert_eq!(
@@ -1780,5 +1857,157 @@ mod tests {
     fn test_api_call_response_description_none_by_default() {
         let call = create_test_api_call();
         assert_eq!(call.response_description, None);
+    }
+
+    #[test]
+    fn test_api_call_with_authentication_bearer() {
+        let mut call = create_test_api_call();
+        call = call.with_authentication(super::super::Authentication::Bearer("test-token".into()));
+
+        assert!(matches!(
+            call.authentication,
+            Some(super::super::Authentication::Bearer(ref token)) if token.equals_str("test-token")
+        ));
+    }
+
+    #[test]
+    fn test_api_call_with_authentication_basic() {
+        let mut call = create_test_api_call();
+        call = call.with_authentication(super::super::Authentication::Basic {
+            username: "user".to_string(),
+            password: "pass".into(),
+        });
+
+        assert!(matches!(
+            call.authentication,
+            Some(super::super::Authentication::Basic { ref username, ref password })
+                if username == "user" && password.equals_str("pass")
+        ));
+    }
+
+    #[test]
+    fn test_api_call_with_authentication_api_key() {
+        let mut call = create_test_api_call();
+        call = call.with_authentication(super::super::Authentication::ApiKey {
+            header_name: "X-API-Key".to_string(),
+            key: "secret-key".into(),
+        });
+
+        assert!(matches!(
+            call.authentication,
+            Some(super::super::Authentication::ApiKey { ref header_name, ref key })
+                if header_name == "X-API-Key" && key.equals_str("secret-key")
+        ));
+    }
+
+    #[test]
+    fn test_api_call_with_authentication_none() {
+        let mut call = create_test_api_call();
+        // First set authentication
+        call = call.with_authentication(super::super::Authentication::Bearer("token".into()));
+        assert!(call.authentication.is_some());
+
+        // Then remove it
+        call = call.with_authentication_none();
+        assert!(call.authentication.is_none());
+    }
+
+    #[test]
+    fn test_build_request_with_bearer_auth() {
+        let method = Method::GET;
+        let url: Url = "http://localhost:8080/users".parse().unwrap();
+        let parameters = CallParameters::default();
+        let body = None;
+        let auth = Some(super::super::Authentication::Bearer("test-token".into()));
+
+        let request = ApiCall::build_request(method, url, &parameters, &body, &auth)
+            .expect("should build request");
+
+        let auth_header = request.headers().get("authorization");
+        assert!(auth_header.is_some());
+        assert_eq!(auth_header.unwrap(), "Bearer test-token");
+    }
+
+    #[test]
+    fn test_build_request_with_basic_auth() {
+        let method = Method::GET;
+        let url: Url = "http://localhost:8080/users".parse().unwrap();
+        let parameters = CallParameters::default();
+        let body = None;
+        let auth = Some(super::super::Authentication::Basic {
+            username: "user".to_string(),
+            password: "pass".into(),
+        });
+
+        let request = ApiCall::build_request(method, url, &parameters, &body, &auth)
+            .expect("should build request");
+
+        let auth_header = request.headers().get("authorization");
+        assert!(auth_header.is_some());
+        // "user:pass" base64 encoded is "dXNlcjpwYXNz"
+        assert_eq!(auth_header.unwrap(), "Basic dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn test_build_request_with_api_key_auth() {
+        let method = Method::GET;
+        let url: Url = "http://localhost:8080/users".parse().unwrap();
+        let parameters = CallParameters::default();
+        let body = None;
+        let auth = Some(super::super::Authentication::ApiKey {
+            header_name: "X-API-Key".to_string(),
+            key: "secret-key-123".into(),
+        });
+
+        let request = ApiCall::build_request(method, url, &parameters, &body, &auth)
+            .expect("should build request");
+
+        let api_key_header = request.headers().get("X-API-Key");
+        assert!(api_key_header.is_some());
+        assert_eq!(api_key_header.unwrap(), "secret-key-123");
+    }
+
+    #[test]
+    fn test_build_request_without_auth() {
+        let method = Method::GET;
+        let url: Url = "http://localhost:8080/users".parse().unwrap();
+        let parameters = CallParameters::default();
+        let body = None;
+        let auth = None;
+
+        let request = ApiCall::build_request(method, url, &parameters, &body, &auth)
+            .expect("should build request");
+
+        assert!(request.headers().get("authorization").is_none());
+        assert!(request.headers().get("X-API-Key").is_none());
+    }
+
+    #[test]
+    fn test_authentication_override_in_method_chaining() {
+        let mut call = create_test_api_call();
+
+        // Start with no authentication
+        assert!(call.authentication.is_none());
+
+        // Add bearer authentication
+        call = call.with_authentication(super::super::Authentication::Bearer("token1".into()));
+        assert!(matches!(
+            call.authentication,
+            Some(super::super::Authentication::Bearer(ref token)) if token.equals_str("token1")
+        ));
+
+        // Override with basic authentication
+        call = call.with_authentication(super::super::Authentication::Basic {
+            username: "user".to_string(),
+            password: "pass".into(),
+        });
+        assert!(matches!(
+            call.authentication,
+            Some(super::super::Authentication::Basic { .. })
+        ));
+
+        // Remove authentication
+        call = call.with_authentication_none();
+        assert!(call.authentication.is_none());
     }
 }
