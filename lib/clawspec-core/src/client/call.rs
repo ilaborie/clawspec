@@ -469,13 +469,13 @@ impl ApiCall {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Client with default authentication
     /// let mut client = ApiClient::builder()
-    ///     .with_authentication(Authentication::Bearer("default-token".to_string()))
+    ///     .with_authentication(Authentication::Bearer("default-token".into()))
     ///     .build()?;
     ///
     /// // Use different authentication for a specific request
     /// let response = client
     ///     .get("/admin/users")?
-    ///     .with_authentication(Authentication::Bearer("admin-token".to_string()))
+    ///     .with_authentication(Authentication::Bearer("admin-token".into()))
     ///     .await?;
     ///
     /// // Remove authentication for a public endpoint
@@ -504,7 +504,7 @@ impl ApiCall {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Client with default authentication
     /// let mut client = ApiClient::builder()
-    ///     .with_authentication(Authentication::Bearer("token".to_string()))
+    ///     .with_authentication(Authentication::Bearer("token".into()))
     ///     .build()?;
     ///
     /// // Remove authentication for public endpoint
@@ -1862,13 +1862,11 @@ mod tests {
     #[test]
     fn test_api_call_with_authentication_bearer() {
         let mut call = create_test_api_call();
-        call = call.with_authentication(super::super::Authentication::Bearer(
-            "test-token".to_string(),
-        ));
+        call = call.with_authentication(super::super::Authentication::Bearer("test-token".into()));
 
         assert!(matches!(
             call.authentication,
-            Some(super::super::Authentication::Bearer(ref token)) if token == "test-token"
+            Some(super::super::Authentication::Bearer(ref token)) if token.equals_str("test-token")
         ));
     }
 
@@ -1877,13 +1875,13 @@ mod tests {
         let mut call = create_test_api_call();
         call = call.with_authentication(super::super::Authentication::Basic {
             username: "user".to_string(),
-            password: "pass".to_string(),
+            password: "pass".into(),
         });
 
         assert!(matches!(
             call.authentication,
             Some(super::super::Authentication::Basic { ref username, ref password })
-                if username == "user" && password == "pass"
+                if username == "user" && password.equals_str("pass")
         ));
     }
 
@@ -1892,13 +1890,13 @@ mod tests {
         let mut call = create_test_api_call();
         call = call.with_authentication(super::super::Authentication::ApiKey {
             header_name: "X-API-Key".to_string(),
-            key: "secret-key".to_string(),
+            key: "secret-key".into(),
         });
 
         assert!(matches!(
             call.authentication,
             Some(super::super::Authentication::ApiKey { ref header_name, ref key })
-                if header_name == "X-API-Key" && key == "secret-key"
+                if header_name == "X-API-Key" && key.equals_str("secret-key")
         ));
     }
 
@@ -1906,7 +1904,7 @@ mod tests {
     fn test_api_call_with_authentication_none() {
         let mut call = create_test_api_call();
         // First set authentication
-        call = call.with_authentication(super::super::Authentication::Bearer("token".to_string()));
+        call = call.with_authentication(super::super::Authentication::Bearer("token".into()));
         assert!(call.authentication.is_some());
 
         // Then remove it
@@ -1920,9 +1918,7 @@ mod tests {
         let url: Url = "http://localhost:8080/users".parse().unwrap();
         let parameters = CallParameters::default();
         let body = None;
-        let auth = Some(super::super::Authentication::Bearer(
-            "test-token".to_string(),
-        ));
+        let auth = Some(super::super::Authentication::Bearer("test-token".into()));
 
         let request = ApiCall::build_request(method, url, &parameters, &body, &auth)
             .expect("should build request");
@@ -1940,7 +1936,7 @@ mod tests {
         let body = None;
         let auth = Some(super::super::Authentication::Basic {
             username: "user".to_string(),
-            password: "pass".to_string(),
+            password: "pass".into(),
         });
 
         let request = ApiCall::build_request(method, url, &parameters, &body, &auth)
@@ -1960,7 +1956,7 @@ mod tests {
         let body = None;
         let auth = Some(super::super::Authentication::ApiKey {
             header_name: "X-API-Key".to_string(),
-            key: "secret-key-123".to_string(),
+            key: "secret-key-123".into(),
         });
 
         let request = ApiCall::build_request(method, url, &parameters, &body, &auth)
@@ -1994,16 +1990,16 @@ mod tests {
         assert!(call.authentication.is_none());
 
         // Add bearer authentication
-        call = call.with_authentication(super::super::Authentication::Bearer("token1".to_string()));
+        call = call.with_authentication(super::super::Authentication::Bearer("token1".into()));
         assert!(matches!(
             call.authentication,
-            Some(super::super::Authentication::Bearer(ref token)) if token == "token1"
+            Some(super::super::Authentication::Bearer(ref token)) if token.equals_str("token1")
         ));
 
         // Override with basic authentication
         call = call.with_authentication(super::super::Authentication::Basic {
             username: "user".to_string(),
-            password: "pass".to_string(),
+            password: "pass".into(),
         });
         assert!(matches!(
             call.authentication,

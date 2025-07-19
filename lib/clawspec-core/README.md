@@ -214,7 +214,7 @@ register_schemas!(client, CreateUserRequest, ErrorResponse);
 
 ### Authentication
 
-Clawspec supports various authentication methods for your API tests:
+Clawspec supports various authentication methods with enhanced security features:
 
 ```rust
 use clawspec_core::{ApiClient, Authentication};
@@ -222,14 +222,14 @@ use clawspec_core::{ApiClient, Authentication};
 // Bearer token authentication
 let client = ApiClient::builder()
     .with_host("api.example.com")
-    .with_authentication(Authentication::Bearer("my-api-token".to_string()))
+    .with_authentication(Authentication::Bearer("my-api-token".into()))
     .build()?;
 
 // Basic authentication
 let client = ApiClient::builder()
     .with_authentication(Authentication::Basic {
         username: "user".to_string(),
-        password: "pass".to_string(),
+        password: "pass".into(),
     })
     .build()?;
 
@@ -237,14 +237,14 @@ let client = ApiClient::builder()
 let client = ApiClient::builder()
     .with_authentication(Authentication::ApiKey {
         header_name: "X-API-Key".to_string(),
-        key: "secret-key".to_string(),
+        key: "secret-key".into(),
     })
     .build()?;
 
 // Per-request authentication override
 let response = client
     .get("/admin/users")?
-    .with_authentication(Authentication::Bearer("admin-token".to_string()))
+    .with_authentication(Authentication::Bearer("admin-token".into()))
     .await?;
 
 // Disable authentication for public endpoints
@@ -253,6 +253,20 @@ let public_data = client
     .with_authentication_none()
     .await?;
 ```
+
+#### Security Features
+
+- **Memory Protection**: Sensitive credentials are automatically cleared from memory when no longer needed
+- **Debug Safety**: Authentication data is redacted in debug output to prevent accidental logging
+- **Display Masking**: Credentials are masked when displayed (e.g., `Bearer abcd...789`)
+- **Granular Error Handling**: Detailed authentication error types for better debugging
+
+#### Security Best Practices
+
+- Store credentials securely using environment variables or secret management tools
+- Rotate tokens regularly
+- Use HTTPS for all authenticated requests
+- Never log authentication headers or credentials
 
 ### Cookie Support
 
@@ -330,7 +344,8 @@ let config = TestServerConfig {
 
 The library provides comprehensive error types:
 
-- `ApiClientError` - HTTP client errors
+- `ApiClientError` - HTTP client errors (includes authentication errors)
+- `AuthenticationError` - Granular authentication failure details
 - `TestAppError` - Test server errors
 
 All errors implement standard error traits and provide detailed context for debugging.

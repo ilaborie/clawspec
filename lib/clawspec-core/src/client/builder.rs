@@ -431,14 +431,14 @@ impl ApiClientBuilder {
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Bearer token authentication
     /// let client = ApiClient::builder()
-    ///     .with_authentication(Authentication::Bearer("my-api-token".to_string()))
+    ///     .with_authentication(Authentication::Bearer("my-api-token".into()))
     ///     .build()?;
     ///
     /// // Basic authentication
     /// let client = ApiClient::builder()
     ///     .with_authentication(Authentication::Basic {
     ///         username: "user".to_string(),
-    ///         password: "pass".to_string(),
+    ///         password: "pass".into(),
     ///     })
     ///     .build()?;
     ///
@@ -446,7 +446,7 @@ impl ApiClientBuilder {
     /// let client = ApiClient::builder()
     ///     .with_authentication(Authentication::ApiKey {
     ///         header_name: "X-API-Key".to_string(),
-    ///         key: "secret-key".to_string(),
+    ///         key: "secret-key".into(),
     ///     })
     ///     .build()?;
     /// # Ok(())
@@ -646,15 +646,13 @@ mod tests {
     #[test]
     fn test_builder_with_authentication_bearer() {
         let client = ApiClientBuilder::default()
-            .with_authentication(super::super::Authentication::Bearer(
-                "test-token".to_string(),
-            ))
+            .with_authentication(super::super::Authentication::Bearer("test-token".into()))
             .build()
             .expect("should build client");
 
         assert!(matches!(
             client.authentication,
-            Some(super::super::Authentication::Bearer(ref token)) if token == "test-token"
+            Some(super::super::Authentication::Bearer(ref token)) if token.equals_str("test-token")
         ));
     }
 
@@ -663,7 +661,7 @@ mod tests {
         let client = ApiClientBuilder::default()
             .with_authentication(super::super::Authentication::Basic {
                 username: "user".to_string(),
-                password: "pass".to_string(),
+                password: "pass".into(),
             })
             .build()
             .expect("should build client");
@@ -671,7 +669,7 @@ mod tests {
         assert!(matches!(
             client.authentication,
             Some(super::super::Authentication::Basic { ref username, ref password })
-                if username == "user" && password == "pass"
+                if username == "user" && password.equals_str("pass")
         ));
     }
 
@@ -680,7 +678,7 @@ mod tests {
         let client = ApiClientBuilder::default()
             .with_authentication(super::super::Authentication::ApiKey {
                 header_name: "X-API-Key".to_string(),
-                key: "secret-key".to_string(),
+                key: "secret-key".into(),
             })
             .build()
             .expect("should build client");
@@ -688,7 +686,7 @@ mod tests {
         assert!(matches!(
             client.authentication,
             Some(super::super::Authentication::ApiKey { ref header_name, ref key })
-                if header_name == "X-API-Key" && key == "secret-key"
+                if header_name == "X-API-Key" && key.equals_str("secret-key")
         ));
     }
 

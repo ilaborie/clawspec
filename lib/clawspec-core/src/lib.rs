@@ -206,7 +206,7 @@
 //! // Bearer token authentication
 //! let client = ApiClient::builder()
 //!     .with_host("api.example.com")
-//!     .with_authentication(Authentication::Bearer("my-api-token".to_string()))
+//!     .with_authentication(Authentication::Bearer("my-api-token".into()))
 //!     .build()?;
 //!
 //! // Basic authentication
@@ -214,7 +214,7 @@
 //!     .with_host("api.example.com")
 //!     .with_authentication(Authentication::Basic {
 //!         username: "user".to_string(),
-//!         password: "pass".to_string(),
+//!         password: "pass".into(),
 //!     })
 //!     .build()?;
 //!
@@ -223,7 +223,7 @@
 //!     .with_host("api.example.com")
 //!     .with_authentication(Authentication::ApiKey {
 //!         header_name: "X-API-Key".to_string(),
-//!         key: "secret-key".to_string(),
+//!         key: "secret-key".into(),
 //!     })
 //!     .build()?;
 //! # Ok(())
@@ -239,13 +239,13 @@
 //! // Client with default authentication
 //! let mut client = ApiClient::builder()
 //!     .with_host("api.example.com")
-//!     .with_authentication(Authentication::Bearer("default-token".to_string()))
+//!     .with_authentication(Authentication::Bearer("default-token".into()))
 //!     .build()?;
 //!
 //! // Use different authentication for admin endpoints
 //! let admin_users = client
 //!     .get("/admin/users")?
-//!     .with_authentication(Authentication::Bearer("admin-token".to_string()))
+//!     .with_authentication(Authentication::Bearer("admin-token".into()))
 //!     .await?
 //!     .as_json::<serde_json::Value>()
 //!     .await?;
@@ -420,9 +420,9 @@ pub mod test_client;
 
 // Public API - only expose user-facing types and functions
 pub use self::client::{
-    ApiCall, ApiClient, ApiClientBuilder, ApiClientError, Authentication, CallBody, CallCookies,
-    CallHeaders, CallPath, CallQuery, CallResult, ExpectedStatusCodes, ParamStyle, ParamValue,
-    ParameterValue, RawBody, RawResult,
+    ApiCall, ApiClient, ApiClientBuilder, ApiClientError, Authentication, AuthenticationError,
+    CallBody, CallCookies, CallHeaders, CallPath, CallQuery, CallResult, ExpectedStatusCodes,
+    ParamStyle, ParamValue, ParameterValue, RawBody, RawResult, SecureString,
 };
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below

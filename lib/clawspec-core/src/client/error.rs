@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use super::auth::AuthenticationError;
 use super::output::Output;
 
 /// Errors that can occur when using the ApiClient.
@@ -47,6 +48,11 @@ pub enum ApiClientError {
     ///
     /// Occurs when converting structures to URL query strings.
     QuerySerializationError(serde_urlencoded::ser::Error),
+
+    /// Authentication processing error.
+    ///
+    /// Occurs when authentication credentials cannot be processed or are invalid.
+    AuthenticationError(AuthenticationError),
 
     /// No call result available for operation.
     ///
@@ -419,6 +425,19 @@ mod tests {
         match api_error {
             ApiClientError::InvalidHeaderValue(_) => {} // Expected
             _ => panic!("Should convert to InvalidHeaderValue"),
+        }
+    }
+
+    #[test]
+    fn test_from_authentication_error() {
+        let auth_error = AuthenticationError::InvalidBearerToken {
+            message: "contains null byte".to_string(),
+        };
+        let api_error: ApiClientError = auth_error.into();
+
+        match api_error {
+            ApiClientError::AuthenticationError(_) => {} // Expected
+            _ => panic!("Should convert to AuthenticationError"),
         }
     }
 

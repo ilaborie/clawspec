@@ -30,7 +30,7 @@ mod cookies;
 pub use self::cookies::CallCookies;
 
 mod auth;
-pub use self::auth::Authentication;
+pub use self::auth::{Authentication, AuthenticationError, SecureString};
 
 mod call_parameters;
 
