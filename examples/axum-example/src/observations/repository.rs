@@ -32,7 +32,7 @@ impl ObservationRepository {
 
         let mut result = data.into_iter().map(Observation::from).collect::<Vec<_>>();
         // sort
-        result.sort_by_key(|it| (it.data.name.to_string(), it.id));
+        result.sort_by_key(|it| (it.data.name.clone(), it.id));
         // Limit/offset
         let result = result.into_iter().skip(offset).take(limit).collect();
 

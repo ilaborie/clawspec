@@ -17,7 +17,7 @@ fn optimized_replace_path_param(path: &str, param_name: &str, value: &str) -> St
 fn benchmark_path_replacement(c: &mut Criterion) {
     let mut group = c.benchmark_group("path_replacement");
 
-    let test_cases = vec![
+    let test_cases = [
         ("/users/{id}", "id", "123"),
         ("/users/{user_id}/posts/{post_id}", "user_id", "456"),
         ("/users/{user_id}/posts/{post_id}", "post_id", "hello-world"),
