@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+use anyhow::bail;
 use clawspec_core::ApiClientError;
 use rstest::rstest;
 use tracing::info;
@@ -24,16 +25,12 @@ async fn test_unexpected_status_code_error(#[future] app: TestApp) -> anyhow::Re
         Err(ApiClientError::UnexpectedStatusCode { status_code, body }) => {
             assert_eq!(status_code, 404, "Expected 404 status code");
             // Note: 404 responses may have empty bodies, which is valid
-            info!(
-                "✓ Successfully caught UnexpectedStatusCode error: {} - {}",
-                status_code, body
-            );
+            info!("✓ Successfully caught UnexpectedStatusCode error: {status_code} - {body}",);
         }
-        Err(error) => anyhow::bail!(
-            "Expected ApiClientError::UnexpectedStatusCode, got: {:?}",
-            error
-        ),
-        Ok(_) => anyhow::bail!("Expected UnexpectedStatusCode error, but request succeeded"),
+        Err(error) => {
+            bail!("Expected ApiClientError::UnexpectedStatusCode, got: {error:?}")
+        }
+        Ok(_) => bail!("Expected UnexpectedStatusCode error, but request succeeded"),
     }
 
     Ok(())
@@ -49,16 +46,10 @@ async fn test_sucessful_endpoint_bad_status(#[future] app: TestApp) -> anyhow::R
     match result {
         Err(ApiClientError::UnexpectedStatusCode { status_code, body }) => {
             assert_eq!(status_code, 200, "Expected 200 status code");
-            info!(
-                "✓ Successfully caught UnexpectedStatusCode error: {} - {}",
-                status_code, body
-            );
+            info!("✓ Successfully caught UnexpectedStatusCode error: {status_code} - {body}");
         }
-        Err(error) => anyhow::bail!(
-            "Expected ApiClientError::UnexpectedStatusCode, got: {:?}",
-            error
-        ),
-        Ok(_) => anyhow::bail!("Expected UnexpectedStatusCode error, but request succeeded"),
+        Err(error) => bail!("Expected ApiClientError::UnexpectedStatusCode, got: {error:?}"),
+        Ok(_) => bail!("Expected UnexpectedStatusCode error, but request succeeded"),
     }
 
     Ok(())

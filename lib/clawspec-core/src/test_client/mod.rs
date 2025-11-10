@@ -918,7 +918,8 @@ mod tests {
 
         // Verify file was created and contains valid YAML
         let content = std::fs::read_to_string(temp_file).expect("file should exist");
-        let yaml: serde_yaml::Value = serde_yaml::from_str(&content).expect("should be valid YAML");
+        let yaml: serde_json::Value =
+            serde_saphyr::from_str(&content).expect("should be valid YAML");
 
         assert!(yaml.get("openapi").is_some());
         assert!(yaml.get("info").is_some());

@@ -33,63 +33,6 @@ fn normalize_content_type(content_type: &ContentType) -> String {
     }
 }
 
-#[cfg(test)]
-mod content_type_tests {
-    use super::*;
-    use headers::ContentType;
-
-    #[test]
-    fn test_normalize_json_content_type() {
-        let content_type = ContentType::json();
-        let normalized = normalize_content_type(&content_type);
-        assert_eq!(normalized, "application/json");
-    }
-
-    #[test]
-    fn test_normalize_multipart_content_type() {
-        // Create a multipart content type with boundary
-        let content_type_str = "multipart/form-data; boundary=----formdata-clawspec-12345";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
-        let normalized = normalize_content_type(&content_type);
-        assert_eq!(normalized, "multipart/form-data");
-    }
-
-    #[test]
-    fn test_normalize_form_urlencoded_content_type() {
-        let content_type = ContentType::form_url_encoded();
-        let normalized = normalize_content_type(&content_type);
-        assert_eq!(normalized, "application/x-www-form-urlencoded");
-    }
-
-    #[test]
-    fn test_normalize_content_type_with_charset() {
-        // Test content type with charset parameter
-        let content_type_str = "application/json; charset=utf-8";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
-        let normalized = normalize_content_type(&content_type);
-        assert_eq!(normalized, "application/json");
-    }
-
-    #[test]
-    fn test_normalize_content_type_with_multiple_parameters() {
-        // Test content type with multiple parameters
-        let content_type_str = "text/html; charset=utf-8; boundary=something";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
-        let normalized = normalize_content_type(&content_type);
-        assert_eq!(normalized, "text/html");
-    }
-
-    #[test]
-    fn test_normalize_content_type_without_parameters() {
-        // Test content type without parameters (should remain unchanged)
-        let content_type_str = "application/xml";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
-        let normalized = normalize_content_type(&content_type);
-        assert_eq!(normalized, "application/xml");
-    }
-}
-
-// TODO: Add unit tests for all collector functionality - https://github.com/ilaborie/clawspec/issues/30
 /// Collects and merges OpenAPI operations and schemas from API test executions.
 ///
 /// # Schema Merge Behavior
@@ -143,7 +86,7 @@ mod content_type_tests {
 #[derive(Debug, Clone, Default)]
 pub(super) struct Collectors {
     operations: IndexMap<String, Vec<CalledOperation>>,
-    schemas: Schemas,
+    pub(super) schemas: Schemas,
 }
 
 impl Collectors {
@@ -170,7 +113,7 @@ impl Collectors {
         self.schemas.schema_vec()
     }
 
-    /// Returns an iterator over all collected operations.
+    /// Returns an iterator over collected operations.
     ///
     /// This method provides access to all operations that have been collected
     /// during API calls, which is useful for tag computation and analysis.
@@ -300,7 +243,7 @@ pub(super) struct CalledOperation {
 /// // ✅ CORRECT: Always consume the CallResult
 /// let user: User = client
 ///     .get("/users/123")?
-///     
+///
 ///     .await?
 ///     .as_json()  // ← This is required!
 ///     .await?;
@@ -308,7 +251,7 @@ pub(super) struct CalledOperation {
 /// // ✅ CORRECT: For empty responses (like DELETE)
 /// client
 ///     .delete("/users/123")?
-///     
+///
 ///     .await?
 ///     .as_empty()  // ← This is required!
 ///     .await?;
@@ -325,7 +268,7 @@ pub(super) struct CalledOperation {
 /// The OpenAPI schema generation relies on observing how responses are processed.
 /// Without calling a consumption method:
 /// - Response schemas won't be captured
-/// - Content-Type information may be incomplete  
+/// - Content-Type information may be incomplete
 /// - Operation examples won't be generated
 /// - The resulting OpenAPI spec will be missing crucial response documentation
 #[derive(Debug, Clone)]
@@ -334,7 +277,7 @@ pub struct CallResult {
     status: StatusCode,
     content_type: Option<ContentType>,
     output: Output,
-    collectors: Arc<RwLock<Collectors>>,
+    pub(super) collectors: Arc<RwLock<Collectors>>,
 }
 
 /// Represents the raw response data from an HTTP request.
@@ -352,7 +295,7 @@ pub struct CallResult {
 /// let mut client = ApiClient::builder().build()?;
 /// let raw_result = client
 ///     .get("/api/data")?
-///     
+///
 ///     .await?
 ///     .as_raw()
 ///     .await?;
@@ -517,7 +460,10 @@ impl CallResult {
         })
     }
 
-    async fn get_output(&self, schema: Option<RefOr<Schema>>) -> Result<&Output, ApiClientError> {
+    pub(super) async fn get_output(
+        &self,
+        schema: Option<RefOr<Schema>>,
+    ) -> Result<&Output, ApiClientError> {
         // add operation response desc
         let mut cs = self.collectors.write().await;
         let Some(operation) = cs.operations.get_mut(&self.operation_id) else {
@@ -591,7 +537,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let user: User = client
     ///     .get("/users/123")?
-    ///     
+    ///
     ///     .await?
     ///     .as_json()
     ///     .await?;
@@ -630,83 +576,6 @@ impl CallResult {
         Ok(result)
     }
 
-    /// Deserializes the JSON response and returns a builder for applying redactions.
-    ///
-    /// This method is similar to [`as_json()`](CallResult::as_json) but returns a
-    /// [`RedactionBuilder`](super::redaction::RedactionBuilder) that allows you to apply redactions
-    /// to the JSON before finalizing the result.
-    ///
-    /// The original value is preserved for test assertions, while the redacted
-    /// JSON can be used for snapshot testing with stable values.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - The type to deserialize into. Must implement [`DeserializeOwned`],
-    ///   [`ToSchema`], and have a `'static` lifetime.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The response is not JSON
-    /// - JSON deserialization fails
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// # use clawspec_core::ApiClient;
-    /// # use serde::{Deserialize, Serialize};
-    /// # #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
-    /// # struct User { id: String, name: String }
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client = ApiClient::builder().with_base_path("http://localhost".parse()?).build()?;
-    /// let result = client
-    ///     .get("/api/users/123")?
-    ///     .await?
-    ///     .as_json_redacted::<User>().await?
-    ///     .redact_replace("/id", "stable-uuid")?
-    ///     .finish();
-    ///
-    /// // Use real value for assertions
-    /// assert!(!result.value.id.is_empty());
-    ///
-    /// // Use redacted value for snapshots
-    /// insta::assert_yaml_snapshot!(result.redacted);
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[cfg(feature = "redaction")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
-    pub async fn as_json_redacted<T>(
-        &mut self,
-    ) -> Result<super::redaction::RedactionBuilder<T>, ApiClientError>
-    where
-        T: DeserializeOwned + ToSchema + 'static,
-    {
-        // Register schema and get JSON output
-        let mut cs = self.collectors.write().await;
-        let schema = cs.schemas.add::<T>();
-        mem::drop(cs);
-        let output = self.get_output(Some(schema)).await?;
-
-        let Output::Json(json) = output else {
-            return Err(ApiClientError::UnsupportedJsonOutput {
-                output: output.clone(),
-                name: type_name::<T>(),
-            });
-        };
-
-        // Delegate to redaction module for core logic
-        let builder = super::redaction::create_redaction_builder::<T>(json)?;
-
-        // Add example (using non-redacted value)
-        if let Ok(example) = serde_json::to_value(json.as_str()) {
-            let mut cs = self.collectors.write().await;
-            cs.schemas.add_example::<T>(example);
-        }
-
-        Ok(builder)
-    }
-
     /// Processes the response as plain text.
     ///
     /// This method records the response in the OpenAPI specification and returns
@@ -725,7 +594,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let text = client
     ///     .get("/api/status")?
-    ///     
+    ///
     ///     .await?
     ///     .as_text()
     ///     .await?;
@@ -762,7 +631,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let bytes = client
     ///     .get("/api/download")?
-    ///     
+    ///
     ///     .await?
     ///     .as_bytes()
     ///     .await?;
@@ -802,7 +671,7 @@ impl CallResult {
     /// let mut client = ApiClient::builder().build()?;
     /// let raw_result = client
     ///     .get("/api/data")?
-    ///     
+    ///
     ///     .await?
     ///     .as_raw()
     ///     .await?;
@@ -852,7 +721,7 @@ impl CallResult {
     ///
     /// client
     ///     .delete("/items/123")?
-    ///     
+    ///
     ///     .await?
     ///     .as_empty()
     ///     .await?;
@@ -1516,5 +1385,55 @@ mod operation_metadata_tests {
         // Additional cases cruet handles
         assert_eq!(singularize("stories"), "story");
         assert_eq!(singularize("cities"), "city");
+    }
+
+    #[test]
+    fn test_normalize_json_content_type() {
+        let content_type = ContentType::json();
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/json");
+    }
+
+    #[test]
+    fn test_normalize_multipart_content_type() {
+        // Create a multipart content type with boundary
+        let content_type_str = "multipart/form-data; boundary=----formdata-clawspec-12345";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "multipart/form-data");
+    }
+
+    #[test]
+    fn test_normalize_form_urlencoded_content_type() {
+        let content_type = ContentType::form_url_encoded();
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/x-www-form-urlencoded");
+    }
+
+    #[test]
+    fn test_normalize_content_type_with_charset() {
+        // Test content type with charset parameter
+        let content_type_str = "application/json; charset=utf-8";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/json");
+    }
+
+    #[test]
+    fn test_normalize_content_type_with_multiple_parameters() {
+        // Test content type with multiple parameters
+        let content_type_str = "text/html; charset=utf-8; boundary=something";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "text/html");
+    }
+
+    #[test]
+    fn test_normalize_content_type_without_parameters() {
+        // Test content type without parameters (should remain unchanged)
+        let content_type_str = "application/xml";
+        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let normalized = normalize_content_type(&content_type);
+        assert_eq!(normalized, "application/xml");
     }
 }

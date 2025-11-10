@@ -425,6 +425,9 @@ pub use self::client::{
     ParamStyle, ParamValue, ParameterValue, RawBody, RawResult, SecureString,
 };
 
+#[cfg(feature = "redaction")]
+pub use self::client::{RedactedResult, RedactionBuilder};
+
 // Convenience macro re-exports are handled by the macro_rules! definitions below
 
 /// Creates an [`ExpectedStatusCodes`] instance with the specified status codes and ranges.

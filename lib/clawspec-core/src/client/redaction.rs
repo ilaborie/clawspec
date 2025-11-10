@@ -38,10 +38,91 @@
 //! # }
 //! ```
 
-use crate::client::error::ApiClientError;
+use std::{any::type_name, mem};
+
 use jsonptr::{Pointer, assign::Assign, delete::Delete};
 use serde::{Serialize, de::DeserializeOwned};
 use utoipa::ToSchema;
+
+use super::error::ApiClientError;
+use crate::{CallResult, client::output::Output};
+
+impl CallResult {
+    /// Deserializes the JSON response and returns a builder for applying redactions.
+    ///
+    /// This method is similar to [`as_json()`](CallResult::as_json) but returns a
+    /// [`RedactionBuilder`](super::redaction::RedactionBuilder) that allows you to apply redactions
+    /// to the JSON before finalizing the result.
+    ///
+    /// The original value is preserved for test assertions, while the redacted
+    /// JSON can be used for snapshot testing with stable values.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type to deserialize into. Must implement [`DeserializeOwned`],
+    ///   [`ToSchema`], and have a `'static` lifetime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The response is not JSON
+    /// - JSON deserialization fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+    /// # struct User { id: String, name: String }
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = ApiClient::builder().with_base_path("http://localhost".parse()?).build()?;
+    /// let result = client
+    ///     .get("/api/users/123")?
+    ///     .await?
+    ///     .as_json_redacted::<User>().await?
+    ///     .redact_replace("/id", "stable-uuid")?
+    ///     .finish();
+    ///
+    /// // Use real value for assertions
+    /// assert!(!result.value.id.is_empty());
+    ///
+    /// // Use redacted value for snapshots
+    /// insta::assert_yaml_snapshot!(result.redacted);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_json_redacted<T>(
+        &mut self,
+    ) -> Result<super::redaction::RedactionBuilder<T>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+    {
+        // Register schema and get JSON output
+        let mut cs = self.collectors.write().await;
+        let schema = cs.schemas.add::<T>();
+        mem::drop(cs);
+        let output = self.get_output(Some(schema)).await?;
+
+        let Output::Json(json) = output else {
+            return Err(ApiClientError::UnsupportedJsonOutput {
+                output: output.clone(),
+                name: type_name::<T>(),
+            });
+        };
+
+        // Delegate to redaction module for core logic
+        let builder = super::redaction::create_redaction_builder::<T>(json)?;
+
+        // Add example (using non-redacted value)
+        if let Ok(example) = serde_json::to_value(json.as_str()) {
+            let mut cs = self.collectors.write().await;
+            cs.schemas.add_example::<T>(example);
+        }
+
+        Ok(builder)
+    }
+}
 
 /// Result of a redacted JSON response containing both the real and redacted values.
 ///

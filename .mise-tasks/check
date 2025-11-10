@@ -6,14 +6,16 @@ set -eux
 # Check formatting
 cargo fmt --all --check
 
-# Check no lint warning
-cargo clippy --all-targets --all-features -- -D warnings
-
-# Run tests
+# Check without features
+echo "=== Checking without features ==="
+cargo clippy --all-targets -- -D warnings
 cargo nextest run
 
-# Run doc tests
-cargo test --doc
+# Check with all features
+echo "=== Checking with all features ==="
+cargo clippy --all-targets --all-features -- -D warnings
+cargo nextest run --all-features
+cargo test --doc --all-features
 
 # Validate OpenAPI specifications
 spectral lint examples/axum-example/doc/openapi.yml

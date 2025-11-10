@@ -541,7 +541,7 @@ async fn generate_openapi() {
 
     // Generate and save OpenAPI spec
     let openapi = client.generate_openapi_spec();
-    let yaml = serde_yaml::to_string(&openapi)
+    let yaml = serde_saphyr::to_string(&openapi)
         .expect("Should serialize to YAML");
 
     fs::write("doc/openapi.yml", yaml)

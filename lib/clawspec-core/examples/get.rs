@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
     // extract collected data from client
     let paths = client.collected_openapi().await;
-    let out = serde_yaml::to_string(&paths).expect("YAML serialization");
+    let out = serde_saphyr::to_string(&paths).expect("YAML serialization");
     println!("{out}");
 
     Ok(())

@@ -11,6 +11,7 @@ keywords = ["openapi", "testing", "api", "documentation", "spec"]
 categories = ["development-tools::testing", "web-programming", "api-bindings"]
 
 [features]
+default = []
 redaction = ["dep:jsonptr"]
 
 [dependencies]
@@ -48,7 +49,7 @@ anyhow = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt"]}
 tokio = { workspace = true, features = ["full"]}
 insta = { workspace = true }
-serde_yaml = { workspace = true}
+serde_saphyr = { workspace = true}
 criterion = { workspace = true }
 
 [[bench]]
