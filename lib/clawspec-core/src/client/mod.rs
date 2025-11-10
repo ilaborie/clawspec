@@ -51,6 +51,12 @@ mod integration_tests;
 
 mod output;
 
+#[cfg(feature = "redaction")]
+mod redaction;
+#[cfg(feature = "redaction")]
+#[allow(unused_imports)] // Public API exports
+pub use self::redaction::{RedactedResult, RedactionBuilder};
+
 /// A type-safe HTTP client for API testing and OpenAPI documentation generation.
 ///
 /// `ApiClient` is the core component of clawspec that enables you to make HTTP requests

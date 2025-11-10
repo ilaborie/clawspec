@@ -630,6 +630,99 @@ impl CallResult {
         Ok(result)
     }
 
+    /// Deserializes the JSON response and returns a builder for applying redactions.
+    ///
+    /// This method is similar to [`as_json()`](CallResult::as_json) but returns a
+    /// [`RedactionBuilder`](crate::client::redaction::RedactionBuilder) that allows you to apply redactions
+    /// to the JSON before finalizing the result.
+    ///
+    /// The original value is preserved for test assertions, while the redacted
+    /// JSON can be used for snapshot testing with stable values.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type to deserialize into. Must implement [`DeserializeOwned`],
+    ///   [`ToSchema`], and have a `'static` lifetime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The response is not JSON
+    /// - JSON deserialization fails
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+    /// # struct User { id: String, name: String }
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = ApiClient::builder().with_base_path("http://localhost".parse()?).build()?;
+    /// let result = client
+    ///     .get("/api/users/123")?
+    ///     .await?
+    ///     .as_json_redacted::<User>().await?
+    ///     .redact_replace("/id", "stable-uuid")?
+    ///     .finish();
+    ///
+    /// // Use real value for assertions
+    /// assert!(!result.value.id.is_empty());
+    ///
+    /// // Use redacted value for snapshots
+    /// insta::assert_yaml_snapshot!(result.redacted);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "redaction")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
+    pub async fn as_json_redacted<T>(
+        &mut self,
+    ) -> Result<crate::client::redaction::RedactionBuilder<T>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+    {
+        let mut cs = self.collectors.write().await;
+        let schema = cs.schemas.add::<T>();
+        mem::drop(cs);
+        let output = self.get_output(Some(schema)).await?;
+
+        let Output::Json(json) = output else {
+            return Err(ApiClientError::UnsupportedJsonOutput {
+                output: output.clone(),
+                name: type_name::<T>(),
+            });
+        };
+
+        // Deserialize the original value
+        let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
+        let value: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+            ApiClientError::JsonError {
+                path: err.path().to_string(),
+                error: err.into_inner(),
+                body: json.clone(),
+            }
+        })?;
+
+        // Parse JSON for redaction
+        let json_value: serde_json::Value = serde_json::from_str(json)
+            .map_err(|e| ApiClientError::JsonError {
+                path: String::new(),
+                error: e,
+                body: json.clone(),
+            })?;
+
+        // Add example (using non-redacted value)
+        if let Ok(example) = serde_json::to_value(json.as_str()) {
+            let mut cs = self.collectors.write().await;
+            cs.schemas.add_example::<T>(example);
+        }
+
+        Ok(crate::client::redaction::RedactionBuilder::new(
+            value, json_value,
+        ))
+    }
+
     /// Processes the response as plain text.
     ///
     /// This method records the response in the OpenAPI specification and returns
