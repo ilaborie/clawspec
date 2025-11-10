@@ -20,6 +20,9 @@ use super::output::Output;
 use super::schema::Schemas;
 use super::{ApiClientError, CallBody, CallPath};
 
+#[cfg(feature = "redaction")]
+use super::redaction::RedactionBuilder;
+
 /// Normalizes content types for OpenAPI specification by removing parameters
 /// that are implementation details (like multipart boundaries, charset, etc.).
 fn normalize_content_type(content_type: &ContentType) -> String {
@@ -633,7 +636,7 @@ impl CallResult {
     /// Deserializes the JSON response and returns a builder for applying redactions.
     ///
     /// This method is similar to [`as_json()`](CallResult::as_json) but returns a
-    /// [`RedactionBuilder`](crate::client::redaction::RedactionBuilder) that allows you to apply redactions
+    /// [`RedactionBuilder`] that allows you to apply redactions
     /// to the JSON before finalizing the result.
     ///
     /// The original value is preserved for test assertions, while the redacted
@@ -678,7 +681,7 @@ impl CallResult {
     #[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
     pub async fn as_json_redacted<T>(
         &mut self,
-    ) -> Result<crate::client::redaction::RedactionBuilder<T>, ApiClientError>
+    ) -> Result<RedactionBuilder<T>, ApiClientError>
     where
         T: DeserializeOwned + ToSchema + 'static,
     {
@@ -718,9 +721,7 @@ impl CallResult {
             cs.schemas.add_example::<T>(example);
         }
 
-        Ok(crate::client::redaction::RedactionBuilder::new(
-            value, json_value,
-        ))
+        Ok(RedactionBuilder::new(value, json_value))
     }
 
     /// Processes the response as plain text.
