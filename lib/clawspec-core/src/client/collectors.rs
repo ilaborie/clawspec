@@ -708,7 +708,7 @@ impl CallResult {
         })?;
 
         // Parse JSON for redaction
-        let json_value: serde_json::Value = serde_json::from_str(json)
+        let json_value = serde_json::from_str::<serde_json::Value>(json)
             .map_err(|e| ApiClientError::JsonError {
                 path: String::new(),
                 error: e,
