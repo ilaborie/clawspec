@@ -46,7 +46,7 @@ base64 = "0.22.1"
 zeroize = "1.8.1"
 
 ## Dev
-rstest = "0.25.0"
+rstest = "0.26.1"
 insta = "1.42.1"
 assert2 = "0.3.15"
 tracing-subscriber = "0.3.19"
