@@ -39,9 +39,9 @@
 //! ```
 
 use crate::client::error::ApiClientError;
+use jsonptr::{Pointer, assign::Assign, delete::Delete};
 use serde::{Serialize, de::DeserializeOwned};
 use utoipa::ToSchema;
-use jsonptr::{Pointer, assign::Assign, delete::Delete};
 
 /// Result of a redacted JSON response containing both the real and redacted values.
 ///
@@ -118,27 +118,33 @@ impl<T> RedactionBuilder<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn redact_replace<V>(mut self, pointer: &str, replacement: V) -> Result<Self, ApiClientError>
+    pub fn redact_replace<V>(
+        mut self,
+        pointer: &str,
+        replacement: V,
+    ) -> Result<Self, ApiClientError>
     where
         V: Serialize,
     {
         // Serialize the replacement value
-        let replacement_value = serde_json::to_value(replacement)
-            .map_err(|e| ApiClientError::SerializationError {
-                message: format!("Failed to serialize replacement value for pointer '{pointer}': {e}"),
+        let replacement_value =
+            serde_json::to_value(replacement).map_err(|e| ApiClientError::SerializationError {
+                message: format!(
+                    "Failed to serialize replacement value for pointer '{pointer}': {e}"
+                ),
             })?;
 
         // Parse the JSON Pointer
-        let ptr = Pointer::parse(pointer)
-            .map_err(|e| ApiClientError::RedactionError {
-                message: format!("Invalid JSON Pointer '{pointer}': {e}"),
-            })?;
+        let ptr = Pointer::parse(pointer).map_err(|e| ApiClientError::RedactionError {
+            message: format!("Invalid JSON Pointer '{pointer}': {e}"),
+        })?;
 
         // Use jsonptr to assign the value
-        self.redacted.assign(&ptr, replacement_value)
-            .map_err(|e| ApiClientError::RedactionError {
+        self.redacted.assign(ptr, replacement_value).map_err(|e| {
+            ApiClientError::RedactionError {
                 message: format!("Failed to replace value at pointer '{pointer}': {e}"),
-            })?;
+            }
+        })?;
 
         Ok(self)
     }
@@ -176,14 +182,13 @@ impl<T> RedactionBuilder<T> {
     /// ```
     pub fn redact_remove(mut self, pointer: &str) -> Result<Self, ApiClientError> {
         // Parse the JSON Pointer
-        let ptr = Pointer::parse(pointer)
-            .map_err(|e| ApiClientError::RedactionError {
-                message: format!("Invalid JSON Pointer '{pointer}': {e}"),
-            })?;
+        let ptr = Pointer::parse(pointer).map_err(|e| ApiClientError::RedactionError {
+            message: format!("Invalid JSON Pointer '{pointer}': {e}"),
+        })?;
 
         // Use jsonptr to delete the value
         // Delete returns None if the pointer doesn't exist, which is fine - we'll just continue
-        let _ = self.redacted.delete(&ptr);
+        let _ = self.redacted.delete(ptr);
 
         Ok(self)
     }
@@ -234,13 +239,12 @@ where
     })?;
 
     // Parse JSON for redaction
-    let json_value = serde_json::from_str::<serde_json::Value>(json).map_err(|e| {
-        ApiClientError::JsonError {
+    let json_value =
+        serde_json::from_str::<serde_json::Value>(json).map_err(|e| ApiClientError::JsonError {
             path: String::new(),
             error: e,
             body: json.to_string(),
-        }
-    })?;
+        })?;
 
     Ok(RedactionBuilder::new(value, json_value))
 }
