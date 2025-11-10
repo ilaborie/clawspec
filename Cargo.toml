@@ -50,7 +50,7 @@ rstest = "0.26.1"
 insta = "1.42.1"
 assert2 = "0.3.15"
 tracing-subscriber = "0.3.19"
-criterion = "0.6.0"
+criterion = "0.7.0"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
