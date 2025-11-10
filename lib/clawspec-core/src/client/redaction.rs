@@ -39,7 +39,8 @@
 //! ```
 
 use crate::client::error::ApiClientError;
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
+use utoipa::ToSchema;
 use jsonptr::{Pointer, assign::Assign, delete::Delete};
 
 /// Result of a redacted JSON response containing both the real and redacted values.
@@ -199,5 +200,47 @@ impl<T> RedactionBuilder<T> {
     }
 }
 
-// Note: The as_json_redacted() method is implemented in collectors.rs
-// where CallResult is defined, as it needs access to private fields.
+/// Creates a RedactionBuilder from a JSON string.
+///
+/// This is a helper function used internally by `CallResult::as_json_redacted()`.
+/// It deserializes the JSON into the target type and prepares it for redaction.
+///
+/// # Arguments
+///
+/// * `json` - The JSON string to deserialize and prepare for redaction
+///
+/// # Type Parameters
+///
+/// * `T` - The type to deserialize into. Must implement [`DeserializeOwned`],
+///   [`ToSchema`], and have a `'static` lifetime.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - JSON deserialization fails
+/// - JSON parsing fails for the redaction copy
+pub(crate) fn create_redaction_builder<T>(json: &str) -> Result<RedactionBuilder<T>, ApiClientError>
+where
+    T: DeserializeOwned + ToSchema + 'static,
+{
+    // Deserialize the original value
+    let deserializer = &mut serde_json::Deserializer::from_str(json);
+    let value: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+        ApiClientError::JsonError {
+            path: err.path().to_string(),
+            error: err.into_inner(),
+            body: json.to_string(),
+        }
+    })?;
+
+    // Parse JSON for redaction
+    let json_value = serde_json::from_str::<serde_json::Value>(json).map_err(|e| {
+        ApiClientError::JsonError {
+            path: String::new(),
+            error: e,
+            body: json.to_string(),
+        }
+    })?;
+
+    Ok(RedactionBuilder::new(value, json_value))
+}

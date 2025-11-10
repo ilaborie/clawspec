@@ -20,9 +20,6 @@ use super::output::Output;
 use super::schema::Schemas;
 use super::{ApiClientError, CallBody, CallPath};
 
-#[cfg(feature = "redaction")]
-use super::redaction::RedactionBuilder;
-
 /// Normalizes content types for OpenAPI specification by removing parameters
 /// that are implementation details (like multipart boundaries, charset, etc.).
 fn normalize_content_type(content_type: &ContentType) -> String {
@@ -636,7 +633,7 @@ impl CallResult {
     /// Deserializes the JSON response and returns a builder for applying redactions.
     ///
     /// This method is similar to [`as_json()`](CallResult::as_json) but returns a
-    /// [`RedactionBuilder`] that allows you to apply redactions
+    /// [`RedactionBuilder`](super::redaction::RedactionBuilder) that allows you to apply redactions
     /// to the JSON before finalizing the result.
     ///
     /// The original value is preserved for test assertions, while the redacted
@@ -681,10 +678,11 @@ impl CallResult {
     #[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
     pub async fn as_json_redacted<T>(
         &mut self,
-    ) -> Result<RedactionBuilder<T>, ApiClientError>
+    ) -> Result<super::redaction::RedactionBuilder<T>, ApiClientError>
     where
         T: DeserializeOwned + ToSchema + 'static,
     {
+        // Register schema and get JSON output
         let mut cs = self.collectors.write().await;
         let schema = cs.schemas.add::<T>();
         mem::drop(cs);
@@ -697,23 +695,8 @@ impl CallResult {
             });
         };
 
-        // Deserialize the original value
-        let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-        let value: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-            ApiClientError::JsonError {
-                path: err.path().to_string(),
-                error: err.into_inner(),
-                body: json.clone(),
-            }
-        })?;
-
-        // Parse JSON for redaction
-        let json_value = serde_json::from_str::<serde_json::Value>(json)
-            .map_err(|e| ApiClientError::JsonError {
-                path: String::new(),
-                error: e,
-                body: json.clone(),
-            })?;
+        // Delegate to redaction module for core logic
+        let builder = super::redaction::create_redaction_builder::<T>(json)?;
 
         // Add example (using non-redacted value)
         if let Ok(example) = serde_json::to_value(json.as_str()) {
@@ -721,7 +704,7 @@ impl CallResult {
             cs.schemas.add_example::<T>(example);
         }
 
-        Ok(RedactionBuilder::new(value, json_value))
+        Ok(builder)
     }
 
     /// Processes the response as plain text.
