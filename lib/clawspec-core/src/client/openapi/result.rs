@@ -387,6 +387,101 @@ impl CallResult {
         Ok(result)
     }
 
+    /// Processes the response as optional JSON, treating 204 and 404 status codes as `None`.
+    ///
+    /// This method provides ergonomic handling of optional REST API responses by automatically
+    /// treating 204 (No Content) and 404 (Not Found) status codes as `None`, while deserializing
+    /// other successful responses as `Some(T)`. This is particularly useful for APIs that use
+    /// HTTP status codes to indicate the absence of data rather than errors.
+    ///
+    /// The method automatically records the response schema in the OpenAPI specification,
+    /// maintaining proper documentation generation.
+    ///
+    /// # Type Parameters
+    ///
+    /// - `T`: The target type for deserialization, must implement `DeserializeOwned`, `ToSchema`, and `'static`
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(None)`: If the status code is 204 or 404
+    /// - `Ok(Some(T))`: The deserialized response object for other successful responses
+    /// - `Err(ApiClientError)`: If the response is not JSON or deserialization fails
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct User {
+    ///     id: u32,
+    ///     name: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Returns None for 404
+    /// let user: Option<User> = client
+    ///     .get("/users/nonexistent")?
+    ///
+    ///     .await?
+    ///     .as_optional_json()
+    ///     .await?;
+    /// assert!(user.is_none());
+    ///
+    /// // Returns Some(User) for successful response
+    /// let user: Option<User> = client
+    ///     .get("/users/123")?
+    ///
+    ///     .await?
+    ///     .as_optional_json()
+    ///     .await?;
+    /// assert!(user.is_some());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_optional_json<T>(&mut self) -> Result<Option<T>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+    {
+        // Check if status code indicates absence of data
+        if self.status == StatusCode::NO_CONTENT || self.status == StatusCode::NOT_FOUND {
+            // Record the response without a schema
+            self.get_output(None).await?;
+            return Ok(None);
+        }
+
+        // For other status codes, deserialize as JSON
+        let mut cs = self.collectors.write().await;
+        let schema = cs.schemas.add::<T>();
+        mem::drop(cs);
+        let output = self.get_output(Some(schema)).await?;
+
+        let Output::Json(json) = output else {
+            return Err(ApiClientError::UnsupportedJsonOutput {
+                output: output.clone(),
+                name: type_name::<T>(),
+            });
+        };
+        let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
+        let result = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+            ApiClientError::JsonError {
+                path: err.path().to_string(),
+                error: err.into_inner(),
+                body: json.clone(),
+            }
+        })?;
+
+        if let Ok(example) = serde_json::to_value(json.as_str()) {
+            let mut cs = self.collectors.write().await;
+            cs.schemas.add_example::<T>(example);
+        }
+
+        Ok(Some(result))
+    }
+
     /// Processes the response as plain text.
     ///
     /// This method records the response in the OpenAPI specification and returns
