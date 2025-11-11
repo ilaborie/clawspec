@@ -13,7 +13,7 @@ use crate::client::call_parameters::{CallParameters, OperationMetadata};
 use crate::client::openapi::Collectors;
 use crate::client::response::ExpectedStatusCodes;
 use crate::client::{CallHeaders, CallPath, CallQuery, ParamValue};
-use crate::{ApiClient, ApiClientError, CallResult};
+use crate::{ApiClientError, CallResult};
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq)]
 struct TestData {

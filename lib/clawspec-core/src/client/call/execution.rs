@@ -16,8 +16,6 @@ use crate::client::openapi::{CalledOperation, Collectors};
 use crate::client::parameters::PathResolved;
 use crate::client::response::ExpectedStatusCodes;
 use crate::client::{ApiClientError, CallBody, CallPath, CallQuery, CallResult};
-#[cfg(test)]
-use crate::client::{CallHeaders, ParamValue};
 
 impl ApiCall {
     pub(in crate::client) fn build(
