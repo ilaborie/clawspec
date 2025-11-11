@@ -12,6 +12,8 @@ pub(in crate::client) const BODY_MAX_LENGTH: usize = 1024;
 
 mod builder;
 mod execution;
+#[cfg(test)]
+mod tests;
 
 /// Builder for configuring HTTP API calls with comprehensive parameter and validation support.
 ///
