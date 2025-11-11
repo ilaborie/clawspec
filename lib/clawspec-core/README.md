@@ -63,7 +63,7 @@ async fn test_user_api() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate OpenAPI specification
     let spec = client.collected_openapi().await;
-    let yaml = serde_yaml::to_string(&spec)?;
+    let yaml = serde_saphyr::to_string(&spec)?;
     std::fs::write("openapi.yml", yaml)?;
 
     Ok(())

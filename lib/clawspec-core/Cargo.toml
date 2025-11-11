@@ -10,6 +10,10 @@ homepage.workspace = true
 keywords = ["openapi", "testing", "api", "documentation", "spec"]
 categories = ["development-tools::testing", "web-programming", "api-bindings"]
 
+[features]
+default = []
+redaction = ["dep:jsonptr"]
+
 [dependencies]
 
 utoipa = { workspace = true, features = ["debug", "yaml"] }
@@ -38,13 +42,14 @@ cruet = { workspace = true }
 backon = { workspace = true }
 base64 = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
+jsonptr = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt"]}
 tokio = { workspace = true, features = ["full"]}
 insta = { workspace = true }
-serde_yaml = { workspace = true}
+serde_saphyr = { workspace = true}
 criterion = { workspace = true }
 
 [[bench]]

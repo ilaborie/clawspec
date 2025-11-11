@@ -51,6 +51,11 @@ mod integration_tests;
 
 mod output;
 
+#[cfg(feature = "redaction")]
+mod redaction;
+#[cfg(feature = "redaction")]
+pub use self::redaction::{RedactedResult, RedactionBuilder};
+
 /// A type-safe HTTP client for API testing and OpenAPI documentation generation.
 ///
 /// `ApiClient` is the core component of clawspec that enables you to make HTTP requests
@@ -61,7 +66,7 @@ mod output;
 /// # Key Features
 ///
 /// - **Test-Driven Documentation**: Automatically generates OpenAPI specifications from test execution
-/// - **Type Safety**: Compile-time guarantees for API parameters and response types  
+/// - **Type Safety**: Compile-time guarantees for API parameters and response types
 /// - **Flexible Status Code Validation**: Support for ranges, specific codes, and custom patterns
 /// - **Comprehensive Parameter Support**: Path, query, and header parameters with multiple styles
 /// - **Request Body Formats**: JSON, form-encoded, multipart, and raw binary data
@@ -93,7 +98,7 @@ mod output;
 ///     // Make a request and capture the schema
 ///     let user: User = client
 ///         .get("/users/123")?
-///         
+///
 ///         .await?
 ///         .as_json()
 ///         .await?;
@@ -102,7 +107,7 @@ mod output;
 ///
 ///     // Generate OpenAPI specification from collected data
 ///     let openapi_spec = client.collected_openapi().await;
-///     let yaml = serde_yaml::to_string(&openapi_spec)?;
+///     let yaml = serde_saphyr::to_string(&openapi_spec)?;
 ///     println!("{yaml}");
 ///
 ///     Ok(())
@@ -168,7 +173,7 @@ mod output;
 ///     )
 ///     .with_header("Authorization", "Bearer token123")
 ///     .with_expected_status_codes(expected_status_codes!(200, 404))
-///     
+///
 ///     .await?
 ///     .as_json::<Vec<UserData>>()
 ///     .await?;
@@ -178,7 +183,7 @@ mod output;
 ///     .post("/users")?
 ///     .json(&user_data)?
 ///     .with_expected_status_codes(expected_status_codes!(201, 409))
-///     
+///
 ///     .await?
 ///     .as_json::<UserData>()
 ///     .await?;
@@ -198,7 +203,7 @@ mod output;
 /// #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 /// struct ErrorType { message: String }
 ///
-/// #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]  
+/// #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 /// struct NestedType { value: i32 }
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -236,7 +241,7 @@ mod output;
 /// let openapi = client.collected_openapi().await;
 ///
 /// // Convert to YAML or JSON
-/// let yaml = serde_yaml::to_string(&openapi)?;
+/// let yaml = serde_saphyr::to_string(&openapi)?;
 /// let json = serde_json::to_string_pretty(&openapi)?;
 /// # Ok(())
 /// # }
@@ -326,7 +331,7 @@ impl ApiClient {
     /// # Features
     ///
     /// - **Automatic Path Collection**: All endpoint calls are automatically documented
-    /// - **Schema Generation**: Request/response schemas are extracted from Rust types  
+    /// - **Schema Generation**: Request/response schemas are extracted from Rust types
     /// - **Operation Metadata**: Includes operation IDs, descriptions, and tags
     /// - **Server Information**: Configurable server URLs and descriptions
     /// - **Tag Collection**: Automatically computed from all operations
@@ -377,7 +382,7 @@ impl ApiClient {
     /// // - Computed tags from operations
     ///
     /// // Export to different formats
-    /// let yaml = serde_yaml::to_string(&openapi)?;
+    /// let yaml = serde_saphyr::to_string(&openapi)?;
     /// let json = serde_json::to_string_pretty(&openapi)?;
     /// # Ok(())
     /// # }
@@ -388,7 +393,7 @@ impl ApiClient {
     /// The generated OpenAPI specification includes:
     ///
     /// - **Info**: API metadata (title, version, description) if configured
-    /// - **Servers**: Server URLs and descriptions if configured  
+    /// - **Servers**: Server URLs and descriptions if configured
     /// - **Paths**: All documented endpoints with operations
     /// - **Components**: Reusable schema definitions
     /// - **Tags**: Automatically computed from operation tags
