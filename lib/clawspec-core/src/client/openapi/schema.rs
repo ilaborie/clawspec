@@ -18,7 +18,7 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 });
 
 #[derive(Clone, Default)]
-pub(super) struct Schemas {
+pub(in crate::client) struct Schemas {
     entries: IndexMap<TypeId, SchemaEntry>,
     resolved_names: std::collections::HashMap<TypeId, String>,
 }
@@ -64,7 +64,7 @@ impl Schemas {
         self.entries.entry(id).or_insert_with(SchemaEntry::of::<T>)
     }
 
-    pub(super) fn add<T>(&mut self) -> RefOr<Schema>
+    pub(in crate::client) fn add<T>(&mut self) -> RefOr<Schema>
     where
         T: ToSchema + 'static,
     {
@@ -82,7 +82,10 @@ impl Schemas {
         }
     }
 
-    pub(super) fn add_example<T>(&mut self, example: impl Into<serde_json::Value>) -> RefOr<Schema>
+    pub(in crate::client) fn add_example<T>(
+        &mut self,
+        example: impl Into<serde_json::Value>,
+    ) -> RefOr<Schema>
     where
         T: ToSchema + 'static,
     {
@@ -193,7 +196,7 @@ impl Schemas {
     /// schemas1.merge(schemas2);
     /// // Result: schemas1 has User schema with both examples
     /// ```
-    pub(super) fn merge(&mut self, other: Self) {
+    pub(in crate::client) fn merge(&mut self, other: Self) {
         // Collect schema names that might be affected by conflicts
         let mut potentially_affected_names = std::collections::HashSet::new();
 
@@ -225,7 +228,7 @@ impl Schemas {
         }
     }
 
-    pub(super) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
+    pub(in crate::client) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
         let mut result = vec![];
 
         // First, identify all non-primitive entries and detect conflicts
@@ -312,14 +315,14 @@ impl Schemas {
 
 #[derive(Clone, derive_more::Display, derive_more::Debug)]
 #[display("[{id:?}] {name}")]
-pub(super) struct SchemaEntry {
+pub(in crate::client) struct SchemaEntry {
     #[debug(ignore)]
-    pub(super) id: TypeId,
-    pub(super) type_name: String,
-    pub(super) name: String,
+    pub(in crate::client) id: TypeId,
+    pub(in crate::client) type_name: String,
+    pub(in crate::client) name: String,
     #[debug(ignore)]
-    pub(super) schema: RefOr<Schema>,
-    pub(super) examples: IndexSet<serde_json::Value>,
+    pub(in crate::client) schema: RefOr<Schema>,
+    pub(in crate::client) examples: IndexSet<serde_json::Value>,
 }
 
 impl SchemaEntry {
@@ -554,7 +557,7 @@ mod tests {
         assert_eq!(entry.name, "TestType");
         assert_eq!(
             entry.type_name,
-            "clawspec_core::client::schema::tests::TestType"
+            "clawspec_core::client::openapi::schema::tests::TestType"
         );
         assert!(entry.examples.is_empty());
     }

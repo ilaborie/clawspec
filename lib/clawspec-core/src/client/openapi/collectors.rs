@@ -15,10 +15,10 @@ use utoipa::openapi::path::{Operation, Parameter};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::{Content, PathItem, RefOr, ResponseBuilder, Schema};
 
-use super::call_parameters::{CallParameters, OperationMetadata};
-use super::output::Output;
 use super::schema::Schemas;
-use super::{ApiClientError, CallBody, CallPath};
+use crate::client::call_parameters::{CallParameters, OperationMetadata};
+use crate::client::response::output::Output;
+use crate::client::{ApiClientError, CallBody, CallPath};
 
 /// Normalizes content types for OpenAPI specification by removing parameters
 /// that are implementation details (like multipart boundaries, charset, etc.).
@@ -84,21 +84,21 @@ fn normalize_content_type(content_type: &ContentType) -> String {
 /// collectors.collect_operation(get_users_with_params_operation);
 /// ```
 #[derive(Debug, Clone, Default)]
-pub(super) struct Collectors {
+pub(in crate::client) struct Collectors {
     operations: IndexMap<String, Vec<CalledOperation>>,
-    pub(super) schemas: Schemas,
+    pub(in crate::client) schemas: Schemas,
 }
 
 impl Collectors {
-    pub(super) fn collect_schemas(&mut self, schemas: Schemas) {
+    pub(in crate::client) fn collect_schemas(&mut self, schemas: Schemas) {
         self.schemas.merge(schemas);
     }
 
-    pub(super) fn collect_schema_entry(&mut self, entry: super::schema::SchemaEntry) {
+    pub(in crate::client) fn collect_schema_entry(&mut self, entry: super::schema::SchemaEntry) {
         self.schemas.add_entry(entry);
     }
 
-    pub(super) fn collect_operation(
+    pub(in crate::client) fn collect_operation(
         &mut self,
         operation: CalledOperation,
     ) -> Option<&mut CalledOperation> {
@@ -109,7 +109,7 @@ impl Collectors {
         operations.last_mut()
     }
 
-    pub(super) fn schemas(&self) -> Vec<(String, RefOr<Schema>)> {
+    pub(in crate::client) fn schemas(&self) -> Vec<(String, RefOr<Schema>)> {
         self.schemas.schema_vec()
     }
 
@@ -117,11 +117,11 @@ impl Collectors {
     ///
     /// This method provides access to all operations that have been collected
     /// during API calls, which is useful for tag computation and analysis.
-    pub(super) fn operations(&self) -> impl Iterator<Item = &CalledOperation> {
+    pub(in crate::client) fn operations(&self) -> impl Iterator<Item = &CalledOperation> {
         self.operations.values().flatten()
     }
 
-    pub(super) fn as_map(&mut self, base_path: &str) -> IndexMap<String, PathItem> {
+    pub(in crate::client) fn as_map(&mut self, base_path: &str) -> IndexMap<String, PathItem> {
         let mut result = IndexMap::<String, PathItem>::new();
         for (operation_id, calls) in &self.operations {
             debug_assert!(!calls.is_empty(), "having at least a call");
@@ -197,8 +197,8 @@ impl Collectors {
 /// It can optionally contain a result if the operation has been executed.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub(super) struct CalledOperation {
-    pub(super) operation_id: String,
+pub(in crate::client) struct CalledOperation {
+    pub(in crate::client) operation_id: String,
     method: http::Method,
     path: String,
     operation: Operation,
@@ -277,7 +277,7 @@ pub struct CallResult {
     status: StatusCode,
     content_type: Option<ContentType>,
     output: Output,
-    pub(super) collectors: Arc<RwLock<Collectors>>,
+    pub(in crate::client) collectors: Arc<RwLock<Collectors>>,
 }
 
 /// Represents the raw response data from an HTTP request.
@@ -425,7 +425,7 @@ impl CallResult {
         }
     }
 
-    pub(super) async fn new(
+    pub(in crate::client) async fn new(
         operation_id: String,
         collectors: Arc<RwLock<Collectors>>,
         response: Response,
@@ -443,7 +443,9 @@ impl CallResult {
         })
     }
 
-    pub(super) async fn new_without_collection(response: Response) -> Result<Self, ApiClientError> {
+    pub(in crate::client) async fn new_without_collection(
+        response: Response,
+    ) -> Result<Self, ApiClientError> {
         let status = response.status();
         let content_type = Self::extract_content_type(&response)?;
         let output = Self::process_response_body(response, &content_type, status).await?;
@@ -460,7 +462,7 @@ impl CallResult {
         })
     }
 
-    pub(super) async fn get_output(
+    pub(in crate::client) async fn get_output(
         &self,
         schema: Option<RefOr<Schema>>,
     ) -> Result<&Output, ApiClientError> {
@@ -735,7 +737,7 @@ impl CallResult {
 }
 
 impl CalledOperation {
-    pub(super) fn build(
+    pub(in crate::client) fn build(
         method: http::Method,
         path_name: &str,
         path: &CallPath,
@@ -797,12 +799,12 @@ impl CalledOperation {
         }
     }
 
-    pub(super) fn add_response(&mut self, call_result: CallResult) {
+    pub(in crate::client) fn add_response(&mut self, call_result: CallResult) {
         self.result = Some(call_result);
     }
 
     /// Gets the tags associated with this operation.
-    pub(super) fn tags(&self) -> Option<&Vec<String>> {
+    pub(in crate::client) fn tags(&self) -> Option<&Vec<String>> {
         self.operation.tags.as_ref()
     }
 }

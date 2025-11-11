@@ -11,50 +11,30 @@ pub use self::builder::ApiClientBuilder;
 mod call;
 pub use self::call::ApiCall;
 
-mod status;
-pub use self::status::ExpectedStatusCodes;
+mod parameters;
+pub use self::parameters::{
+    CallBody, CallCookies, CallHeaders, CallPath, CallQuery, ParamStyle, ParamValue, ParameterValue,
+};
 
-mod param;
-pub use self::param::{ParamStyle, ParamValue, ParameterValue};
-
-mod path;
-pub use self::path::CallPath;
-
-mod query;
-pub use self::query::CallQuery;
-
-mod headers;
-pub use self::headers::CallHeaders;
-
-mod cookies;
-pub use self::cookies::CallCookies;
+mod response;
+pub use self::response::ExpectedStatusCodes;
+#[cfg(feature = "redaction")]
+pub use self::response::{RedactedResult, RedactionBuilder};
 
 mod auth;
 pub use self::auth::{Authentication, AuthenticationError, SecureString};
 
 mod call_parameters;
 
-mod body;
-pub use self::body::CallBody;
-
-mod schema;
+mod openapi;
+// CallResult, RawResult, and RawBody are public API, but CalledOperation and Collectors are internal
+pub use self::openapi::{CallResult, RawBody, RawResult};
 
 mod error;
 pub use self::error::ApiClientError;
 
-mod collectors;
-// CallResult, RawResult, and RawBody are public API, but CalledOperation and Collectors are internal
-pub use self::collectors::{CallResult, RawBody, RawResult};
-
 #[cfg(test)]
 mod integration_tests;
-
-mod output;
-
-#[cfg(feature = "redaction")]
-mod redaction;
-#[cfg(feature = "redaction")]
-pub use self::redaction::{RedactedResult, RedactionBuilder};
 
 /// A type-safe HTTP client for API testing and OpenAPI documentation generation.
 ///
@@ -298,7 +278,7 @@ pub struct ApiClient {
     base_path: String,
     info: Option<Info>,
     servers: Vec<Server>,
-    collectors: Arc<RwLock<collectors::Collectors>>,
+    collectors: Arc<RwLock<openapi::Collectors>>,
     authentication: Option<Authentication>,
 }
 
@@ -449,7 +429,7 @@ impl ApiClient {
     }
 
     /// Computes the list of unique tags from all collected operations.
-    async fn compute_tags(&self, collectors: &collectors::Collectors) -> Vec<Tag> {
+    async fn compute_tags(&self, collectors: &openapi::Collectors) -> Vec<Tag> {
         let mut tag_names = std::collections::BTreeSet::new();
 
         // Collect all unique tag names from operations
@@ -502,7 +482,7 @@ impl ApiClient {
     where
         T: utoipa::ToSchema + 'static,
     {
-        let mut schemas = schema::Schemas::default();
+        let mut schemas = openapi::schema::Schemas::default();
         schemas.add::<T>();
 
         let mut collectors = self.collectors.write().await;

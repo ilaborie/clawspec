@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use super::auth::AuthenticationError;
-use super::output::Output;
+use super::response::output::Output;
 
 /// Errors that can occur when using the ApiClient.
 ///
@@ -220,7 +220,7 @@ pub enum ApiClientError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::output::Output;
+    use crate::client::response::output::Output;
 
     #[test]
     fn test_api_client_error_is_send_and_sync() {

@@ -1,11 +1,10 @@
 use indexmap::IndexMap;
-
 use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
 
-use super::ApiClientError;
 use super::param::{ParamValue, ParameterValue, ResolvedParamValue};
-use super::schema::Schemas;
+use crate::client::error::ApiClientError;
+use crate::client::openapi::schema::Schemas;
 
 /// Represents HTTP headers for an API call.
 ///
@@ -14,7 +13,7 @@ use super::schema::Schemas;
 #[derive(Debug, Clone, Default)]
 pub struct CallHeaders {
     headers: IndexMap<String, ResolvedParamValue>,
-    pub(super) schemas: Schemas,
+    pub(in crate::client) schemas: Schemas,
 }
 
 impl CallHeaders {
@@ -96,7 +95,7 @@ impl CallHeaders {
     }
 
     /// Converts headers to OpenAPI Parameter objects.
-    pub(super) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
+    pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         self.headers.iter().map(|(name, resolved)| {
             ParameterBuilder::new()
                 .name(name)
@@ -108,7 +107,9 @@ impl CallHeaders {
     }
 
     /// Converts headers to HTTP header format for reqwest.
-    pub(super) fn to_http_headers(&self) -> Result<Vec<(String, String)>, ApiClientError> {
+    pub(in crate::client) fn to_http_headers(
+        &self,
+    ) -> Result<Vec<(String, String)>, ApiClientError> {
         let mut result = Vec::new();
 
         for (name, resolved) in &self.headers {
@@ -120,7 +121,7 @@ impl CallHeaders {
     }
 
     /// Returns a reference to the schemas collected from header values.
-    pub(super) fn schemas(&self) -> &Schemas {
+    pub(in crate::client) fn schemas(&self) -> &Schemas {
         &self.schemas
     }
 }

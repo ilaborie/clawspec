@@ -14,10 +14,9 @@ use url::Url;
 use utoipa::ToSchema;
 
 use super::call_parameters::{CallParameters, OperationMetadata};
-use super::collectors::{CalledOperation, Collectors};
-use super::param::ParameterValue;
-use super::path::PathResolved;
-use super::status::ExpectedStatusCodes;
+use super::openapi::{CalledOperation, Collectors};
+use super::parameters::{ParameterValue, PathResolved};
+use super::response::ExpectedStatusCodes;
 use super::{
     ApiClientError, CallBody, CallCookies, CallHeaders, CallPath, CallQuery, CallResult, ParamValue,
 };
