@@ -193,17 +193,6 @@ pub enum ApiClientError {
         body: String,
     },
 
-    /// JSON redaction operation failed.
-    ///
-    /// Occurs when applying redactions to JSON responses.
-    #[cfg(feature = "redaction")]
-    #[display("Redaction error: {message}")]
-    #[from(skip)]
-    RedactionError {
-        /// Description of the redaction failure.
-        message: String,
-    },
-
     /// Response output type doesn't match expected type.
     ///
     /// Occurs when attempting operations on incompatible response types.

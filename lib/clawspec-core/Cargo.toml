@@ -12,7 +12,6 @@ categories = ["development-tools::testing", "web-programming", "api-bindings"]
 
 [features]
 default = []
-redaction = ["dep:jsonptr"]
 
 [dependencies]
 
@@ -42,7 +41,6 @@ cruet = { workspace = true }
 backon = { workspace = true }
 base64 = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
-jsonptr = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
