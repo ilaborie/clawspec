@@ -373,21 +373,8 @@ impl CallResult {
                 name: type_name::<T>(),
             });
         };
-        let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-        let result = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-            ApiClientError::JsonError {
-                path: err.path().to_string(),
-                error: err.into_inner(),
-                body: json.clone(),
-            }
-        })?;
 
-        if let Ok(example) = serde_json::to_value(json.as_str()) {
-            let mut cs = self.collectors.write().await;
-            cs.schemas.add_example::<T>(example);
-        }
-
-        Ok(result)
+        self.deserialize_and_record::<T>(json).await
     }
 
     /// Processes the response as optional JSON, treating 204 and 404 status codes as `None`.
@@ -468,20 +455,8 @@ impl CallResult {
                 name: type_name::<T>(),
             });
         };
-        let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-        let result = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-            ApiClientError::JsonError {
-                path: err.path().to_string(),
-                error: err.into_inner(),
-                body: json.clone(),
-            }
-        })?;
 
-        if let Ok(example) = serde_json::to_value(json.as_str()) {
-            let mut cs = self.collectors.write().await;
-            cs.schemas.add_example::<T>(example);
-        }
-
+        let result = self.deserialize_and_record::<T>(json).await?;
         Ok(Some(result))
     }
 
