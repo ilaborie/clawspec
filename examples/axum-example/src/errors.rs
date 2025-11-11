@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -11,7 +11,9 @@ pub(super) enum RepositoryError {
     DbError(serde_json::Error),
 
     #[display("No observation with id {id}")]
-    ObservationNotFound { id: ObservationId },
+    ObservationNotFound {
+        id: ObservationId,
+    },
 }
 
 /// API error response returned for all error cases

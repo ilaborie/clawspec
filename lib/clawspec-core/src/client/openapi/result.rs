@@ -552,70 +552,10 @@ impl CallResult {
         T: DeserializeOwned + ToSchema + 'static,
         E: DeserializeOwned + ToSchema + 'static,
     {
-        // Check if this is a success or error response
-        let is_success = self.status.is_success();
-
-        // Register both schemas in the OpenAPI spec
-        let mut cs = self.collectors.write().await;
-        let success_schema = cs.schemas.add::<T>();
-        let error_schema = cs.schemas.add::<E>();
-        mem::drop(cs);
-
-        // Get the appropriate schema based on status code
-        let schema = if is_success {
-            success_schema
-        } else {
-            error_schema
-        };
-
-        let output = self.get_output(Some(schema)).await?;
-
-        let Output::Json(json) = output else {
-            return Err(ApiClientError::UnsupportedJsonOutput {
-                output: output.clone(),
-                name: if is_success {
-                    type_name::<T>()
-                } else {
-                    type_name::<E>()
-                },
-            });
-        };
-
-        if is_success {
-            // Deserialize as success type T
-            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-            let result: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-                ApiClientError::JsonError {
-                    path: err.path().to_string(),
-                    error: err.into_inner(),
-                    body: json.clone(),
-                }
-            })?;
-
-            if let Ok(example) = serde_json::to_value(json.as_str()) {
-                let mut cs = self.collectors.write().await;
-                cs.schemas.add_example::<T>(example);
-            }
-
-            Ok(Ok(result))
-        } else {
-            // Deserialize as error type E
-            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-            let result: E = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-                ApiClientError::JsonError {
-                    path: err.path().to_string(),
-                    error: err.into_inner(),
-                    body: json.clone(),
-                }
-            })?;
-
-            if let Ok(example) = serde_json::to_value(json.as_str()) {
-                let mut cs = self.collectors.write().await;
-                cs.schemas.add_example::<E>(example);
-            }
-
-            Ok(Err(result))
-        }
+        Ok(self
+            .process_result_json_internal::<T, E>(false)
+            .await?
+            .map(|opt| opt.expect("BUG: 404 handling disabled but got None")))
     }
 
     /// Processes the response as a `Result<Option<T>, E>` based on HTTP status code.
@@ -689,22 +629,34 @@ impl CallResult {
         T: DeserializeOwned + ToSchema + 'static,
         E: DeserializeOwned + ToSchema + 'static,
     {
-        // Check if this is a success or error response
-        let is_success = self.status.is_success();
+        Ok(self.process_result_json_internal::<T, E>(true).await?)
+    }
 
-        // Check for 204/404 which indicate absence of data
-        // Note: 404 is treated as Ok(None) rather than an error
-        if self.status == StatusCode::NO_CONTENT || self.status == StatusCode::NOT_FOUND {
-            // Register schemas even for None case
+    /// Internal helper for processing Result<Option<T>, E> responses.
+    ///
+    /// Handles the common logic for both `as_result_json` and `as_result_option_json`.
+    async fn process_result_json_internal<T, E>(
+        &mut self,
+        treat_404_as_none: bool,
+    ) -> Result<Result<Option<T>, E>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+        E: DeserializeOwned + ToSchema + 'static,
+    {
+        // Check for 204/404 which indicate absence of data (when enabled)
+        if treat_404_as_none
+            && (self.status == StatusCode::NO_CONTENT || self.status == StatusCode::NOT_FOUND)
+        {
             let mut cs = self.collectors.write().await;
             cs.schemas.add::<T>();
             cs.schemas.add::<E>();
             mem::drop(cs);
 
-            // Record the response without a schema (empty response)
             self.get_output(None).await?;
             return Ok(Ok(None));
         }
+
+        let is_success = self.status.is_success();
 
         // Register both schemas in the OpenAPI spec
         let mut cs = self.collectors.write().await;
@@ -733,40 +685,34 @@ impl CallResult {
         };
 
         if is_success {
-            // Deserialize as success type T
-            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-            let result: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-                ApiClientError::JsonError {
-                    path: err.path().to_string(),
-                    error: err.into_inner(),
-                    body: json.clone(),
-                }
-            })?;
-
-            if let Ok(example) = serde_json::to_value(json.as_str()) {
-                let mut cs = self.collectors.write().await;
-                cs.schemas.add_example::<T>(example);
-            }
-
-            Ok(Ok(Some(result)))
+            let value = self.deserialize_and_record::<T>(json).await?;
+            Ok(Ok(Some(value)))
         } else {
-            // Deserialize as error type E
-            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
-            let result: E = serde_path_to_error::deserialize(deserializer).map_err(|err| {
-                ApiClientError::JsonError {
-                    path: err.path().to_string(),
-                    error: err.into_inner(),
-                    body: json.clone(),
-                }
-            })?;
-
-            if let Ok(example) = serde_json::to_value(json.as_str()) {
-                let mut cs = self.collectors.write().await;
-                cs.schemas.add_example::<E>(example);
-            }
-
-            Ok(Err(result))
+            let error = self.deserialize_and_record::<E>(json).await?;
+            Ok(Err(error))
         }
+    }
+
+    /// Helper to deserialize JSON and record examples.
+    async fn deserialize_and_record<T>(&self, json: &str) -> Result<T, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+    {
+        let deserializer = &mut serde_json::Deserializer::from_str(json);
+        let result: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+            ApiClientError::JsonError {
+                path: err.path().to_string(),
+                error: err.into_inner(),
+                body: json.to_string(),
+            }
+        })?;
+
+        if let Ok(example) = serde_json::to_value(json) {
+            let mut cs = self.collectors.write().await;
+            cs.schemas.add_example::<T>(example);
+        }
+
+        Ok(result)
     }
 
     /// Processes the response as plain text.
