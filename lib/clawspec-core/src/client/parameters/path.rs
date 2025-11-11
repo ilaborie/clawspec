@@ -6,12 +6,13 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use regex::Regex;
 use tracing::warn;
 
-use super::param::ParameterValue;
-use super::param::ResolvedParamValue;
-use super::schema::Schemas;
-use super::{ApiClientError, ParamStyle, ParamValue};
 use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterIn};
+
+use super::param::{ParameterValue, ResolvedParamValue};
+use super::{ParamStyle, ParamValue};
+use crate::client::error::ApiClientError;
+use crate::client::openapi::schema::Schemas;
 
 /// Regular expression for matching path parameters in the format `{param_name}`.
 static RE: LazyLock<Regex> =
@@ -70,7 +71,7 @@ fn encode_path_param_value(value: &str) -> String {
 #[display("{path}")]
 pub struct CallPath {
     /// The path template with parameter placeholders
-    pub(super) path: String,
+    pub(in crate::client) path: String,
     /// Resolved parameter values indexed by parameter name
     args: IndexMap<String, ResolvedParamValue>,
     /// OpenAPI schemas for the parameters
@@ -124,7 +125,7 @@ impl CallPath {
     /// # Returns
     ///
     /// An iterator over `Parameter` objects representing path parameters.
-    pub(super) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
+    pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         self.args.iter().map(|(name, value)| {
             Parameter::builder()
                 .name(name)
@@ -137,7 +138,7 @@ impl CallPath {
     }
 
     /// Get the schemas collected from path parameters.
-    pub(super) fn schemas(&self) -> &Schemas {
+    pub(in crate::client) fn schemas(&self) -> &Schemas {
         &self.schemas
     }
 }
@@ -162,8 +163,8 @@ impl From<String> for CallPath {
 }
 
 #[derive(Debug)]
-pub(super) struct PathResolved {
-    pub(super) path: String,
+pub(in crate::client) struct PathResolved {
+    pub(in crate::client) path: String,
 }
 
 // Build concrete

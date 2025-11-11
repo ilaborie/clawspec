@@ -2,9 +2,9 @@ use indexmap::IndexMap;
 use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
 
-use super::ApiClientError;
 use super::param::{ParamValue, ParameterValue, ResolvedParamValue};
-use super::schema::Schemas;
+use crate::client::error::ApiClientError;
+use crate::client::openapi::schema::Schemas;
 
 /// Represents HTTP cookies for an API call.
 ///
@@ -29,7 +29,7 @@ use super::schema::Schemas;
 #[derive(Debug, Clone, Default)]
 pub struct CallCookies {
     cookies: IndexMap<String, ResolvedParamValue>,
-    pub(super) schemas: Schemas,
+    pub(in crate::client) schemas: Schemas,
 }
 
 impl CallCookies {
@@ -170,7 +170,7 @@ impl CallCookies {
     /// - Parameter location: `in: cookie`
     /// - Cookies are typically optional parameters
     /// - Cookie values are serialized as simple strings
-    pub(super) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
+    pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         self.cookies.iter().map(|(name, resolved)| {
             ParameterBuilder::new()
                 .name(name)
@@ -190,7 +190,7 @@ impl CallCookies {
     ///
     /// Returns a Result containing the formatted cookie header value, or an error
     /// if any cookie value cannot be serialized.
-    pub(super) fn to_cookie_header(&self) -> Result<String, ApiClientError> {
+    pub(in crate::client) fn to_cookie_header(&self) -> Result<String, ApiClientError> {
         if self.cookies.is_empty() {
             return Ok(String::new());
         }
@@ -209,7 +209,7 @@ impl CallCookies {
     ///
     /// This method provides access to the internal schema collection for integration
     /// with the broader OpenAPI schema system.
-    pub(super) fn schemas(&self) -> &Schemas {
+    pub(in crate::client) fn schemas(&self) -> &Schemas {
         &self.schemas
     }
 }

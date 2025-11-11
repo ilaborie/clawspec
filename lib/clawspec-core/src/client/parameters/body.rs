@@ -2,8 +2,8 @@ use headers::ContentType;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use super::ApiClientError;
-use super::schema::SchemaEntry;
+use crate::client::error::ApiClientError;
+use crate::client::openapi::schema::SchemaEntry;
 
 /// Represents the body of an HTTP request with its content type and schema information.
 ///
@@ -12,10 +12,10 @@ use super::schema::SchemaEntry;
 /// and raw binary data.
 #[derive(Clone, derive_more::Debug)]
 pub struct CallBody {
-    pub(super) content_type: ContentType,
-    pub(super) entry: SchemaEntry,
+    pub(in crate::client) content_type: ContentType,
+    pub(in crate::client) entry: SchemaEntry,
     #[debug(ignore)]
-    pub(super) data: Vec<u8>,
+    pub(in crate::client) data: Vec<u8>,
 }
 
 impl CallBody {
@@ -244,7 +244,7 @@ mod tests {
                 "application/json",
             ),
             entry: SchemaEntry {
-                type_name: "clawspec_core::client::body::tests::TestData",
+                type_name: "clawspec_core::client::parameters::body::tests::TestData",
                 name: "TestData",
                 examples: {
                     Object {

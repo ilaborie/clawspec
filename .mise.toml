@@ -13,7 +13,3 @@ cargo = { binstall = true }
 "cargo:release-plz" = "latest"
 "npm:@anthropic-ai/claude-code" = "latest"
 "npm:@stoplight/spectral-cli" = "latest"
-
-[tasks.perf-regression]
-description = "Run performance regression tests to ensure optimizations are maintained"
-run = "./.mise-tasks/perf-regression"

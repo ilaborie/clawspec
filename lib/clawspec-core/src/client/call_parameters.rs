@@ -36,7 +36,7 @@ impl CallParameters {
     }
 
     /// Collects all schemas from query, headers, and cookies.
-    pub(super) fn collect_schemas(&self) -> super::schema::Schemas {
+    pub(super) fn collect_schemas(&self) -> super::openapi::schema::Schemas {
         let mut schemas = self.query.schemas.clone();
 
         if let Some(ref headers) = self.headers {

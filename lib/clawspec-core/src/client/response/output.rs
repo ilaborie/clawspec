@@ -1,6 +1,6 @@
 use tracing::info;
 
-use super::ApiClientError;
+use crate::client::error::ApiClientError;
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]

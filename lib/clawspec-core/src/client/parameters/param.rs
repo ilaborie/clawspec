@@ -6,7 +6,7 @@ use utoipa::openapi::path::ParameterStyle;
 use utoipa::openapi::{RefOr, Schema};
 use utoipa::{PartialSchema, ToSchema};
 
-use super::ApiClientError;
+use crate::client::error::ApiClientError;
 
 /// A trait alias for types that can be used as parameter values.
 ///
@@ -97,7 +97,7 @@ where
 /// This struct is used internally to represent a parameter that has been processed
 /// and is ready for use in OpenAPI generation and HTTP requests.
 #[derive(Debug, Clone)]
-pub(super) struct ResolvedParamValue {
+pub(in crate::client) struct ResolvedParamValue {
     /// The serialized JSON value of the parameter
     pub value: serde_json::Value,
     /// The OpenAPI schema reference for this parameter
@@ -165,7 +165,7 @@ where
     ///
     /// This method is used internally by query and path parameter systems to create
     /// a resolved parameter that includes the serialized value, schema reference, and style.
-    pub(super) fn resolve<F>(&self, add_schema_fn: F) -> Option<ResolvedParamValue>
+    pub(in crate::client) fn resolve<F>(&self, add_schema_fn: F) -> Option<ResolvedParamValue>
     where
         F: FnOnce(serde_json::Value) -> RefOr<Schema>,
     {
@@ -221,7 +221,7 @@ impl ResolvedParamValue {
     ///
     /// - `Ok(String)` - The serialized string value
     /// - `Err(ApiClientError)` - Error if the value cannot be serialized
-    pub(super) fn to_string_value(&self) -> Result<String, ApiClientError> {
+    pub(in crate::client) fn to_string_value(&self) -> Result<String, ApiClientError> {
         match &self.value {
             serde_json::Value::Array(arr) => {
                 let string_values = Self::array_to_string_values(arr)?;
@@ -271,7 +271,7 @@ impl ResolvedParamValue {
     ///
     /// - `Ok(Vec<String>)` - Vector of string values for query encoding
     /// - `Err(ApiClientError)` - Error if the value cannot be serialized
-    pub(super) fn to_query_values(&self) -> Result<Vec<String>, ApiClientError> {
+    pub(in crate::client) fn to_query_values(&self) -> Result<Vec<String>, ApiClientError> {
         match &self.value {
             serde_json::Value::Array(arr) => {
                 match self.style {

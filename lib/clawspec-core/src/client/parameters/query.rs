@@ -2,10 +2,10 @@ use indexmap::IndexMap;
 use utoipa::openapi::Required;
 use utoipa::openapi::path::{Parameter, ParameterIn};
 
-use super::param::ParameterValue;
-use super::param::ResolvedParamValue;
-use super::schema::Schemas;
-use super::{ApiClientError, ParamStyle, ParamValue};
+use super::param::{ParameterValue, ResolvedParamValue};
+use super::{ParamStyle, ParamValue};
+use crate::client::error::ApiClientError;
+use crate::client::openapi::schema::Schemas;
 
 /// A collection of query parameters for HTTP requests with OpenAPI 3.1 support.
 ///
@@ -56,7 +56,7 @@ use super::{ApiClientError, ParamStyle, ParamValue};
 #[derive(Debug, Default, Clone)]
 pub struct CallQuery {
     params: IndexMap<String, ResolvedParamValue>,
-    pub(super) schemas: Schemas,
+    pub(in crate::client) schemas: Schemas,
 }
 
 impl CallQuery {
@@ -117,12 +117,12 @@ impl CallQuery {
     }
 
     /// Check if the query is empty
-    pub(super) fn is_empty(&self) -> bool {
+    pub(in crate::client) fn is_empty(&self) -> bool {
         self.params.is_empty()
     }
 
     /// Convert query parameters to OpenAPI Parameters
-    pub(super) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
+    pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         // For query parameters, we need to create a schema for each parameter
         self.params.iter().map(|(name, resolved)| {
             Parameter::builder()
@@ -136,7 +136,7 @@ impl CallQuery {
     }
 
     /// Serialize query parameters to URL-encoded string
-    pub(super) fn to_query_string(&self) -> Result<String, ApiClientError> {
+    pub(in crate::client) fn to_query_string(&self) -> Result<String, ApiClientError> {
         let mut pairs = Vec::new();
 
         for (name, resolved) in &self.params {

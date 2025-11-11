@@ -44,8 +44,9 @@ use jsonptr::{Pointer, assign::Assign, delete::Delete};
 use serde::{Serialize, de::DeserializeOwned};
 use utoipa::ToSchema;
 
-use super::error::ApiClientError;
-use crate::{CallResult, client::output::Output};
+use super::output::Output;
+use crate::client::CallResult;
+use crate::client::error::ApiClientError;
 
 impl CallResult {
     /// Deserializes the JSON response and returns a builder for applying redactions.
