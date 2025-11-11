@@ -1,5 +1,8 @@
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::observations::domain::ObservationId;
 
@@ -13,6 +16,18 @@ pub(super) enum RepositoryError {
     },
 }
 
+/// API error response returned for all error cases
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApiErrorResponse {
+    /// HTTP status code
+    pub status: u16,
+    /// Human-readable error message
+    pub message: String,
+    /// Optional structured error details
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
 impl IntoResponse for RepositoryError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
@@ -21,6 +36,12 @@ impl IntoResponse for RepositoryError {
         };
         let message = self.to_string();
 
-        (status, message).into_response()
+        let error_response = ApiErrorResponse {
+            status: status.as_u16(),
+            message,
+            details: None,
+        };
+
+        (status, Json(error_response)).into_response()
     }
 }
