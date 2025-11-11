@@ -33,6 +33,9 @@ use crate::client::response::output::Output;
 ///
 /// - **Empty responses** (204 No Content, etc.): [`as_empty()`](Self::as_empty)
 /// - **JSON responses**: [`as_json::<T>()`](Self::as_json)
+/// - **Optional JSON responses** (204/404 → None): [`as_optional_json::<T>()`](Self::as_optional_json)
+/// - **Type-safe error handling**: [`as_result_json::<T, E>()`](Self::as_result_json) (2xx → Ok(T), 4xx/5xx → Err(E))
+/// - **Optional with errors**: [`as_result_option_json::<T, E>()`](Self::as_result_option_json) (combines optional and error handling)
 /// - **Text responses**: [`as_text()`](Self::as_text)
 /// - **Binary responses**: [`as_bytes()`](Self::as_bytes)
 /// - **Raw response access**: [`as_raw()`](Self::as_raw) (includes status code, content-type, and body)
@@ -480,6 +483,290 @@ impl CallResult {
         }
 
         Ok(Some(result))
+    }
+
+    /// Processes the response as a `Result<T, E>` based on HTTP status code.
+    ///
+    /// This method provides type-safe error handling for REST APIs that return structured
+    /// error responses. It automatically deserializes the response body to either the
+    /// success type `T` (for 2xx status codes) or the error type `E` (for 4xx/5xx status codes).
+    ///
+    /// Both success and error schemas are automatically recorded in the OpenAPI specification,
+    /// providing complete documentation of your API's response patterns.
+    ///
+    /// # Type Parameters
+    ///
+    /// - `T`: The success response type, must implement `DeserializeOwned`, `ToSchema`, and `'static`
+    /// - `E`: The error response type, must implement `DeserializeOwned`, `ToSchema`, and `'static`
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(T)`: The deserialized success response for 2xx status codes
+    /// - `Err(E)`: The deserialized error response for 4xx/5xx status codes
+    ///
+    /// # Errors
+    ///
+    /// Returns `ApiClientError` if:
+    /// - The response is not JSON
+    /// - JSON deserialization fails for either type
+    /// - The response body is empty when content is expected
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct User {
+    ///     id: u32,
+    ///     name: String,
+    /// }
+    ///
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct ApiError {
+    ///     code: String,
+    ///     message: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Returns Ok(User) for 2xx responses
+    /// let result: Result<User, ApiError> = client
+    ///     .get("/users/123")?
+    ///
+    ///     .await?
+    ///     .as_result_json()
+    ///     .await?;
+    ///
+    /// match result {
+    ///     Ok(user) => println!("User: {}", user.name),
+    ///     Err(err) => println!("Error: {} - {}", err.code, err.message),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_result_json<T, E>(&mut self) -> Result<Result<T, E>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+        E: DeserializeOwned + ToSchema + 'static,
+    {
+        // Check if this is a success or error response
+        let is_success = self.status.is_success();
+
+        // Register both schemas in the OpenAPI spec
+        let mut cs = self.collectors.write().await;
+        let success_schema = cs.schemas.add::<T>();
+        let error_schema = cs.schemas.add::<E>();
+        mem::drop(cs);
+
+        // Get the appropriate schema based on status code
+        let schema = if is_success {
+            success_schema
+        } else {
+            error_schema
+        };
+
+        let output = self.get_output(Some(schema)).await?;
+
+        let Output::Json(json) = output else {
+            return Err(ApiClientError::UnsupportedJsonOutput {
+                output: output.clone(),
+                name: if is_success {
+                    type_name::<T>()
+                } else {
+                    type_name::<E>()
+                },
+            });
+        };
+
+        if is_success {
+            // Deserialize as success type T
+            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
+            let result: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+                ApiClientError::JsonError {
+                    path: err.path().to_string(),
+                    error: err.into_inner(),
+                    body: json.clone(),
+                }
+            })?;
+
+            if let Ok(example) = serde_json::to_value(json.as_str()) {
+                let mut cs = self.collectors.write().await;
+                cs.schemas.add_example::<T>(example);
+            }
+
+            Ok(Ok(result))
+        } else {
+            // Deserialize as error type E
+            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
+            let result: E = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+                ApiClientError::JsonError {
+                    path: err.path().to_string(),
+                    error: err.into_inner(),
+                    body: json.clone(),
+                }
+            })?;
+
+            if let Ok(example) = serde_json::to_value(json.as_str()) {
+                let mut cs = self.collectors.write().await;
+                cs.schemas.add_example::<E>(example);
+            }
+
+            Ok(Err(result))
+        }
+    }
+
+    /// Processes the response as a `Result<Option<T>, E>` based on HTTP status code.
+    ///
+    /// This method combines optional response handling with type-safe error handling,
+    /// providing comprehensive support for REST APIs that:
+    /// - Return structured error responses for failures (4xx/5xx)
+    /// - Use 204 (No Content) or 404 (Not Found) to indicate absence of data
+    /// - Return data for other successful responses (2xx)
+    ///
+    /// Both success and error schemas are automatically recorded in the OpenAPI specification.
+    ///
+    /// # Type Parameters
+    ///
+    /// - `T`: The success response type, must implement `DeserializeOwned`, `ToSchema`, and `'static`
+    /// - `E`: The error response type, must implement `DeserializeOwned`, `ToSchema`, and `'static`
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(None)`: For 204 (No Content) or 404 (Not Found) status codes
+    /// - `Ok(Some(T))`: The deserialized success response for other 2xx status codes
+    /// - `Err(E)`: The deserialized error response for 4xx/5xx status codes
+    ///
+    /// # Errors
+    ///
+    /// Returns `ApiClientError` if:
+    /// - The response is not JSON (when content is expected)
+    /// - JSON deserialization fails for either type
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct User {
+    ///     id: u32,
+    ///     name: String,
+    /// }
+    ///
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct ApiError {
+    ///     code: String,
+    ///     message: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// // Returns Ok(None) for 404
+    /// let result: Result<Option<User>, ApiError> = client
+    ///     .get("/users/nonexistent")?
+    ///
+    ///     .await?
+    ///     .as_result_option_json()
+    ///     .await?;
+    ///
+    /// match result {
+    ///     Ok(Some(user)) => println!("User: {}", user.name),
+    ///     Ok(None) => println!("User not found"),
+    ///     Err(err) => println!("Error: {} - {}", err.code, err.message),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_result_option_json<T, E>(
+        &mut self,
+    ) -> Result<Result<Option<T>, E>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+        E: DeserializeOwned + ToSchema + 'static,
+    {
+        // Check if this is a success or error response
+        let is_success = self.status.is_success();
+
+        // Check for 204/404 which indicate absence of data
+        // Note: 404 is treated as Ok(None) rather than an error
+        if self.status == StatusCode::NO_CONTENT || self.status == StatusCode::NOT_FOUND {
+            // Register schemas even for None case
+            let mut cs = self.collectors.write().await;
+            cs.schemas.add::<T>();
+            cs.schemas.add::<E>();
+            mem::drop(cs);
+
+            // Record the response without a schema (empty response)
+            self.get_output(None).await?;
+            return Ok(Ok(None));
+        }
+
+        // Register both schemas in the OpenAPI spec
+        let mut cs = self.collectors.write().await;
+        let success_schema = cs.schemas.add::<T>();
+        let error_schema = cs.schemas.add::<E>();
+        mem::drop(cs);
+
+        // Get the appropriate schema based on status code
+        let schema = if is_success {
+            success_schema
+        } else {
+            error_schema
+        };
+
+        let output = self.get_output(Some(schema)).await?;
+
+        let Output::Json(json) = output else {
+            return Err(ApiClientError::UnsupportedJsonOutput {
+                output: output.clone(),
+                name: if is_success {
+                    type_name::<T>()
+                } else {
+                    type_name::<E>()
+                },
+            });
+        };
+
+        if is_success {
+            // Deserialize as success type T
+            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
+            let result: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+                ApiClientError::JsonError {
+                    path: err.path().to_string(),
+                    error: err.into_inner(),
+                    body: json.clone(),
+                }
+            })?;
+
+            if let Ok(example) = serde_json::to_value(json.as_str()) {
+                let mut cs = self.collectors.write().await;
+                cs.schemas.add_example::<T>(example);
+            }
+
+            Ok(Ok(Some(result)))
+        } else {
+            // Deserialize as error type E
+            let deserializer = &mut serde_json::Deserializer::from_str(json.as_str());
+            let result: E = serde_path_to_error::deserialize(deserializer).map_err(|err| {
+                ApiClientError::JsonError {
+                    path: err.path().to_string(),
+                    error: err.into_inner(),
+                    body: json.clone(),
+                }
+            })?;
+
+            if let Ok(example) = serde_json::to_value(json.as_str()) {
+                let mut cs = self.collectors.write().await;
+                cs.schemas.add_example::<E>(example);
+            }
+
+            Ok(Err(result))
+        }
     }
 
     /// Processes the response as plain text.

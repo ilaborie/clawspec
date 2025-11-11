@@ -1,5 +1,8 @@
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::Json;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::observations::domain::ObservationId;
 
@@ -8,9 +11,14 @@ pub(super) enum RepositoryError {
     DbError(serde_json::Error),
 
     #[display("No observation with id {id}")]
-    ObservationNotFound {
-        id: ObservationId,
-    },
+    ObservationNotFound { id: ObservationId },
+}
+
+/// API error response returned for all error cases
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApiErrorResponse {
+    /// Human-readable error message
+    pub message: String,
 }
 
 impl IntoResponse for RepositoryError {
@@ -21,6 +29,8 @@ impl IntoResponse for RepositoryError {
         };
         let message = self.to_string();
 
-        (status, message).into_response()
+        let error_response = ApiErrorResponse { message };
+
+        (status, Json(error_response)).into_response()
     }
 }
