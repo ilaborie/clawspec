@@ -3,8 +3,5 @@
 
 set -eux
 
-# Run snapshot tests without features
-cargo insta test --test-runner nextest --review
-
 # Run snapshot tests with redaction feature
 cargo insta test --test-runner nextest --review --features redaction

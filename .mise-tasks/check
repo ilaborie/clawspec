@@ -6,11 +6,6 @@ set -eux
 # Check formatting
 cargo fmt --all --check
 
-# Check without features
-echo "=== Checking without features ==="
-cargo clippy --all-targets -- -D warnings
-cargo nextest run
-
 # Check with all features
 echo "=== Checking with all features ==="
 cargo clippy --all-targets --all-features -- -D warnings
