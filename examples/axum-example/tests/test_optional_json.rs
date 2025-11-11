@@ -8,6 +8,11 @@ use axum_example::observations::domain::{LngLat, Observation, PartialObservation
 mod common;
 pub use self::common::*;
 
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct ObservationsList {
+    observations: Vec<Observation>,
+}
+
 #[rstest]
 #[tokio::test]
 async fn test_as_optional_json_returns_some_for_successful_response(
@@ -71,11 +76,6 @@ async fn test_as_optional_json_returns_some_for_list_response(
         .as_json()
         .await?;
 
-    #[derive(serde::Deserialize, utoipa::ToSchema)]
-    struct ObservationsList {
-        observations: Vec<Observation>,
-    }
-
     // Test with GET /observations which returns 200 and a list
     let result: Option<ObservationsList> =
         app.get("/observations")?.await?.as_optional_json().await?;
@@ -120,9 +120,7 @@ async fn test_as_optional_json_returns_none_for_404(#[future] app: TestApp) -> a
 
 #[rstest]
 #[tokio::test]
-async fn test_as_optional_json_ergonomics_comparison(
-    #[future] app: TestApp,
-) -> anyhow::Result<()> {
+async fn test_as_optional_json_ergonomics_comparison(#[future] app: TestApp) -> anyhow::Result<()> {
     let app = app.await;
 
     info!("Demonstrating ergonomics of as_optional_json vs manual status checking");
@@ -136,9 +134,10 @@ async fn test_as_optional_json_ergonomics_comparison(
         .await?;
 
     // Clean ergonomic handling with Option<T>
-    match observation {
-        Some(obs) => info!("Found observation: {:?}", obs.data.name),
-        None => info!("Observation not found - handled gracefully with Option<T>"),
+    if let Some(obs) = observation {
+        info!("Found observation: {:?}", obs.data.name);
+    } else {
+        info!("Observation not found - handled gracefully with Option<T>");
     }
 
     Ok(())
