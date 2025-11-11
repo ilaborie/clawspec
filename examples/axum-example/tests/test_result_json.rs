@@ -14,7 +14,10 @@ pub use self::common::*;
 #[derive(Debug, Serialize, Deserialize, ToSchema, PartialEq, derive_more::Display)]
 #[display("{message}")]
 struct ApiError {
+    status: u16,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<serde_json::Value>,
 }
 
 impl std::error::Error for ApiError {}
