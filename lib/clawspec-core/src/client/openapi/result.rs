@@ -629,7 +629,7 @@ impl CallResult {
         T: DeserializeOwned + ToSchema + 'static,
         E: DeserializeOwned + ToSchema + 'static,
     {
-        Ok(self.process_result_json_internal::<T, E>(true).await?)
+        self.process_result_json_internal::<T, E>(true).await
     }
 
     /// Internal helper for processing Result<Option<T>, E> responses.
