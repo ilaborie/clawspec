@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.2.0...clawspec-core-v0.2.1) - 2025-11-11
+
+### Added
+
+- Add JSON response redaction support (fixes #100) ([#102](https://github.com/ilaborie/clawspec/pull/102))
+
+### Other
+
+- Fix DRY violations in JSON deserialization methods ([#108](https://github.com/ilaborie/clawspec/pull/108))
+- Getting output as Result<T, E> ([#106](https://github.com/ilaborie/clawspec/pull/106))
+- Create branch to fix issue #94 ([#105](https://github.com/ilaborie/clawspec/pull/105))
+- Clawspec - Refactor code organization and structure ([#104](https://github.com/ilaborie/clawspec/pull/104))
+
 ## [0.2.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.1.4...clawspec-core-v0.2.0) - 2025-07-19
 
 ### Added
