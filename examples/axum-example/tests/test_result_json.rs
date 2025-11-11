@@ -57,22 +57,22 @@ async fn test_as_result_json_returns_ok_for_2xx_responses(
 
 #[rstest]
 #[tokio::test]
-async fn test_as_result_json_returns_ok_for_200_get_response(
+async fn test_as_result_json_returns_ok_for_200_patch_response(
     #[future] app: TestApp,
 ) -> anyhow::Result<()> {
     let app = app.await;
 
-    info!("Testing as_result_json with successful 200 GET response");
+    info!("Testing as_result_json with successful 200 PATCH response");
 
     // Create an observation first
     let test_observation = PartialObservation {
-        name: "Get Test Bird".to_string(),
+        name: "Patch Test Bird".to_string(),
         position: LngLat {
             lng: 15.0,
             lat: 25.0,
         },
         color: Some("blue".to_string()),
-        notes: Some("Testing GET with result json".to_string()),
+        notes: Some("Testing PATCH with result json".to_string()),
     };
 
     let created_id: u32 = app
@@ -82,18 +82,24 @@ async fn test_as_result_json_returns_ok_for_200_get_response(
         .as_json()
         .await?;
 
-    // Now fetch it with as_result_json
+    // Now patch it with as_result_json
+    let patch_data = serde_json::json!({
+        "name": "Updated Patch Test Bird",
+        "color": "green"
+    });
+
     let result: Result<Observation, ApiError> = app
-        .get(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{created_id}"))?
+        .json(&patch_data)?
         .await?
         .as_result_json()
         .await?;
 
     assert!(result.is_ok(), "Should return Ok for 200 response");
     let observation = result.expect("Should contain observation");
-    assert_eq!(observation.data.name, "Get Test Bird");
+    assert_eq!(observation.data.name, "Updated Patch Test Bird");
     info!(
-        "Successfully fetched observation: {:?}",
+        "Successfully patched observation: {:?}",
         observation.data.name
     );
 
@@ -110,7 +116,7 @@ async fn test_as_result_json_returns_err_for_404_response(
     info!("Testing as_result_json with 404 error response");
 
     // Try to delete a non-existent observation (should return 404 with JSON error body)
-    let result: Result<Observation, ApiError> = app
+    let result: Result<PartialObservation, ApiError> = app
         .delete("/observations/999999")?
         .add_expected_status(404)
         .await?
@@ -184,9 +190,14 @@ async fn test_as_result_option_json_returns_ok_some_for_200_response(
         .as_json()
         .await?;
 
-    // Fetch with as_result_option_json
+    // Patch with as_result_option_json
+    let patch_data = serde_json::json!({
+        "color": "green"
+    });
+
     let result: Result<Option<Observation>, ApiError> = app
-        .get(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{created_id}"))?
+        .json(&patch_data)?
         .await?
         .as_result_option_json()
         .await?;
@@ -197,7 +208,7 @@ async fn test_as_result_option_json_returns_ok_some_for_200_response(
     let observation = option.expect("Should contain observation");
     assert_eq!(observation.data.name, "Option Test Bird");
     info!(
-        "Successfully fetched observation: {:?}",
+        "Successfully patched observation: {:?}",
         observation.data.name
     );
 
@@ -213,9 +224,9 @@ async fn test_as_result_option_json_returns_ok_none_for_404_response(
 
     info!("Testing as_result_option_json with 404 response");
 
-    // Try to get a non-existent observation (404 should return Ok(None))
-    let result: Result<Option<Observation>, ApiError> = app
-        .get("/observations/999999")?
+    // Try to delete a non-existent observation (404 should return Ok(None))
+    let result: Result<Option<PartialObservation>, ApiError> = app
+        .delete("/observations/999999")?
         .add_expected_status(404)
         .await?
         .as_result_option_json()
@@ -280,9 +291,14 @@ async fn test_as_result_option_json_ergonomics_with_match(
         .as_json()
         .await?;
 
-    // Test fetching existing observation
+    // Test patching existing observation
+    let patch_data = serde_json::json!({
+        "color": "purple"
+    });
+
     let result: Result<Option<Observation>, ApiError> = app
-        .get(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{created_id}"))?
+        .json(&patch_data)?
         .await?
         .as_result_option_json()
         .await?;
@@ -293,16 +309,16 @@ async fn test_as_result_option_json_ergonomics_with_match(
         Err(error) => info!("Error: {}", error.message),
     }
 
-    // Test fetching non-existent observation
-    let result: Result<Option<Observation>, ApiError> = app
-        .get("/observations/999999")?
+    // Test deleting non-existent observation
+    let result: Result<Option<PartialObservation>, ApiError> = app
+        .delete("/observations/999999")?
         .add_expected_status(404)
         .await?
         .as_result_option_json()
         .await?;
 
     match result {
-        Ok(Some(obs)) => info!("Found observation: {:?}", obs.data.name),
+        Ok(Some(obs)) => info!("Found observation: {:?}", obs.name),
         Ok(None) => info!("Observation not found (expected)"),
         Err(error) => info!("Error: {}", error.message),
     }
@@ -337,8 +353,13 @@ async fn test_as_result_option_json_with_question_mark_operator(
         .await?;
 
     // Ergonomic use with ? operator
+    let patch_data = serde_json::json!({
+        "color": "orange"
+    });
+
     let observation: Option<Observation> = app
-        .get(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{created_id}"))?
+        .json(&patch_data)?
         .await?
         .as_result_option_json::<Observation, ApiError>()
         .await??; // First ? for ApiClientError, second ? for Result<Option<T>, E> -> Option<T>
@@ -377,8 +398,8 @@ async fn test_as_result_json_vs_as_result_option_json_comparison(
         .await?;
 
     // as_result_json: 404 would be Err(E)
-    let result_404: Result<Observation, ApiError> = app
-        .get("/observations/999999")?
+    let result_404: Result<PartialObservation, ApiError> = app
+        .delete("/observations/999999")?
         .add_expected_status(404)
         .await?
         .as_result_json()
@@ -394,8 +415,8 @@ async fn test_as_result_json_vs_as_result_option_json_comparison(
     );
 
     // as_result_option_json: 404 would be Ok(None)
-    let result_option_404: Result<Option<Observation>, ApiError> = app
-        .get("/observations/999999")?
+    let result_option_404: Result<Option<PartialObservation>, ApiError> = app
+        .delete("/observations/999998")?
         .add_expected_status(404)
         .await?
         .as_result_option_json()
@@ -411,14 +432,24 @@ async fn test_as_result_json_vs_as_result_option_json_comparison(
     );
 
     // Both should handle 200 the same way
+    let patch_data = serde_json::json!({
+        "color": "pink"
+    });
+
     let result_200: Result<Observation, ApiError> = app
-        .get(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{created_id}"))?
+        .json(&patch_data)?
         .await?
         .as_result_json()
         .await?;
 
+    let patch_data2 = serde_json::json!({
+        "color": "pink"
+    });
+
     let result_option_200: Result<Option<Observation>, ApiError> = app
-        .get(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{created_id}"))?
+        .json(&patch_data2)?
         .await?
         .as_result_option_json()
         .await?;
