@@ -1,18 +1,17 @@
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
-use std::sync::Arc;
 
 use headers::HeaderMapExt;
 use http::header::{HeaderName, HeaderValue};
 use http::{Method, Uri};
 use reqwest::{Body, Request};
-use tokio::sync::RwLock;
 use tracing::debug;
 use url::Url;
 
-use super::{ApiCall, BODY_MAX_LENGTH};
+use super::{ApiCall, BODY_MAX_LENGTH, CollectorSender};
 use crate::client::call_parameters::{CallParameters, OperationMetadata};
-use crate::client::openapi::{CalledOperation, Collectors};
+use crate::client::openapi::CalledOperation;
+use crate::client::openapi::channel::CollectorMessage;
 use crate::client::parameters::PathResolved;
 use crate::client::response::ExpectedStatusCodes;
 use crate::client::{ApiClientError, CallBody, CallPath, CallQuery, CallResult};
@@ -21,7 +20,7 @@ impl ApiCall {
     pub(in crate::client) fn build(
         client: reqwest::Client,
         base_uri: Uri,
-        collectors: Arc<RwLock<Collectors>>,
+        collector_sender: CollectorSender,
         method: Method,
         path: CallPath,
         authentication: Option<crate::client::Authentication>,
@@ -31,7 +30,7 @@ impl ApiCall {
         let result = Self {
             client,
             base_uri,
-            collectors,
+            collector_sender,
             method,
             path,
             query: CallQuery::default(),
@@ -117,7 +116,7 @@ impl ApiCall {
         let Self {
             client,
             base_uri,
-            collectors,
+            collector_sender,
             method,
             path,
             query,
@@ -176,10 +175,16 @@ impl ApiCall {
             CallResult::new_without_collection(response).await?
         } else {
             let call_result =
-                CallResult::new(operation_id, Arc::clone(&collectors), response).await?;
+                CallResult::new(operation_id, collector_sender.clone(), response).await?;
             operation.add_response(call_result.clone());
-            Self::collect_schemas_and_operation(collectors, &path, &parameters, &body, operation)
-                .await;
+            Self::collect_schemas_and_operation(
+                &collector_sender,
+                &path,
+                &parameters,
+                &body,
+                operation,
+            )
+            .await;
             call_result
         };
 
@@ -282,19 +287,33 @@ impl ApiCall {
     }
 
     async fn collect_schemas_and_operation(
-        collectors: Arc<RwLock<Collectors>>,
+        sender: &CollectorSender,
         path: &CallPath,
         parameters: &CallParameters,
         body: &Option<CallBody>,
         operation: CalledOperation,
     ) {
-        let mut cs = collectors.write().await;
-        cs.collect_schemas(path.schemas().clone());
-        cs.collect_schemas(parameters.collect_schemas());
+        // Send path schemas
+        sender
+            .send(CollectorMessage::AddSchemas(path.schemas().clone()))
+            .await;
+
+        // Send parameter schemas
+        sender
+            .send(CollectorMessage::AddSchemas(parameters.collect_schemas()))
+            .await;
+
+        // Send body schema entry if present
         if let Some(body) = body {
-            cs.collect_schema_entry(body.entry.clone());
+            sender
+                .send(CollectorMessage::AddSchemaEntry(body.entry.clone()))
+                .await;
         }
-        cs.collect_operation(operation);
+
+        // Register the operation
+        sender
+            .send(CollectorMessage::RegisterOperation(operation))
+            .await;
     }
 }
 

@@ -1,3 +1,4 @@
+pub(in crate::client) mod channel;
 pub(in crate::client) mod schema;
 
 mod result;

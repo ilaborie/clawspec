@@ -940,16 +940,16 @@ mod integration_tests {
         assert!(auth.contains(403)); // Forbidden
     }
 
-    #[test]
-    fn test_expected_status_codes_with_api_call() {
+    #[tokio::test]
+    async fn test_expected_status_codes_with_api_call() {
         // This tests that the macro works correctly with actual API calls
-        let client = ApiClient::builder().build().unwrap();
+        let client = ApiClient::builder().build().expect("should build client");
         let codes = expected_status_codes!(200 - 299, 404);
 
         // Should compile and be usable
         let _call = client
             .get("/test")
-            .unwrap()
+            .expect("should create call")
             .with_expected_status_codes(codes);
     }
 

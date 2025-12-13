@@ -129,6 +129,34 @@ impl Collectors {
         self.operations.values().flatten()
     }
 
+    /// Registers a response for an operation (used by channel-based collection).
+    ///
+    /// This method records a response with an optional schema and description.
+    pub(in crate::client) fn register_response(
+        &mut self,
+        operation_id: &str,
+        status: StatusCode,
+        content_type: Option<&ContentType>,
+        schema: Option<RefOr<Schema>>,
+        description: String,
+    ) {
+        let Some(operations) = self.operations.get_mut(operation_id) else {
+            tracing::warn!(%operation_id, "Operation not found for response registration");
+            return;
+        };
+        let Some(operation) = operations.last_mut() else {
+            return;
+        };
+
+        let response = build_response(description, content_type, schema, None);
+
+        operation
+            .operation
+            .responses
+            .responses
+            .insert(status.as_u16().to_string(), RefOr::T(response));
+    }
+
     /// Registers a response with an example in the operation.
     ///
     /// This method is used by the redaction feature to add a response with the redacted
