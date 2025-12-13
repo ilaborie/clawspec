@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.2.1...clawspec-core-v0.2.2) - 2025-12-13
+
+### Added
+
+- *(redaction)* use redacted values for OpenAPI examples ([#113](https://github.com/ilaborie/clawspec/pull/113))
+
+### Other
+
+- *(clawspec-core)* clean up public API and minimize external dependencies ([#117](https://github.com/ilaborie/clawspec/pull/117))
+- *(clawspec-core)* replace Arc<RwLock<Collectors>> with channels ([#116](https://github.com/ilaborie/clawspec/pull/116))
+- add comprehensive tutorial module for clawspec-core ([#115](https://github.com/ilaborie/clawspec/pull/115))
+
 ## [0.2.1](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.2.0...clawspec-core-v0.2.1) - 2025-11-11
 
 ### Added
