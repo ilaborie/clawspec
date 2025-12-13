@@ -28,7 +28,7 @@ pub enum TestAppError {
     /// This includes file operations (creating directories, writing files)
     /// and network operations (binding to ports, socket operations).
     #[display("I/O error: {_0}")]
-    IoError(tokio::io::Error),
+    IoError(std::io::Error),
 
     /// ApiClient configuration or operation failed.
     ///
@@ -248,7 +248,7 @@ mod tests {
         // Check that we can access the source error
         match test_error {
             TestAppError::IoError(ref io_err) => {
-                assert_eq!(io_err.kind(), tokio::io::ErrorKind::PermissionDenied);
+                assert_eq!(io_err.kind(), std::io::ErrorKind::PermissionDenied);
             }
             other => panic!("Expected IoError, got: {other:?}"),
         }
