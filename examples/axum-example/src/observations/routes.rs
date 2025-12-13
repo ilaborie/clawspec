@@ -149,7 +149,7 @@ async fn import_observations(
 
     for (index, observation) in data.into_iter().enumerate() {
         match repo.create(observation).await {
-            Ok(id) => created_ids.push(id),
+            Ok(observation) => created_ids.push(observation.id),
             Err(err) => errors.push(format!("Item {index}: {err}")),
         }
     }
@@ -176,8 +176,8 @@ async fn upload_observations(
     for (field_name, field_value) in fields {
         if field_name.starts_with("observation") {
             match serde_json::from_str::<PartialObservation>(&field_value) {
-                Ok(observation) => match repo.create(observation).await {
-                    Ok(id) => created_ids.push(id),
+                Ok(partial) => match repo.create(partial).await {
+                    Ok(observation) => created_ids.push(observation.id),
                     Err(err) => errors.push(format!("Field {field_name}: {err}")),
                 },
                 Err(err) => errors.push(format!("Field {field_name}: Invalid JSON - {err}")),
@@ -203,9 +203,9 @@ async fn upload_observations(
                 for (line_num, line) in lines.iter().enumerate() {
                     let line_num = line_num + 1;
                     match serde_json::from_str::<PartialObservation>(line) {
-                        Ok(observation) => match repo.create(observation).await {
-                            Ok(id) => {
-                                created_ids.push(id);
+                        Ok(partial) => match repo.create(partial).await {
+                            Ok(observation) => {
+                                created_ids.push(observation.id);
                                 file_created += 1;
                             }
                             Err(err) => file_errors.push(format!("Line {line_num}: {err}")),

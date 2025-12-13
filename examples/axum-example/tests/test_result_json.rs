@@ -43,8 +43,8 @@ async fn test_as_result_json_returns_ok_for_2xx_responses(
         notes: Some("Testing result json".to_string()),
     };
 
-    // Test with POST which returns 201 and an ID
-    let result: Result<u32, ApiError> = app
+    // Test with POST which returns 201 and the created Observation
+    let result: Result<Observation, ApiError> = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -52,8 +52,8 @@ async fn test_as_result_json_returns_ok_for_2xx_responses(
         .await?;
 
     assert!(result.is_ok(), "Should return Ok for 2xx response");
-    let created_id = result.expect("Should contain created ID");
-    info!("Created observation with ID: {}", created_id);
+    let created = result.expect("Should contain created observation");
+    info!("Created observation with ID: {}", created.id);
 
     Ok(())
 }
@@ -78,7 +78,7 @@ async fn test_as_result_json_returns_ok_for_200_patch_response(
         notes: Some("Testing PATCH with result json".to_string()),
     };
 
-    let created_id: u32 = app
+    let created: Observation = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -92,7 +92,7 @@ async fn test_as_result_json_returns_ok_for_200_patch_response(
     });
 
     let result: Result<Observation, ApiError> = app
-        .patch(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{}", created.id))?
         .json(&patch_data)?
         .await?
         .as_result_json()
@@ -120,7 +120,7 @@ async fn test_as_result_json_returns_err_for_404_response(
 
     // Try to delete a non-existent observation (should return 404 with JSON error body)
     let result: Result<PartialObservation, ApiError> = app
-        .delete("/observations/999999")?
+        .delete("/observations/00000000-0000-0000-0000-000000000000")?
         .add_expected_status(404)
         .await?
         .as_result_json()
@@ -150,7 +150,7 @@ async fn test_as_result_json_ergonomics_with_match(#[future] app: TestApp) -> an
         notes: Some("Testing match ergonomics".to_string()),
     };
 
-    let result: Result<u32, ApiError> = app
+    let result: Result<Observation, ApiError> = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -158,7 +158,10 @@ async fn test_as_result_json_ergonomics_with_match(#[future] app: TestApp) -> an
         .await?;
 
     match result {
-        Ok(id) => info!("Successfully created observation with ID: {}", id),
+        Ok(observation) => info!(
+            "Successfully created observation with ID: {}",
+            observation.id
+        ),
         Err(error) => info!("Error creating observation: {}", error.message),
     }
 
@@ -186,7 +189,7 @@ async fn test_as_result_option_json_returns_ok_some_for_200_response(
         notes: Some("Testing result option json".to_string()),
     };
 
-    let created_id: u32 = app
+    let created: Observation = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -199,7 +202,7 @@ async fn test_as_result_option_json_returns_ok_some_for_200_response(
     });
 
     let result: Result<Option<Observation>, ApiError> = app
-        .patch(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{}", created.id))?
         .json(&patch_data)?
         .await?
         .as_result_option_json()
@@ -229,7 +232,7 @@ async fn test_as_result_option_json_returns_ok_none_for_404_response(
 
     // Try to delete a non-existent observation (404 should return Ok(None))
     let result: Result<Option<PartialObservation>, ApiError> = app
-        .delete("/observations/999999")?
+        .delete("/observations/00000000-0000-0000-0000-000000000000")?
         .add_expected_status(404)
         .await?
         .as_result_option_json()
@@ -256,7 +259,7 @@ async fn test_as_result_option_json_returns_err_for_other_4xx_responses(
     // while 404 returns Ok(None). This demonstrates different error handling.
     // Note: The actual behavior depends on API validation rules
     let result: Result<Option<Observation>, ApiError> = app
-        .delete("/observations/999999")?
+        .delete("/observations/00000000-0000-0000-0000-000000000000")?
         .add_expected_status(404)
         .await?
         .as_result_option_json()
@@ -287,7 +290,7 @@ async fn test_as_result_option_json_ergonomics_with_match(
         notes: Some("Testing ergonomics".to_string()),
     };
 
-    let created_id: u32 = app
+    let created: Observation = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -300,7 +303,7 @@ async fn test_as_result_option_json_ergonomics_with_match(
     });
 
     let result: Result<Option<Observation>, ApiError> = app
-        .patch(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{}", created.id))?
         .json(&patch_data)?
         .await?
         .as_result_option_json()
@@ -314,7 +317,7 @@ async fn test_as_result_option_json_ergonomics_with_match(
 
     // Test deleting non-existent observation
     let result: Result<Option<PartialObservation>, ApiError> = app
-        .delete("/observations/999999")?
+        .delete("/observations/00000000-0000-0000-0000-000000000000")?
         .add_expected_status(404)
         .await?
         .as_result_option_json()
@@ -348,7 +351,7 @@ async fn test_as_result_option_json_with_question_mark_operator(
         notes: Some("Testing ? operator".to_string()),
     };
 
-    let created_id: u32 = app
+    let created: Observation = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -361,7 +364,7 @@ async fn test_as_result_option_json_with_question_mark_operator(
     });
 
     let observation: Option<Observation> = app
-        .patch(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{}", created.id))?
         .json(&patch_data)?
         .await?
         .as_result_option_json::<Observation, ApiError>()
@@ -393,16 +396,19 @@ async fn test_as_result_json_vs_as_result_option_json_comparison(
         notes: Some("Testing comparison".to_string()),
     };
 
-    let created_id: u32 = app
+    let created: Observation = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
         .as_json()
         .await?;
 
+    // Verify the observation was created
+    let _ = created.id;
+
     // as_result_json: 404 would be Err(E)
     let result_404: Result<PartialObservation, ApiError> = app
-        .delete("/observations/999999")?
+        .delete("/observations/00000000-0000-0000-0000-000000000000")?
         .add_expected_status(404)
         .await?
         .as_result_json()
@@ -419,7 +425,7 @@ async fn test_as_result_json_vs_as_result_option_json_comparison(
 
     // as_result_option_json: 404 would be Ok(None)
     let result_option_404: Result<Option<PartialObservation>, ApiError> = app
-        .delete("/observations/999998")?
+        .delete("/observations/00000000-0000-0000-0000-000000000001")?
         .add_expected_status(404)
         .await?
         .as_result_option_json()
@@ -440,7 +446,7 @@ async fn test_as_result_json_vs_as_result_option_json_comparison(
     });
 
     let result_200: Result<Observation, ApiError> = app
-        .patch(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{}", created.id))?
         .json(&patch_data)?
         .await?
         .as_result_json()
@@ -451,7 +457,7 @@ async fn test_as_result_json_vs_as_result_option_json_comparison(
     });
 
     let result_option_200: Result<Option<Observation>, ApiError> = app
-        .patch(format!("/observations/{created_id}"))?
+        .patch(format!("/observations/{}", created.id))?
         .json(&patch_data2)?
         .await?
         .as_result_option_json()

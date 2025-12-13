@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+
 //! # Clawspec Core
 //!
 //! Generate OpenAPI specifications from your HTTP client test code.
@@ -319,6 +321,134 @@
 //! # }
 //! ```
 //!
+//! ## Response Redaction
+//!
+//! *Requires the `redaction` feature.*
+//!
+//! When generating OpenAPI examples from real API responses, dynamic values like UUIDs,
+//! timestamps, and tokens make examples unstable across test runs. The redaction feature
+//! allows you to replace these dynamic values with stable, predictable ones in the generated
+//! OpenAPI specification while preserving the actual values for assertions.
+//!
+//! This is particularly useful for:
+//! - **Snapshot testing**: Generated OpenAPI files remain stable across runs
+//! - **Documentation**: Examples show consistent, readable placeholder values
+//! - **Security**: Sensitive values can be masked in documentation
+//!
+//! ### Basic Usage
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//!
+//! #[derive(Deserialize, ToSchema)]
+//! struct User {
+//!     id: String,           // Dynamic UUID
+//!     name: String,
+//!     created_at: String,   // Dynamic timestamp
+//! }
+//!
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! let user: User = client
+//!     .post("/users")?
+//!     .json(&serde_json::json!({"name": "Alice"}))?
+//!     .await?
+//!     .as_json_redacted()
+//!     .await?
+//!     // Replace dynamic UUID with stable value
+//!     .redact_replace("/id", "00000000-0000-0000-0000-000000000001")?
+//!     // Replace timestamp with stable value
+//!     .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
+//!     .finish()
+//!     .await
+//!     .value;
+//!
+//! // The actual user has real dynamic values for assertions
+//! assert!(!user.id.is_empty());
+//! // But the OpenAPI example shows the redacted stable values
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Redaction Operations
+//!
+//! The redaction builder supports two operations using [JSON Pointer (RFC 6901)](https://tools.ietf.org/html/rfc6901):
+//!
+//! - **`redact_replace(pointer, value)`**: Replace a value at the given path with a stable value
+//! - **`redact_remove(pointer)`**: Remove a value entirely from the OpenAPI example
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct Response { token: String, session_id: String, internal_ref: String }
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! let response: Response = client
+//!     .post("/auth/login")?
+//!     .json(&serde_json::json!({"username": "test", "password": "secret"}))?
+//!     .await?
+//!     .as_json_redacted()
+//!     .await?
+//!     .redact_replace("/token", "[REDACTED_TOKEN]")?
+//!     .redact_replace("/session_id", "session-00000000")?
+//!     .redact_remove("/internal_ref")?  // Remove internal field from docs
+//!     .finish()
+//!     .await
+//!     .value;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### JSON Pointer Syntax
+//!
+//! JSON Pointers use `/` as a path separator. Special characters are escaped:
+//! - `~0` represents `~`
+//! - `~1` represents `/`
+//!
+//! Examples:
+//! - `/id` - Top-level field named "id"
+//! - `/user/name` - Nested field "name" inside "user"
+//! - `/items/0/id` - First element's "id" in an array
+//! - `/foo~1bar` - Field named "foo/bar"
+//!
+//! ### Getting Both Values
+//!
+//! The [`RedactedResult`] returned by `finish()` contains both:
+//! - `value`: The actual deserialized response (with real dynamic values)
+//! - `redacted`: The JSON with redacted values (as stored in OpenAPI)
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct User { id: String }
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! let result = client
+//!     .get("/users/123")?
+//!     .await?
+//!     .as_json_redacted::<User>()
+//!     .await?
+//!     .redact_replace("/id", "user-00000000")?
+//!     .finish()
+//!     .await;
+//!
+//! // Use actual value for test assertions
+//! let user = result.value;
+//! assert!(!user.id.is_empty());
+//!
+//! // Access redacted JSON if needed
+//! let redacted_json = result.redacted;
+//! assert_eq!(redacted_json["id"], "user-00000000");
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Schema Registration
 //!
 //! ### Automatic Schema Capture
@@ -407,6 +537,14 @@
 //! - [`ApiCall`] - Request builder with parameter support
 //! - [`test_client`] - Test server integration module
 //! - [`ExpectedStatusCodes`] - Status code validation
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- [`RedactionBuilder`] - Builder for redacting response values in OpenAPI examples"
+)]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- [`RedactedResult`] - Result containing both actual and redacted values"
+)]
 //!
 //! ## Re-exports
 //!

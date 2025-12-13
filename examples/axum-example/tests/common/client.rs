@@ -47,7 +47,7 @@ impl TestApp {
     pub async fn create_observation(
         &mut self,
         new_observation: &PartialObservation,
-    ) -> anyhow::Result<ObservationId> {
+    ) -> anyhow::Result<Observation> {
         let result = self
             .post("/observations")?
             .json(new_observation)?
@@ -56,6 +56,24 @@ impl TestApp {
             .as_json()
             .await?;
         Ok(result)
+    }
+
+    pub async fn create_observation_redacted(
+        &mut self,
+        new_observation: &PartialObservation,
+    ) -> anyhow::Result<Observation> {
+        let result = self
+            .post("/observations")?
+            .json(new_observation)?
+            .await
+            .context("create observation")?
+            .as_json_redacted::<Observation>()
+            .await?
+            .redact_replace("/id", "019aaaaa-0000-7000-8000-000000000000")?
+            .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
+            .finish()
+            .await;
+        Ok(result.value)
     }
 
     pub async fn update_observation(

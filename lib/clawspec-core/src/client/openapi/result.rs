@@ -9,7 +9,7 @@ use reqwest::Response;
 use serde::de::DeserializeOwned;
 use tokio::sync::RwLock;
 use utoipa::ToSchema;
-use utoipa::openapi::{Content, RefOr, ResponseBuilder, Schema};
+use utoipa::openapi::{RefOr, Schema};
 
 use super::Collectors;
 use crate::client::ApiClientError;
@@ -194,6 +194,26 @@ impl RawResult {
 }
 
 impl CallResult {
+    /// Returns the HTTP status code of the response.
+    pub(in crate::client) fn status(&self) -> StatusCode {
+        self.status
+    }
+
+    /// Returns the content type of the response, if present.
+    pub(in crate::client) fn content_type(&self) -> Option<&ContentType> {
+        self.content_type.as_ref()
+    }
+
+    /// Returns the operation ID for this result.
+    pub(in crate::client) fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+
+    /// Returns a reference to the output.
+    pub(in crate::client) fn output(&self) -> &Output {
+        &self.output
+    }
+
     /// Extracts and parses the Content-Type header from the HTTP response.
     fn extract_content_type(response: &Response) -> Result<Option<ContentType>, ApiClientError> {
         let content_type = response
@@ -299,17 +319,12 @@ impl CallResult {
             .clone()
             .unwrap_or_else(|| format!("Status code {status_code}"));
 
-        let response = if let Some(content_type) = &self.content_type {
-            // Create content
-            let content = Content::builder().schema(schema).build();
-            ResponseBuilder::new()
-                .description(description)
-                .content(content_type.to_string(), content)
-                .build()
-        } else {
-            // Empty response
-            ResponseBuilder::new().description(description).build()
-        };
+        let response = super::collectors::build_response(
+            description,
+            self.content_type.as_ref(),
+            schema,
+            None,
+        );
 
         operation
             .operation

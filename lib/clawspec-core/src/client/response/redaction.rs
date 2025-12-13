@@ -24,10 +24,11 @@
 //! let result = client
 //!     .get("/api/users/123")?
 //!     .await?
-//!     .as_json_redacted::<User>()?
+//!     .as_json_redacted::<User>().await?
 //!     .redact_replace("/id", "550e8400-e29b-41d4-a716-446655440000")?
 //!     .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
-//!     .finish();
+//!     .finish()
+//!     .await;
 //!
 //! // Test assertions use the real value
 //! assert_eq!(result.value.name, "John Doe");
@@ -38,15 +39,20 @@
 //! # }
 //! ```
 
-use std::{any::type_name, mem};
+use std::{any::type_name, sync::Arc};
 
+use headers::ContentType;
+use http::StatusCode;
 use jsonptr::{Pointer, assign::Assign, delete::Delete};
 use serde::{Serialize, de::DeserializeOwned};
+use tokio::sync::RwLock;
 use utoipa::ToSchema;
+use utoipa::openapi::{RefOr, Schema};
 
 use super::output::Output;
 use crate::client::CallResult;
 use crate::client::error::ApiClientError;
+use crate::client::openapi::Collectors;
 
 impl CallResult {
     /// Deserializes the JSON response and returns a builder for applying redactions.
@@ -83,7 +89,8 @@ impl CallResult {
     ///     .await?
     ///     .as_json_redacted::<User>().await?
     ///     .redact_replace("/id", "stable-uuid")?
-    ///     .finish();
+    ///     .finish()
+    ///     .await;
     ///
     /// // Use real value for assertions
     /// assert!(!result.value.id.is_empty());
@@ -99,27 +106,29 @@ impl CallResult {
     where
         T: DeserializeOwned + ToSchema + 'static,
     {
-        // Register schema and get JSON output
+        // Register schema (but don't register response yet - deferred to finish())
         let mut cs = self.collectors.write().await;
         let schema = cs.schemas.add::<T>();
-        mem::drop(cs);
-        let output = self.get_output(Some(schema)).await?;
+        drop(cs);
 
-        let Output::Json(json) = output else {
+        // Access output directly without calling get_output() to defer response registration
+        let Output::Json(json) = self.output() else {
             return Err(ApiClientError::UnsupportedJsonOutput {
-                output: output.clone(),
+                output: self.output().clone(),
                 name: type_name::<T>(),
             });
         };
 
-        // Delegate to redaction module for core logic
-        let builder = super::redaction::create_redaction_builder::<T>(json)?;
-
-        // Add example (using non-redacted value)
-        if let Ok(example) = serde_json::to_value(json.as_str()) {
-            let mut cs = self.collectors.write().await;
-            cs.schemas.add_example::<T>(example);
-        }
+        // Delegate to redaction module with deferred registration data
+        // Response will be registered in finish() with the redacted example
+        let builder = super::redaction::create_redaction_builder::<T>(
+            json,
+            Arc::clone(&self.collectors),
+            self.operation_id().to_string(),
+            self.status(),
+            self.content_type().cloned(),
+            schema,
+        )?;
 
         Ok(builder)
     }
@@ -152,19 +161,39 @@ pub struct RedactedResult<T> {
 /// - `/array/0` - array index
 /// - `/field~1with~1slashes` - `~1` escapes `/`
 /// - `/field~0with~0tildes` - `~0` escapes `~`
-#[derive(Debug)]
+#[derive(derive_more::Debug)]
 #[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
 pub struct RedactionBuilder<T> {
     value: T,
     redacted: serde_json::Value,
+    #[debug(skip)]
+    collectors: Arc<RwLock<Collectors>>,
+    // Deferred response registration data
+    operation_id: String,
+    status: StatusCode,
+    content_type: Option<ContentType>,
+    schema: RefOr<Schema>,
 }
 
 impl<T> RedactionBuilder<T> {
     /// Creates a new redaction builder with the original value and JSON.
-    pub(crate) fn new(value: T, json: serde_json::Value) -> Self {
+    pub(in crate::client) fn new(
+        value: T,
+        json: serde_json::Value,
+        collectors: Arc<RwLock<Collectors>>,
+        operation_id: String,
+        status: StatusCode,
+        content_type: Option<ContentType>,
+        schema: RefOr<Schema>,
+    ) -> Self {
         Self {
             value,
             redacted: json,
+            collectors,
+            operation_id,
+            status,
+            content_type,
+            schema,
         }
     }
 
@@ -193,10 +222,11 @@ impl<T> RedactionBuilder<T> {
     /// let result = client
     ///     .get("/api/users")?
     ///     .await?
-    ///     .as_json_redacted::<Vec<serde_json::Value>>()?
+    ///     .as_json_redacted::<Vec<serde_json::Value>>().await?
     ///     .redact_replace("/0/id", "test-uuid")?
     ///     .redact_replace("/0/age", 25)?
-    ///     .finish();
+    ///     .finish()
+    ///     .await;
     /// # Ok(())
     /// # }
     /// ```
@@ -255,10 +285,11 @@ impl<T> RedactionBuilder<T> {
     /// let result = client
     ///     .get("/api/users/123")?
     ///     .await?
-    ///     .as_json_redacted::<serde_json::Value>()?
+    ///     .as_json_redacted::<serde_json::Value>().await?
     ///     .redact_remove("/password")?
     ///     .redact_remove("/creditCard")?
-    ///     .finish();
+    ///     .finish()
+    ///     .await;
     /// # Ok(())
     /// # }
     /// ```
@@ -279,7 +310,29 @@ impl<T> RedactionBuilder<T> {
     ///
     /// This consumes the builder and returns a [`RedactedResult`] containing
     /// both the original value and the redacted JSON.
-    pub fn finish(self) -> RedactedResult<T> {
+    ///
+    /// The redacted JSON value is recorded as an example in both the OpenAPI
+    /// schema for type `T` and in the response content for this operation.
+    pub async fn finish(self) -> RedactedResult<T>
+    where
+        T: ToSchema + 'static,
+    {
+        let mut cs = self.collectors.write().await;
+
+        // Add example to schemas (existing behavior)
+        cs.schemas.add_example::<T>(self.redacted.clone());
+
+        // Register response with the redacted example
+        cs.register_response_with_example(
+            &self.operation_id,
+            self.status,
+            self.content_type.as_ref(),
+            self.schema.clone(),
+            self.redacted.clone(),
+        );
+
+        drop(cs);
+
         RedactedResult {
             value: self.value,
             redacted: self.redacted,
@@ -295,6 +348,11 @@ impl<T> RedactionBuilder<T> {
 /// # Arguments
 ///
 /// * `json` - The JSON string to deserialize and prepare for redaction
+/// * `collectors` - The collectors to record the redacted example to
+/// * `operation_id` - The operation ID for deferred response registration
+/// * `status` - The HTTP status code of the response
+/// * `content_type` - The content type of the response
+/// * `schema` - The OpenAPI schema reference for the response type
 ///
 /// # Type Parameters
 ///
@@ -306,7 +364,14 @@ impl<T> RedactionBuilder<T> {
 /// Returns an error if:
 /// - JSON deserialization fails
 /// - JSON parsing fails for the redaction copy
-pub(crate) fn create_redaction_builder<T>(json: &str) -> Result<RedactionBuilder<T>, ApiClientError>
+pub(crate) fn create_redaction_builder<T>(
+    json: &str,
+    collectors: Arc<RwLock<Collectors>>,
+    operation_id: String,
+    status: StatusCode,
+    content_type: Option<ContentType>,
+    schema: RefOr<Schema>,
+) -> Result<RedactionBuilder<T>, ApiClientError>
 where
     T: DeserializeOwned + ToSchema + 'static,
 {
@@ -328,5 +393,13 @@ where
             body: json.to_string(),
         })?;
 
-    Ok(RedactionBuilder::new(value, json_value))
+    Ok(RedactionBuilder::new(
+        value,
+        json_value,
+        collectors,
+        operation_id,
+        status,
+        content_type,
+        schema,
+    ))
 }
