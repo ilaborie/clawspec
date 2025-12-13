@@ -17,6 +17,25 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     ])
 });
 
+/// Computes a schema reference locally without accessing shared state.
+///
+/// This enables fire-and-forget schema registration via channels by allowing
+/// callers to compute the schema reference before sending the message.
+///
+/// - Primitive types are inlined (return `RefOr::T`)
+/// - Complex types are referenced (return `RefOr::Ref`)
+pub(in crate::client) fn compute_schema_ref<T>() -> RefOr<Schema>
+where
+    T: ToSchema + 'static,
+{
+    let name = T::name();
+    if PRIMITIVE_TYPES.contains(name.as_ref()) {
+        T::schema()
+    } else {
+        RefOr::Ref(Ref::from_schema_name(name.as_ref()))
+    }
+}
+
 #[derive(Clone, Default)]
 pub(in crate::client) struct Schemas {
     entries: IndexMap<TypeId, SchemaEntry>,
@@ -102,6 +121,26 @@ impl Schemas {
             self.entries[&type_id].schema.clone()
         } else {
             RefOr::Ref(Ref::from_schema_name(&resolved_name))
+        }
+    }
+
+    /// Add an example to a schema by TypeId (creates entry if not exists).
+    ///
+    /// This method is used by the channel-based collection system where
+    /// the type information is passed as TypeId rather than generic parameters.
+    pub(in crate::client) fn add_example_by_id(
+        &mut self,
+        type_id: TypeId,
+        type_name: &str,
+        example: serde_json::Value,
+    ) {
+        if let Some(entry) = self.entries.get_mut(&type_id) {
+            entry.examples.insert(example);
+        } else {
+            tracing::warn!(
+                type_name = %type_name,
+                "Attempted to add example for unregistered type"
+            );
         }
     }
 

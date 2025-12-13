@@ -1,16 +1,14 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use http::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 use url::Url;
 use utoipa::ToSchema;
 
 use super::*;
 use crate::client::call_parameters::{CallParameters, OperationMetadata};
-use crate::client::openapi::Collectors;
+use crate::client::openapi::channel::CollectorSender;
 use crate::client::response::ExpectedStatusCodes;
 use crate::client::{CallHeaders, CallPath, CallQuery, ParamValue};
 use crate::{ApiClientError, CallResult};
@@ -24,12 +22,19 @@ struct TestData {
 // Helper function to create a basic ApiCall for testing
 fn create_test_api_call() -> ApiCall {
     let client = reqwest::Client::new();
-    let base_uri = "http://localhost:8080".parse().unwrap();
-    let collectors = Arc::new(RwLock::new(Collectors::default()));
+    let base_uri = "http://localhost:8080".parse().expect("valid uri");
     let method = Method::GET;
     let path = CallPath::from("/test");
 
-    ApiCall::build(client, base_uri, collectors, method, path, None).unwrap()
+    ApiCall::build(
+        client,
+        base_uri,
+        CollectorSender::dummy(),
+        method,
+        path,
+        None,
+    )
+    .expect("should build api call")
 }
 
 // Test OperationMetadata creation and defaults

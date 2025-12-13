@@ -5,6 +5,7 @@ use http::Uri;
 use http::uri::{PathAndQuery, Scheme};
 use utoipa::openapi::{Info, Server};
 
+use super::openapi::channel::CollectorHandle;
 use super::{ApiClient, ApiClientError};
 
 /// Builder for creating `ApiClient` instances with comprehensive configuration options.
@@ -129,7 +130,7 @@ impl ApiClientBuilder {
             .map(|it| it.path().to_string())
             .unwrap_or_default();
 
-        let collectors = Default::default();
+        let collector_handle = CollectorHandle::spawn();
 
         Ok(ApiClient {
             client,
@@ -137,7 +138,7 @@ impl ApiClientBuilder {
             base_path,
             info,
             servers,
-            collectors,
+            collector_handle,
             authentication,
         })
     }
@@ -492,8 +493,8 @@ mod tests {
     use http::uri::Scheme;
     use utoipa::openapi::{InfoBuilder, ServerBuilder};
 
-    #[test]
-    fn test_default_builder_creates_localhost_http_client() {
+    #[tokio::test]
+    async fn test_default_builder_creates_localhost_http_client() {
         let client = ApiClientBuilder::default()
             .build()
             .expect("should build client");
@@ -502,8 +503,8 @@ mod tests {
         insta::assert_snapshot!(uri, @"http://127.0.0.1:80/");
     }
 
-    #[test]
-    fn test_builder_with_custom_scheme() {
+    #[tokio::test]
+    async fn test_builder_with_custom_scheme() {
         let client = ApiClientBuilder::default()
             .with_scheme(Scheme::HTTPS)
             .build()
@@ -513,8 +514,8 @@ mod tests {
         insta::assert_snapshot!(uri, @"https://127.0.0.1:80/");
     }
 
-    #[test]
-    fn test_builder_with_custom_host() {
+    #[tokio::test]
+    async fn test_builder_with_custom_host() {
         let client = ApiClientBuilder::default()
             .with_host("api.example.com")
             .build()
@@ -524,8 +525,8 @@ mod tests {
         insta::assert_snapshot!(uri, @"http://api.example.com:80/");
     }
 
-    #[test]
-    fn test_builder_with_custom_port() {
+    #[tokio::test]
+    async fn test_builder_with_custom_port() {
         let client = ApiClientBuilder::default()
             .with_port(8080)
             .build()
@@ -535,8 +536,8 @@ mod tests {
         insta::assert_snapshot!(uri, @"http://127.0.0.1:8080/");
     }
 
-    #[test]
-    fn test_builder_with_valid_base_path() {
+    #[tokio::test]
+    async fn test_builder_with_valid_base_path() {
         let client = ApiClientBuilder::default()
             .with_base_path("/api/v1")
             .expect("valid base path")
@@ -552,8 +553,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_builder_with_info() {
+    #[tokio::test]
+    async fn test_builder_with_info() {
         let info = InfoBuilder::new()
             .title("Test API")
             .version("1.0.0")
@@ -568,8 +569,8 @@ mod tests {
         assert_eq!(client.info, Some(info));
     }
 
-    #[test]
-    fn test_builder_with_servers() {
+    #[tokio::test]
+    async fn test_builder_with_servers() {
         let servers = vec![
             ServerBuilder::new()
                 .url("https://api.example.com")
@@ -589,8 +590,8 @@ mod tests {
         assert_eq!(client.servers, servers);
     }
 
-    #[test]
-    fn test_builder_add_server() {
+    #[tokio::test]
+    async fn test_builder_add_server() {
         let server1 = ServerBuilder::new()
             .url("https://api.example.com")
             .description(Some("Production server"))
@@ -610,8 +611,8 @@ mod tests {
         assert_eq!(client.servers, vec![server1, server2]);
     }
 
-    #[test]
-    fn test_builder_with_complete_openapi_config() {
+    #[tokio::test]
+    async fn test_builder_with_complete_openapi_config() {
         let info = InfoBuilder::new()
             .title("Complete API")
             .version("2.0.0")
@@ -643,8 +644,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_builder_with_authentication_bearer() {
+    #[tokio::test]
+    async fn test_builder_with_authentication_bearer() {
         let client = ApiClientBuilder::default()
             .with_authentication(super::super::Authentication::Bearer("test-token".into()))
             .build()
@@ -656,8 +657,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_builder_with_authentication_basic() {
+    #[tokio::test]
+    async fn test_builder_with_authentication_basic() {
         let client = ApiClientBuilder::default()
             .with_authentication(super::super::Authentication::Basic {
                 username: "user".to_string(),
@@ -673,8 +674,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_builder_with_authentication_api_key() {
+    #[tokio::test]
+    async fn test_builder_with_authentication_api_key() {
         let client = ApiClientBuilder::default()
             .with_authentication(super::super::Authentication::ApiKey {
                 header_name: "X-API-Key".to_string(),
@@ -690,8 +691,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_builder_without_authentication() {
+    #[tokio::test]
+    async fn test_builder_without_authentication() {
         let client = ApiClientBuilder::default()
             .build()
             .expect("should build client");

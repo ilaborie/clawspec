@@ -1,17 +1,15 @@
-use std::any::type_name;
-use std::mem;
-use std::sync::Arc;
+use std::any::{TypeId, type_name};
 
 use headers::{ContentType, Header};
 use http::StatusCode;
 use http::header::CONTENT_TYPE;
 use reqwest::Response;
 use serde::de::DeserializeOwned;
-use tokio::sync::RwLock;
 use utoipa::ToSchema;
 use utoipa::openapi::{RefOr, Schema};
 
-use super::Collectors;
+use super::channel::{CollectorMessage, CollectorSender};
+use super::schema::{SchemaEntry, compute_schema_ref};
 use crate::client::ApiClientError;
 use crate::client::response::output::Output;
 
@@ -89,7 +87,7 @@ pub struct CallResult {
     status: StatusCode,
     content_type: Option<ContentType>,
     output: Output,
-    pub(in crate::client) collectors: Arc<RwLock<Collectors>>,
+    pub(in crate::client) collector_sender: CollectorSender,
 }
 
 /// Represents the raw response data from an HTTP request.
@@ -259,7 +257,7 @@ impl CallResult {
 
     pub(in crate::client) async fn new(
         operation_id: String,
-        collectors: Arc<RwLock<Collectors>>,
+        collector_sender: CollectorSender,
         response: Response,
     ) -> Result<Self, ApiClientError> {
         let status = response.status();
@@ -271,7 +269,7 @@ impl CallResult {
             status,
             content_type,
             output,
-            collectors,
+            collector_sender,
         })
     }
 
@@ -282,15 +280,12 @@ impl CallResult {
         let content_type = Self::extract_content_type(&response)?;
         let output = Self::process_response_body(response, &content_type, status).await?;
 
-        // Create a dummy collectors instance that won't be used
-        let collectors = Arc::new(RwLock::new(Collectors::default()));
-
         Ok(Self {
             operation_id: String::new(), // Empty operation_id since it won't be used
             status,
             content_type,
             output,
-            collectors,
+            collector_sender: CollectorSender::dummy(),
         })
     }
 
@@ -298,39 +293,24 @@ impl CallResult {
         &self,
         schema: Option<RefOr<Schema>>,
     ) -> Result<&Output, ApiClientError> {
-        // add operation response desc
-        let mut cs = self.collectors.write().await;
-        let Some(operation) = cs.operations.get_mut(&self.operation_id) else {
-            return Err(ApiClientError::MissingOperation {
-                id: self.operation_id.clone(),
-            });
-        };
+        // Skip if operation_id is empty (skip_collection case)
+        if self.operation_id.is_empty() {
+            return Ok(&self.output);
+        }
 
-        let Some(operation) = operation.last_mut() else {
-            return Err(ApiClientError::MissingOperation {
-                id: self.operation_id.clone(),
-            });
-        };
-
-        // Get response description from the operation, if available
+        // Send message to register the response
         let status_code = self.status.as_u16();
-        let description = operation
-            .response_description
-            .clone()
-            .unwrap_or_else(|| format!("Status code {status_code}"));
+        let description = format!("Status code {status_code}");
 
-        let response = super::collectors::build_response(
-            description,
-            self.content_type.as_ref(),
-            schema,
-            None,
-        );
-
-        operation
-            .operation
-            .responses
-            .responses
-            .insert(self.status.as_u16().to_string(), RefOr::T(response));
+        self.collector_sender
+            .send(CollectorMessage::RegisterResponse {
+                operation_id: self.operation_id.clone(),
+                status: self.status,
+                content_type: self.content_type.clone(),
+                schema,
+                description,
+            })
+            .await;
 
         Ok(&self.output)
     }
@@ -377,9 +357,15 @@ impl CallResult {
     where
         T: DeserializeOwned + ToSchema + 'static,
     {
-        let mut cs = self.collectors.write().await;
-        let schema = cs.schemas.add::<T>();
-        mem::drop(cs);
+        // Compute schema reference locally (no lock needed)
+        let schema = compute_schema_ref::<T>();
+
+        // Register the schema entry via channel
+        let entry = SchemaEntry::of::<T>();
+        self.collector_sender
+            .send(CollectorMessage::AddSchemaEntry(entry))
+            .await;
+
         let output = self.get_output(Some(schema)).await?;
 
         let Output::Json(json) = output else {
@@ -458,10 +444,15 @@ impl CallResult {
             return Ok(None);
         }
 
-        // For other status codes, deserialize as JSON
-        let mut cs = self.collectors.write().await;
-        let schema = cs.schemas.add::<T>();
-        mem::drop(cs);
+        // Compute schema reference locally (no lock needed)
+        let schema = compute_schema_ref::<T>();
+
+        // Register the schema entry via channel
+        let entry = SchemaEntry::of::<T>();
+        self.collector_sender
+            .send(CollectorMessage::AddSchemaEntry(entry))
+            .await;
+
         let output = self.get_output(Some(schema)).await?;
 
         let Output::Json(json) = output else {
@@ -637,10 +628,15 @@ impl CallResult {
         if treat_404_as_none
             && (self.status == StatusCode::NO_CONTENT || self.status == StatusCode::NOT_FOUND)
         {
-            let mut cs = self.collectors.write().await;
-            cs.schemas.add::<T>();
-            cs.schemas.add::<E>();
-            mem::drop(cs);
+            // Register both schema entries via channel
+            let success_entry = SchemaEntry::of::<T>();
+            let error_entry = SchemaEntry::of::<E>();
+            self.collector_sender
+                .send(CollectorMessage::AddSchemaEntry(success_entry))
+                .await;
+            self.collector_sender
+                .send(CollectorMessage::AddSchemaEntry(error_entry))
+                .await;
 
             self.get_output(None).await?;
             return Ok(Ok(None));
@@ -648,11 +644,19 @@ impl CallResult {
 
         let is_success = self.status.is_success();
 
-        // Register both schemas in the OpenAPI spec
-        let mut cs = self.collectors.write().await;
-        let success_schema = cs.schemas.add::<T>();
-        let error_schema = cs.schemas.add::<E>();
-        mem::drop(cs);
+        // Compute schema references locally (no lock needed)
+        let success_schema = compute_schema_ref::<T>();
+        let error_schema = compute_schema_ref::<E>();
+
+        // Register both schema entries via channel
+        let success_entry = SchemaEntry::of::<T>();
+        let error_entry = SchemaEntry::of::<E>();
+        self.collector_sender
+            .send(CollectorMessage::AddSchemaEntry(success_entry))
+            .await;
+        self.collector_sender
+            .send(CollectorMessage::AddSchemaEntry(error_entry))
+            .await;
 
         // Get the appropriate schema based on status code
         let schema = if is_success {
@@ -698,8 +702,13 @@ impl CallResult {
         })?;
 
         if let Ok(example) = serde_json::to_value(json) {
-            let mut cs = self.collectors.write().await;
-            cs.schemas.add_example::<T>(example);
+            self.collector_sender
+                .send(CollectorMessage::AddExample {
+                    type_id: TypeId::of::<T>(),
+                    type_name: type_name::<T>(),
+                    example,
+                })
+                .await;
         }
 
         Ok(result)

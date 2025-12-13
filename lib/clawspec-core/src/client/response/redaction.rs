@@ -39,20 +39,20 @@
 //! # }
 //! ```
 
-use std::{any::type_name, sync::Arc};
+use std::any::{TypeId, type_name};
 
 use headers::ContentType;
 use http::StatusCode;
 use jsonptr::{Pointer, assign::Assign, delete::Delete};
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::sync::RwLock;
 use utoipa::ToSchema;
 use utoipa::openapi::{RefOr, Schema};
 
 use super::output::Output;
 use crate::client::CallResult;
 use crate::client::error::ApiClientError;
-use crate::client::openapi::Collectors;
+use crate::client::openapi::channel::{CollectorMessage, CollectorSender};
+use crate::client::openapi::schema::{SchemaEntry, compute_schema_ref};
 
 impl CallResult {
     /// Deserializes the JSON response and returns a builder for applying redactions.
@@ -106,10 +106,14 @@ impl CallResult {
     where
         T: DeserializeOwned + ToSchema + 'static,
     {
-        // Register schema (but don't register response yet - deferred to finish())
-        let mut cs = self.collectors.write().await;
-        let schema = cs.schemas.add::<T>();
-        drop(cs);
+        // Compute schema reference locally (no lock needed)
+        let schema = compute_schema_ref::<T>();
+
+        // Register the schema entry via channel
+        let entry = SchemaEntry::of::<T>();
+        self.collector_sender
+            .send(CollectorMessage::AddSchemaEntry(entry))
+            .await;
 
         // Access output directly without calling get_output() to defer response registration
         let Output::Json(json) = self.output() else {
@@ -123,7 +127,7 @@ impl CallResult {
         // Response will be registered in finish() with the redacted example
         let builder = super::redaction::create_redaction_builder::<T>(
             json,
-            Arc::clone(&self.collectors),
+            self.collector_sender.clone(),
             self.operation_id().to_string(),
             self.status(),
             self.content_type().cloned(),
@@ -167,7 +171,7 @@ pub struct RedactionBuilder<T> {
     value: T,
     redacted: serde_json::Value,
     #[debug(skip)]
-    collectors: Arc<RwLock<Collectors>>,
+    collector_sender: CollectorSender,
     // Deferred response registration data
     operation_id: String,
     status: StatusCode,
@@ -180,7 +184,7 @@ impl<T> RedactionBuilder<T> {
     pub(in crate::client) fn new(
         value: T,
         json: serde_json::Value,
-        collectors: Arc<RwLock<Collectors>>,
+        collector_sender: CollectorSender,
         operation_id: String,
         status: StatusCode,
         content_type: Option<ContentType>,
@@ -189,7 +193,7 @@ impl<T> RedactionBuilder<T> {
         Self {
             value,
             redacted: json,
-            collectors,
+            collector_sender,
             operation_id,
             status,
             content_type,
@@ -317,21 +321,25 @@ impl<T> RedactionBuilder<T> {
     where
         T: ToSchema + 'static,
     {
-        let mut cs = self.collectors.write().await;
+        // Add example to schemas via channel
+        self.collector_sender
+            .send(CollectorMessage::AddExample {
+                type_id: TypeId::of::<T>(),
+                type_name: type_name::<T>(),
+                example: self.redacted.clone(),
+            })
+            .await;
 
-        // Add example to schemas (existing behavior)
-        cs.schemas.add_example::<T>(self.redacted.clone());
-
-        // Register response with the redacted example
-        cs.register_response_with_example(
-            &self.operation_id,
-            self.status,
-            self.content_type.as_ref(),
-            self.schema.clone(),
-            self.redacted.clone(),
-        );
-
-        drop(cs);
+        // Register response with the redacted example via channel
+        self.collector_sender
+            .send(CollectorMessage::RegisterResponseWithExample {
+                operation_id: self.operation_id.clone(),
+                status: self.status,
+                content_type: self.content_type.clone(),
+                schema: self.schema.clone(),
+                example: self.redacted.clone(),
+            })
+            .await;
 
         RedactedResult {
             value: self.value,
@@ -348,7 +356,7 @@ impl<T> RedactionBuilder<T> {
 /// # Arguments
 ///
 /// * `json` - The JSON string to deserialize and prepare for redaction
-/// * `collectors` - The collectors to record the redacted example to
+/// * `collector_sender` - The channel sender to record the redacted example to
 /// * `operation_id` - The operation ID for deferred response registration
 /// * `status` - The HTTP status code of the response
 /// * `content_type` - The content type of the response
@@ -366,7 +374,7 @@ impl<T> RedactionBuilder<T> {
 /// - JSON parsing fails for the redaction copy
 pub(crate) fn create_redaction_builder<T>(
     json: &str,
-    collectors: Arc<RwLock<Collectors>>,
+    collector_sender: CollectorSender,
     operation_id: String,
     status: StatusCode,
     content_type: Option<ContentType>,
@@ -386,17 +394,18 @@ where
     })?;
 
     // Parse JSON for redaction
-    let json_value =
-        serde_json::from_str::<serde_json::Value>(json).map_err(|e| ApiClientError::JsonError {
+    let json_value = serde_json::from_str::<serde_json::Value>(json).map_err(|error| {
+        ApiClientError::JsonError {
             path: String::new(),
-            error: e,
+            error,
             body: json.to_string(),
-        })?;
+        }
+    })?;
 
     Ok(RedactionBuilder::new(
         value,
         json_value,
-        collectors,
+        collector_sender,
         operation_id,
         status,
         content_type,

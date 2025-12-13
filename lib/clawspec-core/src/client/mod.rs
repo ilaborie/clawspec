@@ -1,11 +1,13 @@
+use std::collections::BTreeSet;
 use std::mem;
-use std::sync::Arc;
 
 use http::{Method, Uri};
-use tokio::sync::RwLock;
 use utoipa::openapi::{Components, Info, OpenApi, Paths, Server, Tag};
 
 mod builder;
+use crate::client::openapi::channel::{CollectorHandle, CollectorMessage};
+use crate::client::openapi::schema::Schemas;
+
 pub use self::builder::ApiClientBuilder;
 
 mod call;
@@ -278,7 +280,7 @@ pub struct ApiClient {
     base_path: String,
     info: Option<Info>,
     servers: Vec<Server>,
-    collectors: Arc<RwLock<openapi::Collectors>>,
+    collector_handle: CollectorHandle,
     authentication: Option<Authentication>,
 }
 
@@ -293,7 +295,7 @@ impl ApiClient {
 impl ApiClient {
     pub async fn collected_paths(&mut self) -> Paths {
         let mut builder = Paths::builder();
-        let mut collectors = self.collectors.write().await;
+        let mut collectors = self.collector_handle.get_collectors().await;
         for (path, item) in collectors.as_map(&self.base_path) {
             builder = builder.path(path, item);
         }
@@ -407,7 +409,7 @@ impl ApiClient {
         builder = builder.paths(self.collected_paths().await);
 
         // Add components with schemas
-        let collectors = self.collectors.read().await;
+        let collectors = self.collector_handle.get_collectors().await;
         let components = Components::builder()
             .schemas_from_iter(collectors.schemas())
             .build();
@@ -430,7 +432,7 @@ impl ApiClient {
 
     /// Computes the list of unique tags from all collected operations.
     async fn compute_tags(&self, collectors: &openapi::Collectors) -> Vec<Tag> {
-        let mut tag_names = std::collections::BTreeSet::new();
+        let mut tag_names = BTreeSet::new();
 
         // Collect all unique tag names from operations
         for operation in collectors.operations() {
@@ -482,11 +484,13 @@ impl ApiClient {
     where
         T: utoipa::ToSchema + 'static,
     {
-        let mut schemas = openapi::schema::Schemas::default();
+        let mut schemas = Schemas::default();
         schemas.add::<T>();
 
-        let mut collectors = self.collectors.write().await;
-        collectors.collect_schemas(schemas);
+        self.collector_handle
+            .sender()
+            .send(CollectorMessage::AddSchemas(schemas))
+            .await;
     }
 }
 
@@ -495,7 +499,7 @@ impl ApiClient {
         ApiCall::build(
             self.client.clone(),
             self.base_uri.clone(),
-            Arc::clone(&self.collectors),
+            self.collector_handle.sender(),
             method,
             path,
             self.authentication.clone(),

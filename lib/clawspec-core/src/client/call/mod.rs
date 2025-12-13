@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use http::{Method, Uri};
-use tokio::sync::RwLock;
 
 use super::call_parameters::OperationMetadata;
-use super::openapi::Collectors;
+use super::openapi::channel::CollectorSender;
 use super::response::ExpectedStatusCodes;
 use super::{CallBody, CallCookies, CallHeaders, CallPath, CallQuery};
 
@@ -102,7 +99,8 @@ mod tests;
 pub struct ApiCall {
     pub(super) client: reqwest::Client,
     pub(super) base_uri: Uri,
-    pub(super) collectors: Arc<RwLock<Collectors>>,
+    #[debug(skip)]
+    pub(super) collector_sender: CollectorSender,
 
     pub(super) method: Method,
     pub(super) path: CallPath,
