@@ -98,16 +98,33 @@ mod integration_tests;
 ///
 /// # Builder Pattern
 ///
-/// The client is created using a builder pattern that allows you to configure various aspects:
+/// The client is created using a builder pattern. For simple cases, use the simplified methods:
 ///
 /// ```rust
 /// use clawspec_core::ApiClient;
-/// use http::uri::Scheme;
-/// use utoipa::openapi::{InfoBuilder, ServerBuilder};
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = ApiClient::builder()
-///     .with_scheme(Scheme::HTTPS)
+///     .with_https()
+///     .with_host("api.github.com")
+///     .with_port(443)
+///     .with_base_path("/api/v3")?
+///     .with_info_simple("GitHub API Client", "1.0.0")
+///     .with_description("Auto-generated from tests")
+///     .add_server_simple("https://api.github.com/api/v3", "GitHub API v3")
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// For advanced configuration, use the builder types (re-exported from clawspec_core):
+///
+/// ```rust
+/// use clawspec_core::{ApiClient, InfoBuilder, ServerBuilder};
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = ApiClient::builder()
+///     .with_https()
 ///     .with_host("api.github.com")
 ///     .with_port(443)
 ///     .with_base_path("/api/v3")?
@@ -322,10 +339,8 @@ impl ApiClient {
     /// # Example
     ///
     /// ```rust
-    /// use clawspec_core::ApiClient;
-    /// use utoipa::openapi::{InfoBuilder, ServerBuilder};
+    /// use clawspec_core::{ApiClient, ToSchema};
     /// use serde::{Serialize, Deserialize};
-    /// use utoipa::ToSchema;
     ///
     /// #[derive(Serialize, Deserialize, ToSchema)]
     /// struct UserData { name: String }
@@ -333,18 +348,8 @@ impl ApiClient {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder()
     ///     .with_host("api.example.com")
-    ///     .with_info(
-    ///         InfoBuilder::new()
-    ///             .title("My API")
-    ///             .version("1.0.0")
-    ///             .build()
-    ///     )
-    ///     .add_server(
-    ///         ServerBuilder::new()
-    ///             .url("https://api.example.com")
-    ///             .description(Some("Production server"))
-    ///             .build()
-    ///     )
+    ///     .with_info_simple("My API", "1.0.0")
+    ///     .add_server_simple("https://api.example.com", "Production server")
     ///     .build()?;
     ///
     /// let user_data = UserData { name: "John".to_string() };

@@ -470,6 +470,158 @@ impl ApiClientBuilder {
         self.authentication = Some(authentication);
         self
     }
+
+    // =========================================================================
+    // Simplified builder methods (no external types required)
+    // =========================================================================
+
+    /// Sets the OpenAPI info metadata using simple string parameters.
+    ///
+    /// This is a convenience method that doesn't require importing utoipa types.
+    /// For more advanced configuration, use [`with_info`](Self::with_info) with an `Info` object.
+    ///
+    /// # Parameters
+    ///
+    /// * `title` - The title of the API
+    /// * `version` - The version of the API (e.g., "1.0.0")
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_info_simple("My API", "1.0.0")
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_info_simple(
+        mut self,
+        title: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        use utoipa::openapi::InfoBuilder;
+        self.info = Some(InfoBuilder::new().title(title).version(version).build());
+        self
+    }
+
+    /// Sets or updates the description in the OpenAPI info metadata.
+    ///
+    /// If info was previously set, this updates its description.
+    /// If no info was set, this creates a new info with default title and version.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_info_simple("My API", "1.0.0")
+    ///     .with_description("A comprehensive API for managing resources")
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        use utoipa::openapi::InfoBuilder;
+        let description = description.into();
+        self.info = Some(match self.info {
+            Some(info) => InfoBuilder::from(info)
+                .description(Some(description))
+                .build(),
+            None => InfoBuilder::new()
+                .title("API")
+                .version("0.0.0")
+                .description(Some(description))
+                .build(),
+        });
+        self
+    }
+
+    /// Sets the HTTP scheme to HTTPS.
+    ///
+    /// This is a convenience method that doesn't require importing http types.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_https()
+    ///     .with_host("api.example.com")
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_https(mut self) -> Self {
+        self.scheme = Scheme::HTTPS;
+        self
+    }
+
+    /// Sets the HTTP scheme to HTTP (the default).
+    ///
+    /// This is a convenience method that doesn't require importing http types.
+    /// Note: HTTP is already the default scheme.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_http()  // Explicit, but same as default
+    ///     .with_host("localhost")
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_http(mut self) -> Self {
+        self.scheme = Scheme::HTTP;
+        self
+    }
+
+    /// Adds a server to the OpenAPI specification using simple string parameters.
+    ///
+    /// This is a convenience method that doesn't require importing utoipa types.
+    /// For more advanced configuration, use [`add_server`](Self::add_server) with a `Server` object.
+    ///
+    /// # Parameters
+    ///
+    /// * `url` - The URL of the server (e.g., "https://api.example.com/v1")
+    /// * `description` - A description of the server (e.g., "Production server")
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .add_server_simple("https://api.example.com/v1", "Production server")
+    ///     .add_server_simple("https://staging.example.com/v1", "Staging server")
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_server_simple(
+        mut self,
+        url: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        use utoipa::openapi::ServerBuilder;
+        let server = ServerBuilder::new()
+            .url(url)
+            .description(Some(description))
+            .build();
+        self.servers.push(server);
+        self
+    }
 }
 
 impl Default for ApiClientBuilder {

@@ -45,25 +45,39 @@
 ```
 clawspec/
 ├── lib/
-│   ├── clawspec-core/        # Core library
+│   ├── clawspec-core/              # Core library
 │   │   ├── src/
-│   │   │   ├── client/       # HTTP client and collectors
-│   │   │   │   ├── mod.rs    # ApiClient - main entry point
-│   │   │   │   ├── call.rs   # ApiCall - builder for API calls
-│   │   │   │   ├── path.rs   # CallPath - path parameters
-│   │   │   │   ├── query.rs  # CallQuery - query parameters
-│   │   │   │   └── headers.rs # CallHeaders - header parameters
-│   │   │   ├── collectors/   # OpenAPI data collection system
-│   │   │   └── lib.rs
-│   │   └── tests/            # Unit and integration tests
-│   └── clawspec-macro/       # Procedural macros (future)
+│   │   │   ├── client/             # HTTP client module
+│   │   │   │   ├── mod.rs          # ApiClient - main entry point
+│   │   │   │   ├── builder.rs      # ApiClientBuilder
+│   │   │   │   ├── auth.rs         # Authentication types
+│   │   │   │   ├── error.rs        # Error types
+│   │   │   │   ├── call/           # API call builder
+│   │   │   │   │   ├── mod.rs      # ApiCall builder
+│   │   │   │   │   └── execution.rs # Request execution
+│   │   │   │   ├── parameters/     # Request parameters
+│   │   │   │   │   ├── path.rs     # CallPath - path parameters
+│   │   │   │   │   ├── query.rs    # CallQuery - query parameters
+│   │   │   │   │   ├── headers.rs  # CallHeaders - header parameters
+│   │   │   │   │   ├── cookies.rs  # CallCookies - cookie parameters
+│   │   │   │   │   └── body.rs     # CallBody - request body
+│   │   │   │   ├── openapi/        # OpenAPI generation
+│   │   │   │   │   ├── collectors.rs # Schema collection
+│   │   │   │   │   ├── schema.rs   # Schema processing
+│   │   │   │   │   └── result.rs   # CallResult, RawResult
+│   │   │   │   └── response/       # Response handling
+│   │   │   │       ├── status.rs   # ExpectedStatusCodes
+│   │   │   │       └── redaction.rs # Redaction feature
+│   │   │   ├── test_client/        # TestClient for integration tests
+│   │   │   └── lib.rs              # Public API exports
+│   │   └── tests/                  # Integration tests
+│   └── clawspec-macro/             # Procedural macros (future)
 ├── examples/
-│   └── axum-example/         # Complete example with Axum
-│       ├── src/              # API implementation
-│       ├── tests/            # Tests that generate OpenAPI
-│       └── doc/openapi.yml   # Generated OpenAPI spec
-└── .mise.toml                # Tool configuration
-
+│   └── axum-example/               # Complete example with Axum
+│       ├── src/                    # API implementation
+│       ├── tests/                  # Tests that generate OpenAPI
+│       └── doc/openapi.yml         # Generated OpenAPI spec
+└── .mise.toml                      # Tool configuration
 ```
 
 **Data Flow**: Test → ApiClient → HTTP Request → Collectors → OpenAPI Schema → YAML Output
@@ -140,14 +154,58 @@ git cliff                 # Generate changelog
 
 ### Builder Pattern for API Calls
 ```rust
-// ApiCall builder pattern example
+// ApiCall builder pattern example - note: uses IntoFuture, no .send() needed
 let response = client
-    .call("GET", "/observations/{id}")
+    .get("/observations/{id}")?
     .with_path("id", observation_id)
     .with_query("include", "details")
     .with_header("Authorization", format!("Bearer {token}"))
-    .send()
-    .await?;
+    .await?;  // IntoFuture - no .send() required
+```
+
+### Re-exported External Types
+
+clawspec-core re-exports commonly used types so users don't need to add external crates:
+
+```rust
+// Users can import directly from clawspec_core
+use clawspec_core::{
+    ApiClient, OpenApi, Paths, ToSchema, StatusCode,
+    Info, InfoBuilder, Server, ServerBuilder,
+};
+
+// Instead of needing:
+// use utoipa::openapi::{OpenApi, Info};
+// use utoipa::ToSchema;
+// use http::StatusCode;
+```
+
+### Simplified Builder Methods
+
+For common configurations, use simplified methods that don't require external types:
+
+```rust
+// Simple configuration - no external type imports needed
+let client = ApiClient::builder()
+    .with_https()
+    .with_host("api.example.com")
+    .with_info_simple("My API", "1.0.0")
+    .with_description("API for managing resources")
+    .add_server_simple("https://api.example.com", "Production")
+    .build()?;
+
+// Advanced configuration - use re-exported builder types
+use clawspec_core::{ApiClient, InfoBuilder, ServerBuilder};
+
+let client = ApiClient::builder()
+    .with_info(
+        InfoBuilder::new()
+            .title("My API")
+            .version("1.0.0")
+            .license(Some(LicenseBuilder::new().name("MIT").build()))
+            .build()
+    )
+    .build()?;
 ```
 
 ### Error Handling Pattern
@@ -192,18 +250,24 @@ mod tests {
 
     #[tokio::test]
     async fn should_collect_openapi_schema() {
-        let client = ApiClient::new("http://localhost:8080");
+        let mut client = ApiClient::builder()
+            .with_host("localhost")
+            .with_port(8080)
+            .build()
+            .expect("Client should build");
 
-        // Exercise API
+        // Exercise API - uses IntoFuture, no .send() needed
         client
-            .call("GET", "/observations/{id}")
+            .get("/observations/{id}")?
             .with_path("id", "obs-123")
-            .send()
             .await
-            .expect("API call should succeed");
+            .expect("API call should succeed")
+            .as_json::<Observation>()
+            .await
+            .expect("Should deserialize");
 
         // Generate OpenAPI spec
-        let openapi = client.generate_openapi_spec();
+        let openapi = client.collected_openapi().await;
 
         // Snapshot test the generated spec
         assert_json_snapshot!(openapi);
@@ -242,32 +306,43 @@ mod tests {
 ```rust
 use std::collections::HashMap;
 
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tokio::runtime::Runtime;
-use utoipa::ToSchema;
 
-use crate::client::{ApiCall, ApiClient};
-use crate::collectors::SchemaCollector;
+use crate::client::{ApiCall, ApiClient, ApiClientBuilder};
+use crate::client::openapi::schema::Schemas;
+```
+
+**For library users** (external to the crate):
+```rust
+// All commonly needed types can be imported from clawspec_core
+use clawspec_core::{
+    ApiClient, ApiClientBuilder, ApiClientError,
+    OpenApi, Paths, ToSchema, StatusCode,
+};
+use serde::{Deserialize, Serialize};
 ```
 
 ---
 
-## 📁 File Organization
+## File Organization
 
 ### Key Locations
-- **Core Client**: `lib/clawspec-core/src/client/` - HTTP client and API call builders
-- **Collectors**: `lib/clawspec-core/src/collectors/` - OpenAPI data collection
-- **Path Handling**: `lib/clawspec-core/src/client/path.rs` - Path parameter processing
-- **Query Handling**: `lib/clawspec-core/src/client/query.rs` - Query parameter processing
-- **Header Handling**: `lib/clawspec-core/src/client/headers.rs` - Header parameter processing
+- **Core Client**: `lib/clawspec-core/src/client/mod.rs` - ApiClient entry point
+- **Client Builder**: `lib/clawspec-core/src/client/builder.rs` - ApiClientBuilder with simplified methods
+- **API Call Builder**: `lib/clawspec-core/src/client/call/` - ApiCall builder and execution
+- **Parameters**: `lib/clawspec-core/src/client/parameters/` - Path, query, header, cookie, body handling
+- **OpenAPI Generation**: `lib/clawspec-core/src/client/openapi/` - Schema collection and generation
+- **Response Handling**: `lib/clawspec-core/src/client/response/` - Status codes, redaction
+- **Test Client**: `lib/clawspec-core/src/test_client/` - TestClient for server lifecycle management
+- **Public API**: `lib/clawspec-core/src/lib.rs` - Re-exports and public type definitions
 - **Examples**: `examples/axum-example/` - Full working example with Axum
 - **Generated Specs**: `examples/axum-example/doc/openapi.yml` - Example output
 
 ### Architecture Layers
-1. **Client Layer** - HTTP requests, builder pattern for API calls
-2. **Collector Layer** - Schema collection, OpenAPI path gathering
-3. **Generator Layer** - OpenAPI specification generation from collected data
+1. **Client Layer** - HTTP requests, builder pattern for API calls (`client/`)
+2. **Parameters Layer** - Request parameter handling (`client/parameters/`)
+3. **OpenAPI Layer** - Schema collection, path gathering, spec generation (`client/openapi/`)
+4. **Response Layer** - Response processing, status validation, redaction (`client/response/`)
 
 ---
 
@@ -376,125 +451,78 @@ When adding new query serialization styles (beyond form, spaceDelimited, etc.):
 
 ### Adding a New Parameter Type
 
+Note: Cookie parameters are already implemented in `client/parameters/cookies.rs`.
+See the existing implementation for the pattern used.
+
 ```rust
-// lib/clawspec-core/src/client/cookies.rs
+// Example of using cookie parameters in tests
+use clawspec_core::ApiClient;
 
-use std::collections::HashMap;
-use serde::Serialize;
-use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
+#[tokio::test]
+async fn test_with_cookies() {
+    let mut client = ApiClient::builder().build().expect("Client should build");
 
-/// Builder for cookie parameters
-#[derive(Debug, Clone, Default)]
-pub struct CallCookies {
-    cookies: HashMap<String, serde_json::Value>,
-}
-
-impl CallCookies {
-    /// Create a new cookie parameter builder
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Add a cookie parameter
-    pub fn with_cookie<K, V>(mut self, name: K, value: V) -> Self
-    where
-        K: Into<String>,
-        V: Serialize,
-    {
-        let value = serde_json::to_value(value)
-            .expect("Failed to serialize cookie value");
-        self.cookies.insert(name.into(), value);
-        self
-    }
-
-    /// Generate OpenAPI parameters
-    pub fn to_openapi_params(&self) -> Vec<Parameter> {
-        self.cookies
-            .iter()
-            .map(|(name, value)| {
-                ParameterBuilder::new()
-                    .name(name)
-                    .parameter_in(ParameterIn::Cookie)
-                    .required(utoipa::openapi::Required::True)
-                    .schema(Some(schema_from_value(value)))
-                    .build()
-            })
-            .collect()
-    }
+    client
+        .get("/user/preferences")?
+        .with_cookie("session_id", "abc123")
+        .with_cookie("theme", "dark")
+        .await
+        .expect("Call should succeed")
+        .as_empty()
+        .await
+        .expect("Should complete");
 }
 ```
 
 ### Extending ApiCall Builder
 
+When adding new parameter types to `ApiCall`, follow this pattern:
+
 ```rust
-// lib/clawspec-core/src/client/call.rs
+// lib/clawspec-core/src/client/call/mod.rs
 
-impl ApiCall {
-    /// Add cookie parameters to the call
-    pub fn with_cookies(mut self, cookies: CallCookies) -> Self {
-        self.cookies = Some(cookies);
-        self
-    }
-
-    /// Add a single cookie parameter
-    pub fn with_cookie<K, V>(mut self, name: K, value: V) -> Self
+impl ApiCall<'_> {
+    /// Add a single parameter using builder pattern
+    pub fn with_new_param<K, V>(mut self, name: K, value: V) -> Self
     where
         K: Into<String>,
-        V: Serialize,
+        V: ParameterValue,  // Use the ParameterValue trait
     {
-        let cookies = self.cookies.take().unwrap_or_default();
-        self.cookies = Some(cookies.with_cookie(name, value));
+        let params = self.new_params.take().unwrap_or_default();
+        self.new_params = Some(params.with_param(name, value));
         self
     }
 }
 ```
 
-### Adding Collector Tests
+### Adding Tests for New Features
 
 ```rust
-// lib/clawspec-core/tests/cookies_test.rs
+// lib/clawspec-core/src/client/parameters/new_param_tests.rs
 
-use clawspec_core::client::{ApiClient, CallCookies};
+use clawspec_core::ApiClient;
 use insta::assert_json_snapshot;
 
 #[tokio::test]
-async fn should_collect_cookie_parameters() {
-    let client = ApiClient::new("http://localhost:8080");
+async fn should_collect_new_parameters() {
+    let mut client = ApiClient::builder()
+        .with_host("localhost")
+        .build()
+        .expect("Client should build");
 
+    // Make the call with new parameters
     client
-        .call("GET", "/user/preferences")
-        .with_cookie("session_id", "abc123")
-        .with_cookie("theme", "dark")
-        .send()
+        .get("/user/preferences")?
+        .with_new_param("key", "value")
         .await
-        .expect("Call should succeed");
+        .expect("Call should succeed")
+        .as_empty()
+        .await
+        .expect("Should complete");
 
-    let openapi = client.generate_openapi_spec();
-
-    // Snapshot test the cookie parameters in the generated spec
-    assert_json_snapshot!(
-        openapi.paths.paths["/user/preferences"].operations["get"].parameters,
-        @r#"
-        [
-          {
-            "name": "session_id",
-            "in": "cookie",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "theme",
-            "in": "cookie",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-        "#
-    );
+    // Generate and snapshot test the spec
+    let openapi = client.collected_openapi().await;
+    assert_json_snapshot!(openapi);
 }
 ```
 
@@ -503,45 +531,59 @@ async fn should_collect_cookie_parameters() {
 ```rust
 // examples/axum-example/tests/generate_openapi.rs
 
-use clawspec_core::client::ApiClient;
+use clawspec_core::{ApiClient, ToSchema};
+use serde::{Deserialize, Serialize};
 use std::fs;
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+struct Observation {
+    id: String,
+    title: String,
+}
 
 #[tokio::test]
 async fn generate_openapi() {
-    let base_url = "http://localhost:8080";
-    let client = ApiClient::new(base_url)
-        .with_info("Observations API", "1.0.0")
-        .with_description("API for managing observations");
+    let mut client = ApiClient::builder()
+        .with_host("localhost")
+        .with_port(8080)
+        .with_info_simple("Observations API", "1.0.0")
+        .with_description("API for managing observations")
+        .add_server_simple("http://localhost:8080", "Local server")
+        .build()
+        .expect("Client should build");
 
-    // Exercise all endpoints
+    // Exercise all endpoints - uses IntoFuture pattern
     client
-        .call("GET", "/observations")
+        .get("/observations")?
         .with_query("limit", 10)
         .with_query("offset", 0)
-        .send()
         .await
-        .expect("List observations should succeed");
+        .expect("List observations should succeed")
+        .as_json::<Vec<Observation>>()
+        .await
+        .expect("Should deserialize");
 
     client
-        .call("GET", "/observations/{id}")
+        .get("/observations/{id}")?
         .with_path("id", "obs-123")
-        .send()
         .await
-        .expect("Get observation should succeed");
+        .expect("Get observation should succeed")
+        .as_json::<Observation>()
+        .await
+        .expect("Should deserialize");
 
     client
-        .call("POST", "/observations")
-        .with_json_body(&json!({
-            "title": "New observation",
-            "description": "Test"
-        }))
-        .send()
+        .post("/observations")?
+        .json(&Observation { id: "new".into(), title: "Test".into() })?
         .await
-        .expect("Create observation should succeed");
+        .expect("Create observation should succeed")
+        .as_json::<Observation>()
+        .await
+        .expect("Should deserialize");
 
     // Generate and save OpenAPI spec
-    let openapi = client.generate_openapi_spec();
-    let yaml = serde_saphyr::to_string(&openapi)
+    let openapi = client.collected_openapi().await;
+    let yaml = serde_yaml::to_string(&openapi)
         .expect("Should serialize to YAML");
 
     fs::write("doc/openapi.yml", yaml)

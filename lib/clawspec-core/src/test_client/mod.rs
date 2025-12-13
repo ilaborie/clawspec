@@ -263,9 +263,38 @@ pub struct TestClient<T> {
     #[deref]
     #[deref_mut]
     client: ApiClient,
-    handle: Option<tokio::task::JoinHandle<()>>,
+    handle: Option<ServerTaskHandle>,
     #[allow(dead_code)]
     test_server: Arc<T>,
+}
+
+/// Private wrapper for the server task handle.
+///
+/// This type encapsulates the tokio-specific `JoinHandle` to avoid
+/// exposing runtime-specific types in the public API.
+struct ServerTaskHandle(tokio::task::JoinHandle<()>);
+
+impl ServerTaskHandle {
+    fn new(handle: tokio::task::JoinHandle<()>) -> Self {
+        Self(handle)
+    }
+
+    fn abort(&self) {
+        self.0.abort();
+    }
+
+    #[cfg(test)]
+    fn is_finished(&self) -> bool {
+        self.0.is_finished()
+    }
+}
+
+impl std::fmt::Debug for ServerTaskHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ServerTaskHandle")
+            .field(&self.0.id())
+            .finish()
+    }
 }
 
 impl<T> TestClient<T>
@@ -410,7 +439,7 @@ where
         let result = Self {
             local_addr,
             client,
-            handle: Some(handle),
+            handle: Some(ServerTaskHandle::new(handle)),
             test_server,
         };
         Ok(result)
