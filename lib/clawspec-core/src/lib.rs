@@ -8,6 +8,8 @@
 //! - **[`ApiClient`]** - Direct HTTP client for fine-grained control
 //! - **[`TestClient`](test_client::TestClient)** - Test server integration with automatic lifecycle management
 //!
+//! **New to Clawspec?** Start with the **[Tutorial][_tutorial]** for a step-by-step guide.
+//!
 //! ## Quick Start
 //!
 //! ### Using ApiClient directly
@@ -288,13 +290,11 @@
 //! // Single codes
 //! client.post("/users")?
 //!     .with_expected_status_codes(expected_status_codes!(201, 202))
-//!     
 //!     .await?;
 //!
 //! // Ranges
 //! client.get("/health")?
 //!     .with_expected_status_codes(expected_status_codes!(200-299))
-//!     
 //!     .await?;
 //! # Ok(())
 //! # }
@@ -415,11 +415,20 @@
 //! - `/items/0/id` - First element's "id" in an array
 //! - `/foo~1bar` - Field named "foo/bar"
 //!
-//! ### Getting Both Values
-//!
-//! The [`RedactedResult`] returned by `finish()` contains both:
-//! - `value`: The actual deserialized response (with real dynamic values)
-//! - `redacted`: The JSON with redacted values (as stored in OpenAPI)
+#![cfg_attr(feature = "redaction", doc = "### Getting Both Values")]
+#![cfg_attr(feature = "redaction", doc = "")]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "The [`RedactedResult`] returned by `finish()` contains both:"
+)]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- `value`: The actual deserialized response (with real dynamic values)"
+)]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- `redacted`: The JSON with redacted values (as stored in OpenAPI)"
+)]
 //!
 #![cfg_attr(feature = "redaction", doc = "```rust")]
 #![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
@@ -551,6 +560,8 @@
 //! All commonly used types are re-exported from the crate root for convenience.
 
 // TODO: Add comprehensive unit tests for all modules - https://github.com/ilaborie/clawspec/issues/30
+
+pub mod _tutorial;
 
 mod client;
 
