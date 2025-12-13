@@ -16,6 +16,8 @@ axum = { workspace = true, features = ["macros", "multipart"]}
 bytes = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 derive_more = { workspace = true, features = ["error", "display", "from", "deref", "deref_mut"]}
+jiff = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v7", "serde"] }
 pico-args = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -24,14 +26,14 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 tower-http = { workspace = true, features = ["trace"]}
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt"] }
-utoipa = { workspace = true }
+utoipa = { workspace = true, features = ["uuid"] }
 
 [dev-dependencies]
-clawspec-core = { path = "../../lib/clawspec-core"}
+clawspec-core = { path = "../../lib/clawspec-core", features = ["redaction"] }
 headers = { workspace = true}
 rstest = { workspace = true }
 insta = { workspace = true, features = ["yaml"] }
-utoipa = { workspace = true, features = ["yaml"]}
+utoipa = { workspace = true, features = ["yaml", "uuid"]}
 
 [lints]
 workspace = true

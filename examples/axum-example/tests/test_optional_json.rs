@@ -32,8 +32,8 @@ async fn test_as_optional_json_returns_some_for_successful_response(
         notes: Some("Testing optional json".to_string()),
     };
 
-    // Test with POST which returns 201 and an ID
-    let created_id: Option<u32> = app
+    // Test with POST which returns 201 and the created Observation
+    let created: Option<Observation> = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -41,10 +41,13 @@ async fn test_as_optional_json_returns_some_for_successful_response(
         .await?;
 
     assert!(
-        created_id.is_some(),
+        created.is_some(),
         "Should return Some for successful 201 response"
     );
-    info!("Created observation with ID: {:?}", created_id);
+    info!(
+        "Created observation with ID: {:?}",
+        created.map(|obs| obs.id)
+    );
 
     Ok(())
 }
@@ -69,7 +72,7 @@ async fn test_as_optional_json_returns_some_for_list_response(
     };
 
     // Create an observation first
-    let _created_id: u32 = app
+    let _created: Observation = app
         .post("/observations")?
         .json(&test_observation)?
         .await?
@@ -106,7 +109,7 @@ async fn test_as_optional_json_returns_none_for_404(#[future] app: TestApp) -> a
 
     // Try to delete a non-existent observation (should return 404)
     let result: Option<Observation> = app
-        .delete("/observations/999999")?
+        .delete("/observations/00000000-0000-0000-0000-000000000000")?
         .add_expected_status(404)
         .await?
         .as_optional_json()
@@ -127,7 +130,7 @@ async fn test_as_optional_json_ergonomics_comparison(#[future] app: TestApp) -> 
 
     // Try to delete a non-existent observation
     let observation: Option<Observation> = app
-        .delete("/observations/888888")?
+        .delete("/observations/00000000-0000-0000-0000-000000000001")?
         .add_expected_status(404)
         .await?
         .as_optional_json()

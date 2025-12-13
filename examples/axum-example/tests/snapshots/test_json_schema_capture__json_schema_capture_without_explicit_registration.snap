@@ -40,9 +40,7 @@ paths:
           content:
             application/json:
               schema:
-                type: integer
-                format: int32
-                minimum: 0
+                $ref: "#/components/schemas/Observation"
 components:
   schemas:
     LngLat:
@@ -57,6 +55,19 @@ components:
         lng:
           type: number
           format: double
+    Observation:
+      allOf:
+        - $ref: "#/components/schemas/PartialObservation"
+        - type: object
+          required:
+            - id
+            - created_at
+          properties:
+            created_at:
+              type: string
+              example: "2024-01-01T00:00:00Z"
+            id:
+              $ref: "#/components/schemas/ObservationId"
     PartialObservation:
       type: object
       required:

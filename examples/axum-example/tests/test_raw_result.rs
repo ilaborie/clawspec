@@ -3,7 +3,7 @@
 use rstest::rstest;
 use tracing::info;
 
-use axum_example::observations::domain::{LngLat, PartialObservation};
+use axum_example::observations::domain::{LngLat, Observation, PartialObservation};
 
 mod common;
 pub use self::common::*;
@@ -41,9 +41,10 @@ async fn test_raw_result_api(#[future] app: TestApp) -> anyhow::Result<()> {
     assert!(create_result.content_type().is_some());
     match create_result.body() {
         RawBody::Text(text) => {
-            info!("Created observation ID from raw result: {}", text);
-            // Should be a valid JSON number
-            let _id: u32 = text.parse()?;
+            info!("Created observation from raw result: {}", text);
+            // Should be a valid JSON Observation
+            let observation: Observation = serde_json::from_str(text)?;
+            info!("Parsed observation with ID: {}", observation.id);
         }
         RawBody::Binary(_) | RawBody::Empty => {
             anyhow::bail!("Expected text body for JSON response")

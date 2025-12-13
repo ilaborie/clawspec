@@ -5,7 +5,7 @@ use clawspec_core::register_schemas;
 use rstest::rstest;
 use tracing::info;
 
-use axum_example::observations::domain::{LngLat, PartialObservation};
+use axum_example::observations::domain::{LngLat, Observation, PartialObservation};
 
 mod common;
 pub use self::common::*;
@@ -30,16 +30,16 @@ async fn test_json_schema_capture_without_explicit_registration(
         notes: Some("Testing automatic schema capture".to_string()),
     };
 
-    let created_id = app
+    let created = app
         .post("/observations")?
         .json(&new_observation)?
         .await
         .context("should create observation")?
-        .as_json::<u32>()
+        .as_json::<Observation>()
         .await
-        .context("should deserialize created observation ID")?;
+        .context("should deserialize created observation")?;
 
-    info!("Created observation with ID: {}", created_id);
+    info!("Created observation with ID: {}", created.id);
 
     // Generate OpenAPI spec to verify schemas were captured
     let openapi_spec = app.collected_openapi().await;

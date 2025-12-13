@@ -88,11 +88,11 @@ paths:
               $ref: '#/components/schemas/PartialObservation'
             example:
               color: rainbow
-              name: Metadata Demo Bird
-              notes: Used to demonstrate OpenAPI metadata features
+              name: Redaction Demo Bird
+              notes: This observation demonstrates the redaction feature
               position:
-                lat: -90.0
-                lng: 45.0
+                lat: 0.0
+                lng: 0.0
           application/pdf:
             schema:
               type: string
@@ -110,9 +110,16 @@ paths:
           content:
             application/json:
               schema:
-                type: integer
-                format: int32
-                minimum: 0
+                $ref: '#/components/schemas/Observation'
+              example:
+                color: rainbow
+                created_at: 2024-01-01T00:00:00Z
+                id: 019aaaaa-0000-7000-8000-000000000000
+                name: Redaction Demo Bird
+                notes: This observation demonstrates the redaction feature
+                position:
+                  lat: 0.0
+                  lng: 0.0
         '400':
           description: Status code 400
           content:
@@ -125,42 +132,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TestClientError'
-  /api/observations/1007:
-    put:
-      tags:
-      - observations
-      - modification
-      description: Update an existing observation with new data
-      operationId: put-observations-1007
-      parameters: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PartialObservation'
-            example:
-              color: rainbow
-              name: Updated Metadata Demo
-              notes: Used to demonstrate OpenAPI metadata features
-              position:
-                lat: -90.0
-                lng: 45.0
-      responses:
-        '200':
-          description: Status code 200
-    delete:
-      tags:
-      - observations
-      description: Remove observation from the system
-      operationId: delete-observations-1007
-      parameters: []
-      responses:
-        '200':
-          description: Status code 200
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Value'
   /api/observations/import:
     post:
       tags:
@@ -209,6 +180,7 @@ paths:
   /api/observations/{observation_id}:
     put:
       tags:
+      - modification
       - observations
       description: Update observation by ID
       operationId: put-observations-observation-id
@@ -224,12 +196,12 @@ paths:
             schema:
               $ref: '#/components/schemas/PartialObservation'
             example:
-              color: green
-              name: Updated Parrot
-              notes: Updated via API
+              color: rainbow
+              name: Updated Metadata Demo
+              notes: Used to demonstrate OpenAPI metadata features
               position:
-                lat: -26.2
-                lng: 13.5
+                lat: -90.0
+                lng: 45.0
       responses:
         '200':
           description: Status code 200
@@ -522,12 +494,16 @@ components:
       - type: object
         required:
         - id
+        - created_at
         properties:
+          created_at:
+            type: string
+            example: 2024-01-01T00:00:00Z
           id:
             $ref: '#/components/schemas/ObservationId'
     ObservationId:
-      type: integer
-      minimum: 0
+      type: string
+      format: uuid
     PartialObservation:
       type: object
       required:
@@ -603,7 +579,6 @@ components:
         uploaded:
           type: integer
           minimum: 0
-    Value: {}
 tags:
 - name: admin
 - name: bulk-operations

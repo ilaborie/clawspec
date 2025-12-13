@@ -1,5 +1,7 @@
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 #[derive(
     Debug,
@@ -15,8 +17,16 @@ use utoipa::ToSchema;
     ToSchema,
     derive_more::Display,
 )]
-#[display("obs#{_0}")]
-pub struct ObservationId(pub(super) usize);
+#[display("{_0}")]
+pub struct ObservationId(Uuid);
+
+impl ObservationId {
+    #[allow(clippy::new_without_default)]
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PartialObservation {
@@ -29,6 +39,8 @@ pub struct PartialObservation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Observation {
     pub id: ObservationId,
+    #[schema(value_type = String, example = "2024-01-01T00:00:00Z")]
+    pub created_at: Timestamp,
 
     #[serde(flatten)]
     pub data: PartialObservation,

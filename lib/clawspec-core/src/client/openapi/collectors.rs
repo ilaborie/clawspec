@@ -1,11 +1,32 @@
 use headers::ContentType;
-use http::Method;
+use http::{Method, StatusCode};
 use indexmap::IndexMap;
 use tracing::warn;
-use utoipa::openapi::{PathItem, RefOr, Schema};
+use utoipa::openapi::{Content, PathItem, RefOr, Response, ResponseBuilder, Schema};
 
 use super::operation::{CalledOperation, merge_operation};
 use super::schema::Schemas;
+
+/// Builds an OpenAPI response with optional schema and example.
+///
+/// This helper is used by both `get_output()` and `register_response_with_example()`
+/// to avoid code duplication.
+pub(in crate::client) fn build_response(
+    description: String,
+    content_type: Option<&ContentType>,
+    schema: Option<RefOr<Schema>>,
+    example: Option<serde_json::Value>,
+) -> Response {
+    if let Some(content_type) = content_type {
+        let content = Content::builder().schema(schema).example(example).build();
+        ResponseBuilder::new()
+            .description(description)
+            .content(content_type.to_string(), content)
+            .build()
+    } else {
+        ResponseBuilder::new().description(description).build()
+    }
+}
 
 /// Normalizes content types for OpenAPI specification by removing parameters
 /// that are implementation details (like multipart boundaries, charset, etc.).
@@ -106,6 +127,39 @@ impl Collectors {
     /// during API calls, which is useful for tag computation and analysis.
     pub(in crate::client) fn operations(&self) -> impl Iterator<Item = &CalledOperation> {
         self.operations.values().flatten()
+    }
+
+    /// Registers a response with an example in the operation.
+    ///
+    /// This method is used by the redaction feature to add a response with the redacted
+    /// example after all redactions have been applied.
+    pub(in crate::client) fn register_response_with_example(
+        &mut self,
+        operation_id: &str,
+        status: StatusCode,
+        content_type: Option<&ContentType>,
+        schema: RefOr<Schema>,
+        example: serde_json::Value,
+    ) {
+        let Some(operations) = self.operations.get_mut(operation_id) else {
+            return;
+        };
+        let Some(operation) = operations.last_mut() else {
+            return;
+        };
+
+        let description = operation
+            .response_description
+            .clone()
+            .unwrap_or_else(|| format!("Status code {}", status.as_u16()));
+
+        let response = build_response(description, content_type, Some(schema), Some(example));
+
+        operation
+            .operation
+            .responses
+            .responses
+            .insert(status.as_u16().to_string(), RefOr::T(response));
     }
 
     pub(in crate::client) fn as_map(&mut self, base_path: &str) -> IndexMap<String, PathItem> {

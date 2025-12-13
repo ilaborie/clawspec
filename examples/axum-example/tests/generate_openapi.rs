@@ -1,13 +1,15 @@
 #![allow(missing_docs)]
 
 use anyhow::Context;
-use clawspec_core::{CallHeaders, register_schemas};
+use clawspec_core::{CallHeaders, CallPath, ParamValue, register_schemas};
 use headers::ContentType;
 use rstest::rstest;
 use tracing::info;
 
 use axum_example::extractors::ExtractorError;
-use axum_example::observations::domain::{LngLat, PartialObservation, PatchObservation};
+use axum_example::observations::domain::{
+    LngLat, Observation, PartialObservation, PatchObservation,
+};
 use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 
 mod common;
@@ -35,6 +37,8 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     alternate_content_types(&mut app).await?;
     test_error_cases(&mut app).await?;
     Box::pin(demonstrate_tags_and_metadata(&mut app)).await?;
+    // Call redaction demo LAST so its example appears in the generated OpenAPI
+    demonstrate_redaction(&mut app).await?;
 
     app.write_openapi("./doc/openapi.yml")
         .await
@@ -63,10 +67,11 @@ async fn basic_crud(app: &mut TestApp) -> anyhow::Result<()> {
     };
 
     info!("Create an observation");
-    let created_id = app
+    let created = app
         .create_observation(&new_observation)
         .await
         .context("should create observation")?;
+    let created_id = created.id;
 
     info!("List observations with query parameters for examples");
     let _list_with_offset = app
@@ -292,6 +297,37 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(skip(app))]
+async fn demonstrate_redaction(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating redaction feature for stable examples");
+
+    let new_observation = PartialObservation {
+        name: "Redaction Demo Bird".to_string(),
+        position: LngLat { lng: 0.0, lat: 0.0 },
+        color: Some("rainbow".to_string()),
+        notes: Some("This observation demonstrates the redaction feature".to_string()),
+    };
+
+    // Create observation using redaction to replace dynamic values with stable ones
+    // The OpenAPI example will show the redacted (stable) values instead of real dynamic values
+    let created = app
+        .create_observation_redacted(&new_observation)
+        .await
+        .context("should create observation with redacted response")?;
+
+    info!(
+        "Created observation with id={} and created_at={:?}",
+        created.id, created.created_at
+    );
+
+    // Clean up
+    app.delete_observation(created.id)
+        .await
+        .context("should delete redaction demo observation")?;
+
+    Ok(())
+}
+
 /// Demonstrates the new `OpenAPI` info, servers, and tag functionality.
 ///
 /// This function showcases how operations can be tagged for better organization
@@ -314,15 +350,16 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
 
     // Demonstrate single tag usage
     info!("Testing operations with explicit tags for API organization");
-    let created_id = app
+    let created = app
         .post("/observations")?
         .json(&test_observation)?
         .with_tag("observations")
         .with_description("Create a new bird observation with comprehensive metadata")
         .await
         .context("should create observation with tag")?
-        .as_json::<u32>()
+        .as_json::<Observation>()
         .await?;
+    let created_id = created.id;
 
     // Demonstrate multiple tags for cross-cutting concerns
     let _list_result = app
@@ -361,7 +398,9 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         name: "Updated Metadata Demo".to_string(),
         ..test_observation
     };
-    app.put(format!("/observations/{created_id}"))?
+    let path = CallPath::from("/observations/{observation_id}")
+        .add_param("observation_id", ParamValue::new(created_id));
+    app.put(path)?
         .json(&updated_observation)?
         .with_tags(["observations", "modification"])
         .with_description("Update an existing observation with new data")
@@ -372,13 +411,14 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .context("should process update response")?;
 
     // Clean up demonstration data
-    let _delete_result = app
-        .delete(format!("/observations/{created_id}"))?
+    let path = CallPath::from("/observations/{observation_id}")
+        .add_param("observation_id", ParamValue::new(created_id));
+    app.delete(path)?
         .with_tag("observations")
         .with_description("Remove observation from the system")
         .await
         .context("should delete demonstration observation")?
-        .as_json::<serde_json::Value>()
+        .as_empty()
         .await
         .context("should process delete response")?;
 

@@ -1,21 +1,28 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use jiff::Timestamp;
 use tokio::sync::RwLock;
 
 use super::domain::{Observation, ObservationId, PartialObservation, PatchObservation};
 use crate::errors::RepositoryError;
 
+type StoredData = (Timestamp, PartialObservation);
+
 #[derive(Clone)]
 pub(crate) struct ObservationRepository {
     // TODO could be improve with [dashmap](https://crates.io/crates/dashmap) - https://github.com/ilaborie/clawspec/issues/26
-    data: Arc<RwLock<HashMap<ObservationId, PartialObservation>>>,
+    data: Arc<RwLock<HashMap<ObservationId, StoredData>>>,
 }
 
 impl ObservationRepository {
     pub(crate) fn new() -> Result<Self, RepositoryError> {
-        let json = include_str!("./db.json");
-        let data = serde_json::from_str::<Vec<Observation>>(json)?;
+        let jsonl = include_str!("./db.jsonl");
+        let data = jsonl
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(serde_json::from_str::<Observation>)
+            .collect::<Result<Vec<_>, _>>()?;
         let data = data.into_iter().map(Observation::split).collect();
         let data = Arc::new(RwLock::new(data));
 
@@ -30,7 +37,14 @@ impl ObservationRepository {
         let data = self.data.read().await;
         let data = data.clone();
 
-        let mut result = data.into_iter().map(Observation::from).collect::<Vec<_>>();
+        let mut result = data
+            .into_iter()
+            .map(|(id, (created_at, data))| Observation {
+                id,
+                created_at,
+                data,
+            })
+            .collect::<Vec<_>>();
         // sort
         result.sort_by_key(|it| (it.data.name.clone(), it.id));
         // Limit/offset
@@ -42,15 +56,17 @@ impl ObservationRepository {
     pub(crate) async fn create(
         &self,
         new_observation: PartialObservation,
-    ) -> Result<ObservationId, RepositoryError> {
+    ) -> Result<Observation, RepositoryError> {
         let mut data = self.data.write().await;
-        let id = {
-            let max = data.keys().map(|it| it.0).max().unwrap_or(0);
-            ObservationId(max + 1)
-        };
-        data.insert(id, new_observation);
+        let id = ObservationId::new();
+        let created_at = Timestamp::now();
+        data.insert(id, (created_at, new_observation.clone()));
 
-        Ok(id)
+        Ok(Observation {
+            id,
+            created_at,
+            data: new_observation,
+        })
     }
 
     pub(crate) async fn update(
@@ -59,11 +75,12 @@ impl ObservationRepository {
         updated_observation: PartialObservation,
     ) -> Result<(), RepositoryError> {
         let mut data = self.data.write().await;
-        if !data.contains_key(&id) {
+        let Some((created_at, _)) = data.get(&id) else {
             return Err(RepositoryError::ObservationNotFound { id });
-        }
+        };
+        let created_at = *created_at;
 
-        data.insert(id, updated_observation);
+        data.insert(id, (created_at, updated_observation));
 
         Ok(())
     }
@@ -75,9 +92,10 @@ impl ObservationRepository {
     ) -> Result<Observation, RepositoryError> {
         let mut data = self.data.write().await;
 
-        let Some(value) = data.get_mut(&id) else {
+        let Some((created_at, value)) = data.get_mut(&id) else {
             return Err(RepositoryError::ObservationNotFound { id });
         };
+        let created_at = *created_at;
 
         let PatchObservation {
             name,
@@ -94,8 +112,11 @@ impl ObservationRepository {
         value.color = color;
         value.notes = notes;
 
-        let result = Observation::from((id, value.clone()));
-        Ok(result)
+        Ok(Observation {
+            id,
+            created_at,
+            data: value.clone(),
+        })
     }
 
     pub(crate) async fn delete(
@@ -104,7 +125,7 @@ impl ObservationRepository {
     ) -> Result<PartialObservation, RepositoryError> {
         let mut data = self.data.write().await;
 
-        let Some(result) = data.remove(&id) else {
+        let Some((_, result)) = data.remove(&id) else {
             return Err(RepositoryError::ObservationNotFound { id });
         };
 
@@ -113,15 +134,12 @@ impl ObservationRepository {
 }
 
 impl Observation {
-    fn split(self) -> (ObservationId, PartialObservation) {
-        let Self { id, data } = self;
-        (id, data)
-    }
-}
-
-impl From<(ObservationId, PartialObservation)> for Observation {
-    fn from(value: (ObservationId, PartialObservation)) -> Self {
-        let (id, data) = value;
-        Self { id, data }
+    fn split(self) -> (ObservationId, StoredData) {
+        let Self {
+            id,
+            created_at,
+            data,
+        } = self;
+        (id, (created_at, data))
     }
 }
