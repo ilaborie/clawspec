@@ -574,6 +574,26 @@ pub use self::client::{
     ParamStyle, ParamValue, ParameterValue, RawBody, RawResult, SecureString,
 };
 
+// Re-export external types so users don't need to add these crates to their Cargo.toml.
+//
+// With these re-exports, users can write:
+//   use clawspec_core::{ApiClient, OpenApi, ToSchema, StatusCode};
+// Instead of:
+//   use clawspec_core::ApiClient;
+//   use utoipa::openapi::OpenApi;
+//   use utoipa::ToSchema;
+//   use http::StatusCode;
+
+/// OpenAPI types re-exported from utoipa for convenience.
+pub use utoipa::openapi::{Info, InfoBuilder, OpenApi, Paths, Server, ServerBuilder};
+
+/// The `ToSchema` derive macro for generating OpenAPI schemas.
+/// Types used in JSON request/response bodies should derive this trait.
+pub use utoipa::ToSchema;
+
+/// HTTP status codes re-exported from the `http` crate.
+pub use http::StatusCode;
+
 #[cfg(feature = "redaction")]
 pub use self::client::{RedactedResult, RedactionBuilder};
 

@@ -125,7 +125,7 @@ pub struct CallResult {
 #[derive(Debug, Clone)]
 pub struct RawResult {
     status: StatusCode,
-    content_type: Option<ContentType>,
+    content_type: Option<String>,
     body: RawBody,
 }
 
@@ -151,9 +151,13 @@ impl RawResult {
         self.status
     }
 
-    /// Returns the content type of the response, if present.
-    pub fn content_type(&self) -> Option<&ContentType> {
-        self.content_type.as_ref()
+    /// Returns the content type of the response as a string, if present.
+    ///
+    /// # Returns
+    /// - `Some(&str)` with the MIME type (e.g., "application/json")
+    /// - `None` if no Content-Type header was present
+    pub fn content_type(&self) -> Option<&str> {
+        self.content_type.as_deref()
     }
 
     /// Returns the response body.
@@ -840,7 +844,7 @@ impl CallResult {
 
         Ok(RawResult {
             status: self.status,
-            content_type: self.content_type.clone(),
+            content_type: self.content_type.as_ref().map(|ct| ct.to_string()),
             body,
         })
     }
