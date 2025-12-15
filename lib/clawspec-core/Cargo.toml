@@ -10,6 +10,10 @@ homepage.workspace = true
 keywords = ["openapi", "testing", "api", "documentation", "spec"]
 categories = ["development-tools::testing", "web-programming", "api-bindings"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = []
 redaction = ["dep:jsonptr"]
