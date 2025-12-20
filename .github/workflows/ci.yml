@@ -18,7 +18,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
         
       - name: Setup Rust environment
         uses: ./.github/actions/setup-rust
@@ -35,7 +35,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
         
       - name: Setup Rust environment
         uses: ./.github/actions/setup-rust
@@ -54,7 +54,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
         
       - name: Setup Rust environment
         uses: ./.github/actions/setup-rust
@@ -71,7 +71,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
         
       - name: Setup Rust environment (nightly)
         uses: ./.github/actions/setup-rust
@@ -99,7 +99,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
         
       - name: Setup Rust environment
         uses: ./.github/actions/setup-rust
