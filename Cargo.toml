@@ -45,6 +45,7 @@ backon = "1.3.0"
 base64 = "0.22.1"
 zeroize = "1.8.1"
 jsonptr = "0.7.1"
+serde_json_path = "0.7.1"
 jiff = "0.2"
 
 ## Dev

@@ -153,6 +153,183 @@ async fn test_redacted_example_appears_in_openapi_response(
     Ok(())
 }
 
+/// Tests wildcard redaction with JSONPath for array elements.
+///
+/// This test verifies that JSONPath wildcards like `$.observations[*].id` correctly
+/// redact all matching fields in an array with a single call.
+#[rstest]
+#[tokio::test]
+async fn test_wildcard_redaction_in_array(#[future] app: TestApp) -> anyhow::Result<()> {
+    let mut app = app.await;
+
+    info!("Testing wildcard redaction with JSONPath for array elements");
+
+    // Create multiple observations to test wildcard redaction
+    let observations_to_create = vec![
+        PartialObservation {
+            name: "First Bird".to_string(),
+            position: LngLat { lng: 1.0, lat: 1.0 },
+            color: Some("red".to_string()),
+            notes: None,
+        },
+        PartialObservation {
+            name: "Second Bird".to_string(),
+            position: LngLat { lng: 2.0, lat: 2.0 },
+            color: Some("blue".to_string()),
+            notes: None,
+        },
+        PartialObservation {
+            name: "Third Bird".to_string(),
+            position: LngLat { lng: 3.0, lat: 3.0 },
+            color: Some("green".to_string()),
+            notes: None,
+        },
+    ];
+
+    // Create the observations
+    for obs in &observations_to_create {
+        app.create_observation(obs).await?;
+    }
+
+    // List observations with wildcard redaction
+    let result = app.list_observations_redacted(None).await?;
+
+    info!(
+        "Listed {} observations with wildcard redaction",
+        result.value.observations.len()
+    );
+
+    // Verify we got at least 3 observations
+    assert!(
+        result.value.observations.len() >= 3,
+        "should have at least 3 observations"
+    );
+
+    // Verify the actual values are dynamic (different UUIDs)
+    let ids: Vec<_> = result
+        .value
+        .observations
+        .iter()
+        .map(|o| o.id.to_string())
+        .collect();
+
+    // All actual IDs should be unique
+    let unique_ids: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(
+        unique_ids.len(),
+        ids.len(),
+        "all observation IDs should be unique"
+    );
+
+    // None of the actual IDs should be the redacted value
+    for id in &ids {
+        assert_ne!(
+            id, "019aaaaa-0000-7000-8000-000000000000",
+            "actual IDs should not be the redacted stable UUID"
+        );
+    }
+
+    // Verify the redacted JSON has all IDs replaced with the stable value
+    let redacted_observations = result
+        .redacted
+        .get("observations")
+        .expect("redacted should have observations")
+        .as_array()
+        .expect("observations should be an array");
+
+    for (i, redacted_obs) in redacted_observations.iter().enumerate() {
+        let redacted_id = redacted_obs
+            .get("id")
+            .expect("redacted observation should have id")
+            .as_str()
+            .expect("id should be a string");
+
+        assert_eq!(
+            redacted_id, "019aaaaa-0000-7000-8000-000000000000",
+            "redacted observation[{i}].id should be the stable UUID"
+        );
+
+        let redacted_created_at = redacted_obs
+            .get("created_at")
+            .expect("redacted observation should have created_at")
+            .as_str()
+            .expect("created_at should be a string");
+
+        assert_eq!(
+            redacted_created_at, "2024-01-01T00:00:00Z",
+            "redacted observation[{i}].created_at should be the stable timestamp"
+        );
+
+        // Verify non-redacted fields are preserved (name should be a non-empty string)
+        let name = redacted_obs
+            .get("name")
+            .expect("redacted observation should have name")
+            .as_str()
+            .expect("name should be a string");
+
+        assert!(
+            !name.is_empty(),
+            "observation name should be preserved and non-empty"
+        );
+    }
+
+    // Generate OpenAPI spec and verify the example is included
+    let openapi_spec = app.collected_openapi().await;
+
+    let paths = &openapi_spec.paths;
+    let observations_path = paths
+        .paths
+        .get("/api/observations")
+        .expect("should have /api/observations path");
+
+    let get_operation = observations_path
+        .get
+        .as_ref()
+        .expect("should have GET operation");
+
+    let responses = &get_operation.responses;
+    let response_200 = responses
+        .responses
+        .get("200")
+        .expect("should have 200 response");
+
+    let response = match response_200 {
+        RefOr::T(response) => response,
+        RefOr::Ref(_) => panic!("expected inline response, got reference"),
+    };
+
+    let json_content = response
+        .content
+        .get("application/json")
+        .expect("should have application/json content");
+
+    // Verify the example exists and contains redacted values
+    let example = json_content
+        .example
+        .as_ref()
+        .expect("response should have example with wildcard-redacted values");
+
+    let example_observations = example
+        .get("observations")
+        .expect("example should have observations")
+        .as_array()
+        .expect("observations should be an array");
+
+    // All IDs in the example should be the redacted stable UUID
+    for (i, obs) in example_observations.iter().enumerate() {
+        let example_id = obs.get("id").and_then(|v| v.as_str());
+        assert_eq!(
+            example_id,
+            Some("019aaaaa-0000-7000-8000-000000000000"),
+            "example observation[{i}].id should be the redacted stable UUID"
+        );
+    }
+
+    info!("Wildcard redaction test passed successfully");
+
+    Ok(())
+}
+
 /// Tests that non-redacted responses do NOT have examples in the response content.
 ///
 /// This test establishes the baseline behavior: regular `as_json()` calls

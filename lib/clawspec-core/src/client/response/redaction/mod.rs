@@ -1,9 +1,26 @@
-//! JSON response redaction support using JSON Pointer (RFC 6901).
+//! JSON response redaction support using JSON Pointer (RFC 6901) and JSONPath (RFC 9535).
 //!
 //! This module provides functionality to redact sensitive or dynamic values
 //! in JSON responses for snapshot testing. It allows you to replace or remove
-//! values at specific JSON Pointer paths while preserving the original data
-//! for test assertions.
+//! values at specific paths while preserving the original data for test assertions.
+//!
+//! # Path Syntax
+//!
+//! The path syntax is auto-detected based on the prefix:
+//! - Paths starting with `$` use JSONPath (RFC 9535) - supports wildcards
+//! - Paths starting with `/` use JSON Pointer (RFC 6901) - exact paths only
+//!
+//! ## JSONPath Examples (wildcards)
+//!
+//! - `$.items[*].id` - all `id` fields in the `items` array
+//! - `$..id` - all `id` fields anywhere in the document (recursive descent)
+//! - `$.users[0:3].email` - `email` in first 3 users
+//!
+//! ## JSON Pointer Examples (exact paths)
+//!
+//! - `/id` - top-level `id` field
+//! - `/user/email` - nested field
+//! - `/items/0/id` - specific array index
 //!
 //! # Example
 //!
@@ -21,6 +38,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = ApiClient::builder().with_base_path("http://localhost:8080".parse()?).build()?;
 //!
+//! // Using JSON Pointer (exact path)
 //! let result = client
 //!     .get("/api/users/123")?
 //!     .await?
@@ -30,10 +48,20 @@
 //!     .finish()
 //!     .await;
 //!
-//! // Test assertions use the real value
-//! assert_eq!(result.value.name, "John Doe");
+//! // Using JSONPath (wildcards) for arrays
+//! let result = client
+//!     .get("/api/users")?
+//!     .await?
+//!     .as_json_redacted::<Vec<User>>().await?
+//!     .redact_replace("$[*].id", "redacted-uuid")?
+//!     .redact_replace("$[*].created_at", "2024-01-01T00:00:00Z")?
+//!     .finish()
+//!     .await;
 //!
-//! // Snapshots use the redacted value (stable id and timestamp)
+//! // Test assertions use the real value
+//! assert!(!result.value.is_empty());
+//!
+//! // Snapshots use the redacted value (stable ids and timestamps)
 //! insta::assert_yaml_snapshot!(result.redacted);
 //! # Ok(())
 //! # }
@@ -49,6 +77,9 @@ use utoipa::ToSchema;
 use utoipa::openapi::{RefOr, Schema};
 
 use super::output::Output;
+mod path_selector;
+
+use self::path_selector::PathSelector;
 use crate::client::CallResult;
 use crate::client::error::ApiClientError;
 use crate::client::openapi::channel::{CollectorMessage, CollectorSender};
@@ -152,19 +183,60 @@ pub struct RedactedResult<T> {
     pub redacted: serde_json::Value,
 }
 
+/// Options for configuring redaction behavior.
+///
+/// Use this struct with [`RedactionBuilder::redact_replace_with`] and
+/// [`RedactionBuilder::redact_remove_with`] to customize how redaction
+/// handles edge cases.
+///
+/// # Example
+///
+/// ```ignore
+/// use clawspec_core::RedactOptions;
+///
+/// // Allow empty matches (useful for optional fields)
+/// let options = RedactOptions { allow_empty_match: true };
+///
+/// builder
+///     .redact_replace_with("$.optional[*].field", "value", options)?
+///     .finish()
+///     .await;
+/// ```
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
+pub struct RedactOptions {
+    /// If true, matching zero paths is not an error (silent no-op).
+    ///
+    /// By default (`false`), if a path matches nothing, an error is returned.
+    /// This helps catch typos in path expressions. Set to `true` when redacting
+    /// optional fields that may not always be present.
+    pub allow_empty_match: bool,
+}
+
 /// Builder for applying redactions to JSON responses.
 ///
 /// This builder allows you to chain multiple redaction operations before
-/// finalizing the result. Redactions are applied using JSON Pointer (RFC 6901)
-/// syntax.
+/// finalizing the result. Paths can use either JSON Pointer (RFC 6901) or
+/// JSONPath (RFC 9535) syntax.
 ///
-/// # JSON Pointer Syntax
+/// # Path Syntax
+///
+/// The syntax is auto-detected based on the path prefix:
+///
+/// ## JSON Pointer (starts with `/`)
 ///
 /// - `/field` - top-level field
 /// - `/field/subfield` - nested field
 /// - `/array/0` - array index
 /// - `/field~1with~1slashes` - `~1` escapes `/`
 /// - `/field~0with~0tildes` - `~0` escapes `~`
+///
+/// ## JSONPath (starts with `$`)
+///
+/// - `$.field` - top-level field
+/// - `$.items[*].id` - all `id` fields in array
+/// - `$..id` - all `id` fields anywhere (recursive)
+/// - `$[0:3]` - array slice
 #[derive(derive_more::Debug)]
 #[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
 pub struct RedactionBuilder<T> {
@@ -201,20 +273,23 @@ impl<T> RedactionBuilder<T> {
         }
     }
 
-    /// Replaces the value at the specified JSON Pointer path with a new value.
+    /// Replaces values at the specified path with a new value.
     ///
-    /// The replacement value can be any type that implements [`Serialize`].
+    /// The path can be either JSON Pointer (RFC 6901) or JSONPath (RFC 9535).
+    /// The syntax is auto-detected based on the prefix:
+    /// - `$...` → JSONPath (supports wildcards)
+    /// - `/...` → JSON Pointer (exact path)
     ///
     /// # Arguments
     ///
-    /// * `pointer` - JSON Pointer path (e.g., `/id`, `/user/email`, `/items/0`)
+    /// * `path` - Path expression (e.g., `/id`, `$.items[*].id`)
     /// * `replacement` - Value to replace with (will be serialized to JSON)
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The pointer path is invalid
-    /// - The pointer path does not exist in the JSON
+    /// - The path is invalid
+    /// - The path matches no values
     /// - The replacement value cannot be serialized
     ///
     /// # Example
@@ -223,62 +298,118 @@ impl<T> RedactionBuilder<T> {
     /// # use clawspec_core::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let client = ApiClient::builder().with_base_path("http://localhost".parse()?).build()?;
+    /// // JSON Pointer (exact path)
+    /// let result = client
+    ///     .get("/api/users/123")?
+    ///     .await?
+    ///     .as_json_redacted::<serde_json::Value>().await?
+    ///     .redact_replace("/id", "test-uuid")?
+    ///     .finish()
+    ///     .await;
+    ///
+    /// // JSONPath (wildcards)
     /// let result = client
     ///     .get("/api/users")?
     ///     .await?
     ///     .as_json_redacted::<Vec<serde_json::Value>>().await?
-    ///     .redact_replace("/0/id", "test-uuid")?
-    ///     .redact_replace("/0/age", 25)?
+    ///     .redact_replace("$[*].id", "test-uuid")?
+    ///     .redact_replace("$[*].created_at", "2024-01-01T00:00:00Z")?
     ///     .finish()
     ///     .await;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn redact_replace<V>(
+    pub fn redact_replace<V>(self, path: &str, replacement: V) -> Result<Self, ApiClientError>
+    where
+        V: Serialize + Clone,
+    {
+        self.redact_replace_with(path, replacement, RedactOptions::default())
+    }
+
+    /// Replaces values at the specified path with configurable options.
+    ///
+    /// This is like [`redact_replace`](Self::redact_replace) but allows customizing
+    /// behavior through [`RedactOptions`].
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path expression (e.g., `/id`, `$.items[*].id`)
+    /// * `replacement` - Value to replace with
+    /// * `options` - Configuration options
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use clawspec_core::RedactOptions;
+    ///
+    /// // Allow empty matches for optional fields
+    /// let options = RedactOptions { allow_empty_match: true };
+    ///
+    /// builder
+    ///     .redact_replace_with("$.optional[*].field", "value", options)?
+    ///     .finish()
+    ///     .await;
+    /// ```
+    pub fn redact_replace_with<V>(
         mut self,
-        pointer: &str,
+        path: &str,
         replacement: V,
+        options: RedactOptions,
     ) -> Result<Self, ApiClientError>
     where
-        V: Serialize,
+        V: Serialize + Clone,
     {
+        // Parse the path (auto-detect JSONPath vs JSON Pointer)
+        let selector = PathSelector::parse(path)?;
+
+        // Resolve to concrete JSON Pointer paths
+        let concrete_paths = selector.resolve(&self.redacted);
+
+        // Check for empty matches
+        if concrete_paths.is_empty() && !options.allow_empty_match {
+            return Err(ApiClientError::RedactionError {
+                message: format!("Path '{path}' matched no values"),
+            });
+        }
+
         // Serialize the replacement value
         let replacement_value =
-            serde_json::to_value(replacement).map_err(|e| ApiClientError::SerializationError {
-                message: format!(
-                    "Failed to serialize replacement value for pointer '{pointer}': {e}"
-                ),
+            serde_json::to_value(&replacement).map_err(|e| ApiClientError::SerializationError {
+                message: format!("Failed to serialize replacement value for path '{path}': {e}"),
             })?;
 
-        // Parse the JSON Pointer
-        let ptr = Pointer::parse(pointer).map_err(|e| ApiClientError::RedactionError {
-            message: format!("Invalid JSON Pointer '{pointer}': {e}"),
-        })?;
+        // Apply replacement to each matched path
+        for pointer in concrete_paths {
+            let ptr = Pointer::parse(&pointer).map_err(|e| ApiClientError::RedactionError {
+                message: format!("Invalid JSON Pointer '{pointer}': {e}"),
+            })?;
 
-        // Use jsonptr to assign the value
-        self.redacted.assign(ptr, replacement_value).map_err(|e| {
-            ApiClientError::RedactionError {
-                message: format!("Failed to replace value at pointer '{pointer}': {e}"),
-            }
-        })?;
+            self.redacted
+                .assign(ptr, replacement_value.clone())
+                .map_err(|e| ApiClientError::RedactionError {
+                    message: format!("Failed to replace value at path '{pointer}': {e}"),
+                })?;
+        }
 
         Ok(self)
     }
 
-    /// Removes the value at the specified JSON Pointer path.
+    /// Removes values at the specified path.
     ///
     /// This completely removes the field from objects or the element from arrays,
     /// unlike setting it to `null`.
     ///
+    /// The path can be either JSON Pointer (RFC 6901) or JSONPath (RFC 9535).
+    ///
     /// # Arguments
     ///
-    /// * `pointer` - JSON Pointer path to remove
+    /// * `path` - Path expression to remove
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The pointer path is invalid
-    /// - The pointer path does not exist in the JSON
+    /// - The path is invalid
+    /// - The path matches no values
     ///
     /// # Example
     ///
@@ -286,26 +417,80 @@ impl<T> RedactionBuilder<T> {
     /// # use clawspec_core::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let client = ApiClient::builder().with_base_path("http://localhost".parse()?).build()?;
+    /// // Remove specific field
     /// let result = client
     ///     .get("/api/users/123")?
     ///     .await?
     ///     .as_json_redacted::<serde_json::Value>().await?
     ///     .redact_remove("/password")?
-    ///     .redact_remove("/creditCard")?
+    ///     .finish()
+    ///     .await;
+    ///
+    /// // Remove field from all array elements
+    /// let result = client
+    ///     .get("/api/users")?
+    ///     .await?
+    ///     .as_json_redacted::<Vec<serde_json::Value>>().await?
+    ///     .redact_remove("$[*].password")?
     ///     .finish()
     ///     .await;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn redact_remove(mut self, pointer: &str) -> Result<Self, ApiClientError> {
-        // Parse the JSON Pointer
-        let ptr = Pointer::parse(pointer).map_err(|e| ApiClientError::RedactionError {
-            message: format!("Invalid JSON Pointer '{pointer}': {e}"),
-        })?;
+    pub fn redact_remove(self, path: &str) -> Result<Self, ApiClientError> {
+        self.redact_remove_with(path, RedactOptions::default())
+    }
 
-        // Use jsonptr to delete the value
-        // Delete returns None if the pointer doesn't exist, which is fine - we'll just continue
-        let _ = self.redacted.delete(ptr);
+    /// Removes values at the specified path with configurable options.
+    ///
+    /// This is like [`redact_remove`](Self::redact_remove) but allows customizing
+    /// behavior through [`RedactOptions`].
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path expression to remove
+    /// * `options` - Configuration options
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use clawspec_core::RedactOptions;
+    ///
+    /// // Allow empty matches for optional fields
+    /// let options = RedactOptions { allow_empty_match: true };
+    ///
+    /// builder
+    ///     .redact_remove_with("$.optional[*].field", options)?
+    ///     .finish()
+    ///     .await;
+    /// ```
+    pub fn redact_remove_with(
+        mut self,
+        path: &str,
+        options: RedactOptions,
+    ) -> Result<Self, ApiClientError> {
+        // Parse the path (auto-detect JSONPath vs JSON Pointer)
+        let selector = PathSelector::parse(path)?;
+
+        // Resolve to concrete JSON Pointer paths
+        let concrete_paths = selector.resolve(&self.redacted);
+
+        // Check for empty matches
+        if concrete_paths.is_empty() && !options.allow_empty_match {
+            return Err(ApiClientError::RedactionError {
+                message: format!("Path '{path}' matched no values"),
+            });
+        }
+
+        // Apply deletion to each matched path
+        for pointer in concrete_paths {
+            let ptr = Pointer::parse(&pointer).map_err(|e| ApiClientError::RedactionError {
+                message: format!("Invalid JSON Pointer '{pointer}': {e}"),
+            })?;
+
+            // Delete returns None if the pointer doesn't exist, which is fine
+            let _ = self.redacted.delete(ptr);
+        }
 
         Ok(self)
     }
