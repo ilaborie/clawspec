@@ -6,4 +6,4 @@ pub(in crate::client) mod output;
 #[cfg(feature = "redaction")]
 mod redaction;
 #[cfg(feature = "redaction")]
-pub use self::redaction::{RedactOptions, RedactedResult, RedactionBuilder};
+pub use self::redaction::{RedactOptions, RedactedResult, RedactionBuilder, Redactor};

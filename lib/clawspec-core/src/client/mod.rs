@@ -21,7 +21,7 @@ pub use self::parameters::{
 mod response;
 pub use self::response::ExpectedStatusCodes;
 #[cfg(feature = "redaction")]
-pub use self::response::{RedactOptions, RedactedResult, RedactionBuilder};
+pub use self::response::{RedactOptions, RedactedResult, RedactionBuilder, Redactor};
 
 mod auth;
 pub use self::auth::{Authentication, AuthenticationError, SecureString};
