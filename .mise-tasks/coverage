@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#MISE description="Run code coverage with cargo llvm-cov using nextest"
+
+set -eux
+
+# Run coverage with all features, using nextest as test runner
+# Extra args (e.g., --open, --html) can be passed through
+cargo llvm-cov nextest --all-features "$@"
