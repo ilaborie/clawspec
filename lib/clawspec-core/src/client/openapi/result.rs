@@ -875,3 +875,235 @@ impl CallResult {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_raw_body_text_variant() {
+        let body = RawBody::Text("Hello, World!".to_string());
+
+        match body {
+            RawBody::Text(text) => assert_eq!(text, "Hello, World!"),
+            _ => panic!("Expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn test_raw_body_binary_variant() {
+        let data = vec![0x01, 0x02, 0x03, 0x04];
+        let body = RawBody::Binary(data.clone());
+
+        match body {
+            RawBody::Binary(bytes) => assert_eq!(bytes, data),
+            _ => panic!("Expected Binary variant"),
+        }
+    }
+
+    #[test]
+    fn test_raw_body_empty_variant() {
+        let body = RawBody::Empty;
+
+        assert!(matches!(body, RawBody::Empty));
+    }
+
+    #[test]
+    fn test_raw_result_status_code() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("application/json".to_string()),
+            body: RawBody::Text("{}".to_string()),
+        };
+
+        assert_eq!(result.status_code(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_raw_result_content_type_some() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("text/plain".to_string()),
+            body: RawBody::Text("Hello".to_string()),
+        };
+
+        assert_eq!(result.content_type(), Some("text/plain"));
+    }
+
+    #[test]
+    fn test_raw_result_content_type_none() {
+        let result = RawResult {
+            status: StatusCode::NO_CONTENT,
+            content_type: None,
+            body: RawBody::Empty,
+        };
+
+        assert_eq!(result.content_type(), None);
+    }
+
+    #[test]
+    fn test_raw_result_body() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("application/json".to_string()),
+            body: RawBody::Text("{\"key\": \"value\"}".to_string()),
+        };
+
+        assert!(matches!(result.body(), RawBody::Text(_)));
+    }
+
+    #[test]
+    fn test_raw_result_text_with_text_body() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("text/plain".to_string()),
+            body: RawBody::Text("Hello, World!".to_string()),
+        };
+
+        assert_eq!(result.text(), Some("Hello, World!"));
+    }
+
+    #[test]
+    fn test_raw_result_text_with_binary_body() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("application/octet-stream".to_string()),
+            body: RawBody::Binary(vec![0x00, 0x01, 0x02]),
+        };
+
+        assert_eq!(result.text(), None);
+    }
+
+    #[test]
+    fn test_raw_result_text_with_empty_body() {
+        let result = RawResult {
+            status: StatusCode::NO_CONTENT,
+            content_type: None,
+            body: RawBody::Empty,
+        };
+
+        assert_eq!(result.text(), None);
+    }
+
+    #[test]
+    fn test_raw_result_bytes_with_binary_body() {
+        let data = vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]; // "Hello" in ASCII
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("application/octet-stream".to_string()),
+            body: RawBody::Binary(data.clone()),
+        };
+
+        assert_eq!(result.bytes(), Some(data.as_slice()));
+    }
+
+    #[test]
+    fn test_raw_result_bytes_with_text_body() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("text/plain".to_string()),
+            body: RawBody::Text("Hello".to_string()),
+        };
+
+        assert_eq!(result.bytes(), None);
+    }
+
+    #[test]
+    fn test_raw_result_bytes_with_empty_body() {
+        let result = RawResult {
+            status: StatusCode::NO_CONTENT,
+            content_type: None,
+            body: RawBody::Empty,
+        };
+
+        assert_eq!(result.bytes(), None);
+    }
+
+    #[test]
+    fn test_raw_result_is_empty_true() {
+        let result = RawResult {
+            status: StatusCode::NO_CONTENT,
+            content_type: None,
+            body: RawBody::Empty,
+        };
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_raw_result_is_empty_false_text() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("text/plain".to_string()),
+            body: RawBody::Text("content".to_string()),
+        };
+
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_raw_result_is_empty_false_binary() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("application/octet-stream".to_string()),
+            body: RawBody::Binary(vec![1, 2, 3]),
+        };
+
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_raw_body_debug_impl() {
+        let text_body = RawBody::Text("Hello".to_string());
+        let debug_str = format!("{text_body:?}");
+        assert!(debug_str.contains("Text"));
+        assert!(debug_str.contains("Hello"));
+
+        let binary_body = RawBody::Binary(vec![1, 2, 3]);
+        let debug_str = format!("{binary_body:?}");
+        assert!(debug_str.contains("Binary"));
+
+        let empty_body = RawBody::Empty;
+        let debug_str = format!("{empty_body:?}");
+        assert!(debug_str.contains("Empty"));
+    }
+
+    #[test]
+    fn test_raw_body_clone() {
+        let original = RawBody::Text("test".to_string());
+        let cloned = original.clone();
+
+        match (original, cloned) {
+            (RawBody::Text(a), RawBody::Text(b)) => assert_eq!(a, b),
+            _ => panic!("Clone should preserve variant"),
+        }
+    }
+
+    #[test]
+    fn test_raw_result_debug_impl() {
+        let result = RawResult {
+            status: StatusCode::OK,
+            content_type: Some("application/json".to_string()),
+            body: RawBody::Text("{}".to_string()),
+        };
+
+        let debug_str = format!("{result:?}");
+        assert!(debug_str.contains("RawResult"));
+        assert!(debug_str.contains("200"));
+    }
+
+    #[test]
+    fn test_raw_result_clone() {
+        let original = RawResult {
+            status: StatusCode::CREATED,
+            content_type: Some("text/plain".to_string()),
+            body: RawBody::Text("Created".to_string()),
+        };
+
+        let cloned = original.clone();
+
+        assert_eq!(cloned.status_code(), StatusCode::CREATED);
+        assert_eq!(cloned.content_type(), Some("text/plain"));
+        assert_eq!(cloned.text(), Some("Created"));
+    }
+}
