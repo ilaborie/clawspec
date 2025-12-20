@@ -623,3 +623,356 @@ where
         schema,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::StatusCode;
+    use serde::{Deserialize, Serialize};
+    use serde_json::json;
+    use utoipa::openapi::RefOr;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+    struct TestStruct {
+        id: String,
+        name: String,
+        items: Vec<TestItem>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+    struct TestItem {
+        id: String,
+        value: i32,
+    }
+
+    fn create_test_builder() -> RedactionBuilder<TestStruct> {
+        let value = TestStruct {
+            id: "real-uuid".to_string(),
+            name: "Test".to_string(),
+            items: vec![
+                TestItem {
+                    id: "item-1".to_string(),
+                    value: 10,
+                },
+                TestItem {
+                    id: "item-2".to_string(),
+                    value: 20,
+                },
+            ],
+        };
+
+        let json = json!({
+            "id": "real-uuid",
+            "name": "Test",
+            "items": [
+                {"id": "item-1", "value": 10},
+                {"id": "item-2", "value": 20}
+            ]
+        });
+
+        let sender = CollectorSender::dummy();
+        let schema = RefOr::T(utoipa::openapi::ObjectBuilder::new().build().into());
+
+        RedactionBuilder::new(
+            value,
+            json,
+            sender,
+            "test_op".to_string(),
+            StatusCode::OK,
+            None,
+            schema,
+        )
+    }
+
+    #[test]
+    fn test_redact_options_default() {
+        let options = RedactOptions::default();
+
+        assert!(!options.allow_empty_match);
+    }
+
+    #[test]
+    fn test_redact_options_allow_empty_match() {
+        let options = RedactOptions {
+            allow_empty_match: true,
+        };
+
+        assert!(options.allow_empty_match);
+    }
+
+    #[test]
+    fn test_redact_options_debug() {
+        let options = RedactOptions {
+            allow_empty_match: true,
+        };
+        let debug_str = format!("{options:?}");
+
+        assert!(debug_str.contains("RedactOptions"));
+        assert!(debug_str.contains("allow_empty_match"));
+    }
+
+    #[test]
+    fn test_redact_options_clone() {
+        let original = RedactOptions {
+            allow_empty_match: true,
+        };
+        let cloned = original.clone();
+
+        assert_eq!(original.allow_empty_match, cloned.allow_empty_match);
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_success() {
+        let builder = create_test_builder();
+        let result = builder.redact("/id", "stable-uuid");
+
+        assert!(result.is_ok());
+        let builder = result.expect("redaction should succeed");
+        assert_eq!(
+            builder.redacted.get("id").and_then(|v| v.as_str()),
+            Some("stable-uuid")
+        );
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_jsonpath_wildcard() {
+        let builder = create_test_builder();
+        let result = builder.redact("$.items[*].id", "redacted-id");
+
+        assert!(result.is_ok());
+        let builder = result.expect("redaction should succeed");
+        let items = builder.redacted.get("items").expect("should have items");
+        let items_array = items.as_array().expect("should be array");
+
+        for item in items_array {
+            assert_eq!(item.get("id").and_then(|v| v.as_str()), Some("redacted-id"));
+        }
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_with_closure() {
+        let builder = create_test_builder();
+        let result = builder.redact("$.items[*].id", |path: &str, _val: &serde_json::Value| {
+            let idx = path.split('/').nth(2).unwrap_or("?");
+            json!(format!("item-idx-{idx}"))
+        });
+
+        assert!(result.is_ok());
+        let builder = result.expect("redaction should succeed");
+        let items = builder.redacted.get("items").expect("should have items");
+        let items_array = items.as_array().expect("should be array");
+
+        assert_eq!(
+            items_array[0].get("id").and_then(|v| v.as_str()),
+            Some("item-idx-0")
+        );
+        assert_eq!(
+            items_array[1].get("id").and_then(|v| v.as_str()),
+            Some("item-idx-1")
+        );
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_error_no_match() {
+        let builder = create_test_builder();
+        let result = builder.redact("$.nonexistent", "value");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_with_options_allow_empty() {
+        let builder = create_test_builder();
+        let options = RedactOptions {
+            allow_empty_match: true,
+        };
+        let result = builder.redact_with_options("$.nonexistent", "value", options);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_remove_success() {
+        let builder = create_test_builder();
+        let result = builder.redact_remove("/id");
+
+        assert!(result.is_ok());
+        let builder = result.expect("removal should succeed");
+        assert!(builder.redacted.get("id").is_none());
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_remove_jsonpath() {
+        let builder = create_test_builder();
+        let result = builder.redact_remove("$.items[*].id");
+
+        assert!(result.is_ok());
+        let builder = result.expect("removal should succeed");
+        let items = builder.redacted.get("items").expect("should have items");
+        let items_array = items.as_array().expect("should be array");
+
+        for item in items_array {
+            assert!(item.get("id").is_none());
+        }
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_remove_error_no_match() {
+        let builder = create_test_builder();
+        let result = builder.redact_remove("$.nonexistent");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_redaction_builder_redact_remove_with_allow_empty() {
+        let builder = create_test_builder();
+        let options = RedactOptions {
+            allow_empty_match: true,
+        };
+        let result = builder.redact_remove_with("$.nonexistent", options);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_redaction_builder_chained_redactions() {
+        let builder = create_test_builder();
+        let result = builder
+            .redact("/id", "stable-id")
+            .and_then(|b| b.redact("/name", "Redacted Name"))
+            .and_then(|b| b.redact("$.items[*].id", "item-redacted"));
+
+        assert!(result.is_ok());
+        let builder = result.expect("chained redactions should succeed");
+        assert_eq!(
+            builder.redacted.get("id").and_then(|v| v.as_str()),
+            Some("stable-id")
+        );
+        assert_eq!(
+            builder.redacted.get("name").and_then(|v| v.as_str()),
+            Some("Redacted Name")
+        );
+    }
+
+    #[test]
+    fn test_redaction_builder_preserves_original_value() {
+        let builder = create_test_builder();
+        let original_id = builder.value.id.clone();
+        let result = builder.redact("/id", "stable-id");
+
+        assert!(result.is_ok());
+        let builder = result.expect("redaction should succeed");
+        // Original value should be preserved
+        assert_eq!(builder.value.id, original_id);
+        // Redacted value should be different
+        assert_eq!(
+            builder.redacted.get("id").and_then(|v| v.as_str()),
+            Some("stable-id")
+        );
+    }
+
+    #[test]
+    fn test_redacted_result_fields() {
+        let result = RedactedResult {
+            value: TestStruct {
+                id: "real".to_string(),
+                name: "Test".to_string(),
+                items: vec![],
+            },
+            redacted: json!({"id": "fake", "name": "Test", "items": []}),
+        };
+
+        assert_eq!(result.value.id, "real");
+        assert_eq!(
+            result.redacted.get("id").and_then(|v| v.as_str()),
+            Some("fake")
+        );
+    }
+
+    #[test]
+    fn test_redacted_result_debug() {
+        let result = RedactedResult {
+            value: "test".to_string(),
+            redacted: json!("redacted"),
+        };
+        let debug_str = format!("{result:?}");
+
+        assert!(debug_str.contains("RedactedResult"));
+    }
+
+    #[test]
+    fn test_redacted_result_clone() {
+        let original = RedactedResult {
+            value: "test".to_string(),
+            redacted: json!("redacted"),
+        };
+        let cloned = original.clone();
+
+        assert_eq!(original.value, cloned.value);
+        assert_eq!(original.redacted, cloned.redacted);
+    }
+
+    #[test]
+    fn test_redaction_builder_debug() {
+        let builder = create_test_builder();
+        let debug_str = format!("{builder:?}");
+
+        assert!(debug_str.contains("RedactionBuilder"));
+        assert!(debug_str.contains("operation_id"));
+    }
+
+    #[test]
+    fn test_create_redaction_builder_success() {
+        let json = r#"{"id": "uuid", "name": "Test"}"#;
+        let sender = CollectorSender::dummy();
+        let schema = RefOr::T(utoipa::openapi::ObjectBuilder::new().build().into());
+
+        let result = create_redaction_builder::<serde_json::Value>(
+            json,
+            sender,
+            "op_id".to_string(),
+            StatusCode::OK,
+            None,
+            schema,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_create_redaction_builder_invalid_json() {
+        let json = r#"{"invalid json"#;
+        let sender = CollectorSender::dummy();
+        let schema = RefOr::T(utoipa::openapi::ObjectBuilder::new().build().into());
+
+        let result = create_redaction_builder::<serde_json::Value>(
+            json,
+            sender,
+            "op_id".to_string(),
+            StatusCode::OK,
+            None,
+            schema,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_path_syntax_error() {
+        let builder = create_test_builder();
+        // Path without $ or / prefix should fail
+        let result = builder.redact("invalid_path", "value");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_jsonpath_syntax() {
+        let builder = create_test_builder();
+        // Invalid JSONPath syntax
+        let result = builder.redact("$[[[invalid", "value");
+
+        assert!(result.is_err());
+    }
+}

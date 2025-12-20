@@ -637,4 +637,142 @@ mod tests {
         let server = MockServer::new();
         assert_test_server(server);
     }
+
+    #[test]
+    fn test_health_status_healthy_variant() {
+        let status = HealthStatus::Healthy;
+        assert_eq!(status, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn test_health_status_unhealthy_variant() {
+        let status = HealthStatus::Unhealthy;
+        assert_eq!(status, HealthStatus::Unhealthy);
+    }
+
+    #[test]
+    fn test_health_status_uncheckable_variant() {
+        let status = HealthStatus::Uncheckable;
+        assert_eq!(status, HealthStatus::Uncheckable);
+    }
+
+    #[test]
+    fn test_health_status_debug() {
+        let healthy = HealthStatus::Healthy;
+        let unhealthy = HealthStatus::Unhealthy;
+        let uncheckable = HealthStatus::Uncheckable;
+
+        assert!(format!("{healthy:?}").contains("Healthy"));
+        assert!(format!("{unhealthy:?}").contains("Unhealthy"));
+        assert!(format!("{uncheckable:?}").contains("Uncheckable"));
+    }
+
+    #[test]
+    fn test_health_status_clone() {
+        let original = HealthStatus::Healthy;
+        let cloned = original;
+
+        assert_eq!(original, cloned);
+    }
+
+    #[test]
+    fn test_health_status_copy() {
+        let status = HealthStatus::Unhealthy;
+        let copied = status;
+
+        assert_eq!(status, copied);
+    }
+
+    #[test]
+    fn test_health_status_equality() {
+        assert_eq!(HealthStatus::Healthy, HealthStatus::Healthy);
+        assert_eq!(HealthStatus::Unhealthy, HealthStatus::Unhealthy);
+        assert_eq!(HealthStatus::Uncheckable, HealthStatus::Uncheckable);
+
+        assert_ne!(HealthStatus::Healthy, HealthStatus::Unhealthy);
+        assert_ne!(HealthStatus::Healthy, HealthStatus::Uncheckable);
+        assert_ne!(HealthStatus::Unhealthy, HealthStatus::Uncheckable);
+    }
+
+    /// A minimal test server that uses the default is_healthy implementation
+    #[derive(Debug)]
+    struct MinimalServer;
+
+    impl TestServer for MinimalServer {
+        type Error = std::io::Error;
+
+        async fn launch(&self, _listener: TcpListener) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        // Uses default is_healthy() which returns Uncheckable
+        // Uses default config()
+    }
+
+    #[tokio::test]
+    async fn test_default_is_healthy_returns_uncheckable() {
+        let server = MinimalServer;
+        let mut client = ApiClient::builder().build().expect("valid client");
+
+        let result = server.is_healthy(&mut client).await;
+        assert!(result.is_ok());
+        assert_eq!(result.expect("should be Ok"), HealthStatus::Uncheckable);
+    }
+
+    #[test]
+    fn test_default_config_returns_defaults() {
+        let server = MinimalServer;
+        let config = server.config();
+
+        assert!(config.api_client.is_none());
+        assert_eq!(config.min_backoff_delay, Duration::from_millis(10));
+        assert_eq!(config.max_backoff_delay, Duration::from_secs(1));
+        assert!(config.backoff_jitter);
+        assert_eq!(config.max_retry_attempts, 10);
+    }
+
+    #[test]
+    fn test_test_server_config_debug() {
+        let config = TestServerConfig::default();
+        let debug_str = format!("{config:?}");
+
+        assert!(debug_str.contains("TestServerConfig"));
+        assert!(debug_str.contains("min_backoff_delay"));
+        assert!(debug_str.contains("max_backoff_delay"));
+    }
+
+    #[test]
+    fn test_test_server_config_clone() {
+        let original = TestServerConfig {
+            api_client: None,
+            min_backoff_delay: Duration::from_millis(100),
+            max_backoff_delay: Duration::from_secs(10),
+            backoff_jitter: false,
+            max_retry_attempts: 3,
+        };
+        let cloned = original.clone();
+
+        assert!(cloned.api_client.is_none());
+        assert_eq!(cloned.min_backoff_delay, Duration::from_millis(100));
+        assert_eq!(cloned.max_backoff_delay, Duration::from_secs(10));
+        assert!(!cloned.backoff_jitter);
+        assert_eq!(cloned.max_retry_attempts, 3);
+    }
+
+    #[test]
+    fn test_test_server_config_with_api_client_clone() {
+        let original = TestServerConfig {
+            api_client: Some(ApiClient::builder().with_host("test.local").with_port(3000)),
+            min_backoff_delay: Duration::from_millis(50),
+            max_backoff_delay: Duration::from_secs(2),
+            backoff_jitter: true,
+            max_retry_attempts: 5,
+        };
+        let cloned = original.clone();
+
+        assert!(cloned.api_client.is_some());
+        assert_eq!(cloned.min_backoff_delay, Duration::from_millis(50));
+        assert_eq!(cloned.max_backoff_delay, Duration::from_secs(2));
+        assert!(cloned.backoff_jitter);
+        assert_eq!(cloned.max_retry_attempts, 5);
+    }
 }
