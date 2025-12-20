@@ -126,10 +126,16 @@
 //! # }
 //! ```
 //!
+//! ## Path Syntax
+//!
+//! Paths are auto-detected based on their prefix:
+//! - Paths starting with `/` use JSON Pointer (RFC 6901) - exact paths only
+//! - Paths starting with `$` use JSONPath (RFC 9535) - supports wildcards
+//!
 //! ## JSON Pointer Syntax
 //!
-//! Redaction uses [JSON Pointer (RFC 6901)](https://tools.ietf.org/html/rfc6901)
-//! to specify paths:
+//! [JSON Pointer (RFC 6901)](https://tools.ietf.org/html/rfc6901) uses `/`
+//! as a path separator for exact paths:
 //!
 //! | Pointer | Description |
 //! |---------|-------------|
@@ -137,8 +143,8 @@
 //! | `/user/name` | Nested field "name" inside "user" |
 //! | `/items/0` | First element of "items" array |
 //! | `/items/0/id` | "id" of first element in "items" |
-//! | `/foo~1bar` | Field named "foo/bar" (/ escaped as ~1) |
-//! | `/foo~0bar` | Field named "foo~bar" (~ escaped as ~0) |
+//! | `/foo~1bar` | Field named "foo/bar" (`/` escaped as `~1`) |
+//! | `/foo~0bar` | Field named "foo~bar" (`~` escaped as `~0`) |
 //!
 //! ### Nested Object Example
 //!
@@ -177,6 +183,158 @@
 //!     .redact("/customer/id", "customer-001")?
 //!     .redact("/customer/email", "user@example.com")?
 //!     .redact("/items/0/sku", "SKU-001")?
+//!     .finish()
+//!     .await;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## JSONPath Wildcards
+//!
+//! For arrays or deeply nested structures, use [JSONPath (RFC 9535)](https://www.rfc-editor.org/rfc/rfc9535)
+//! syntax which starts with `$`:
+//!
+//! | JSONPath | Description |
+//! |----------|-------------|
+//! | `$[*].id` | All `id` fields in root array |
+//! | `$.items[*].id` | All `id` fields in `items` array |
+//! | `$..id` | All `id` fields anywhere (recursive descent) |
+//! | `$[0:3]` | First 3 elements of root array |
+//!
+//! ### Array Redaction Example
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//! #[derive(Deserialize, ToSchema)]
+//! struct UserList {
+//!     users: Vec<User>,
+//! }
+//!
+//! #[derive(Deserialize, ToSchema)]
+//! struct User {
+//!     id: String,
+//!     name: String,
+//!     created_at: String,
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let result = client.get("/users")?
+//!     .await?
+//!     .as_json_redacted::<UserList>()
+//!     .await?
+//!     // Redact ALL user IDs with a single call
+//!     .redact("$.users[*].id", "stable-user-id")?
+//!     // Redact ALL timestamps
+//!     .redact("$.users[*].created_at", "2024-01-01T00:00:00Z")?
+//!     .finish()
+//!     .await;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Function-Based Redaction
+//!
+//! For dynamic transformations, pass a closure instead of a static value.
+//! The closure receives the concrete JSON Pointer path and current value:
+//!
+//! ### Index-Aware IDs
+//!
+//! Create stable, distinguishable IDs based on array position:
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use serde_json::Value;
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct UserList { users: Vec<User> }
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct User { id: String, name: String }
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let result = client.get("/users")?
+//!     .await?
+//!     .as_json_redacted::<UserList>()
+//!     .await?
+//!     // Closure receives path like "/users/0/id", "/users/1/id", etc.
+//!     .redact("$.users[*].id", |path: &str, _val: &Value| {
+//!         // Extract index from path: "/users/0/id" -> "0"
+//!         let idx = path.split('/').nth(2).unwrap_or("0");
+//!         serde_json::json!(format!("user-{idx}"))
+//!     })?
+//!     .finish()
+//!     .await;
+//!
+//! // Result: user-0, user-1, user-2, etc.
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Value-Based Transformation
+//!
+//! Transform based on the current value (path can be ignored):
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use serde_json::Value;
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct Document { notes: String }
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let result = client.get("/documents")?
+//!     .await?
+//!     .as_json_redacted::<Vec<Document>>()
+//!     .await?
+//!     // Redact long notes, keep short ones
+//!     .redact("$[*].notes", |_path: &str, val: &Value| {
+//!         if val.as_str().map(|s| s.len() > 50).unwrap_or(false) {
+//!             serde_json::json!("[REDACTED - TOO LONG]")
+//!         } else {
+//!             val.clone()
+//!         }
+//!     })?
+//!     .finish()
+//!     .await;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Handling Optional Fields
+//!
+//! By default, `redact` returns an error if the path matches nothing.
+//! Use `RedactOptions` to allow empty matches for optional fields:
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! use clawspec_core::RedactOptions;
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct Response { optional_field: Option<String> }
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//!
+//! let options = RedactOptions { allow_empty_match: true };
+//!
+//! let result = client.get("/data")?
+//!     .await?
+//!     .as_json_redacted::<Response>()
+//!     .await?
+//!     // Won't error if the path doesn't exist
+//!     .redact_with_options("$.optional_field", "redacted", options)?
 //!     .finish()
 //!     .await;
 //! # Ok(())
@@ -280,8 +438,14 @@
 //!
 //! - Enable with `features = ["redaction"]` in Cargo.toml
 //! - Use `as_json_redacted()` instead of `as_json()`
+//! - Paths are auto-detected:
+//!   - `/...` - JSON Pointer (RFC 6901) for exact paths
+//!   - `$...` - JSONPath (RFC 9535) for wildcards
+//! - Redactors can be:
+//!   - Static values: `"stable-value"`
+//!   - Closures: `|path, val| serde_json::json!(...)`
 //! - `redact()` substitutes values, `redact_remove()` deletes them
-//! - JSON Pointer syntax specifies paths to redact
+//! - `redact_with_options()` allows empty matches for optional fields
 //! - `finish()` returns both real values (for tests) and redacted values (for docs)
 //!
 //! Next: [Chapter 7: Test Integration][super::chapter_7] - Using TestClient for

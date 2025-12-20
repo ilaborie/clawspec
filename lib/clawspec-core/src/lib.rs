@@ -403,6 +403,12 @@
 //! # }
 //! ```
 //!
+//! ### Path Syntax
+//!
+//! Paths are auto-detected based on their prefix:
+//! - `/...` → JSON Pointer (RFC 6901) - exact paths only
+//! - `$...` → JSONPath (RFC 9535) - supports wildcards
+//!
 //! ### JSON Pointer Syntax
 //!
 //! JSON Pointers use `/` as a path separator. Special characters are escaped:
@@ -414,6 +420,63 @@
 //! - `/user/name` - Nested field "name" inside "user"
 //! - `/items/0/id` - First element's "id" in an array
 //! - `/foo~1bar` - Field named "foo/bar"
+//!
+//! ### JSONPath Wildcards
+//!
+//! For arrays, use JSONPath syntax (starting with `$`) to redact all elements:
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct User { id: String, created_at: String }
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! let users: Vec<User> = client
+//!     .get("/users")?
+//!     .await?
+//!     .as_json_redacted()
+//!     .await?
+//!     .redact("$[*].id", "stable-uuid")?        // All IDs in array
+//!     .redact("$[*].created_at", "2024-01-01T00:00:00Z")?  // All timestamps
+//!     .finish()
+//!     .await
+//!     .value;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Dynamic Transformations
+//!
+//! Pass a closure for dynamic redaction. The closure receives the concrete
+//! JSON Pointer path and current value:
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use serde_json::Value;
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct User { id: String }
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! let users: Vec<User> = client
+//!     .get("/users")?
+//!     .await?
+//!     .as_json_redacted()
+//!     .await?
+//!     // Create stable index-based IDs: user-0, user-1, user-2, ...
+//!     .redact("$[*].id", |path: &str, _val: &Value| {
+//!         let idx = path.split('/').nth(1).unwrap_or("0");
+//!         serde_json::json!(format!("user-{idx}"))
+//!     })?
+//!     .finish()
+//!     .await
+//!     .value;
+//! # Ok(())
+//! # }
+//! ```
 //!
 #![cfg_attr(feature = "redaction", doc = "### Getting Both Values")]
 #![cfg_attr(feature = "redaction", doc = "")]
@@ -557,6 +620,10 @@
 #![cfg_attr(
     feature = "redaction",
     doc = "- [`RedactOptions`] - Options for configuring redaction behavior"
+)]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- [`Redactor`] - Trait for types that can be used to redact values"
 )]
 //!
 //! ## Re-exports

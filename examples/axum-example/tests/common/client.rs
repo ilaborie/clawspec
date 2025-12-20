@@ -2,6 +2,7 @@
 use anyhow::Context;
 use axum_example::extractors::ExtractorError;
 use serde::Deserialize;
+use serde_json::Value;
 use utoipa::ToSchema;
 
 use clawspec_core::{CallHeaders, CallPath, CallQuery, ParamValue};
@@ -68,6 +69,42 @@ impl TestApp {
                 "$.observations[*].id",
                 "019aaaaa-0000-7000-8000-000000000000",
             )?
+            .redact("$.observations[*].created_at", "2024-01-01T00:00:00Z")?
+            .finish()
+            .await;
+
+        Ok(crate::common::RedactedListResult {
+            value: result.value,
+            redacted: result.redacted,
+        })
+    }
+
+    /// Lists observations with closure-based redaction for index-aware IDs.
+    ///
+    /// Demonstrates using a closure to generate stable, distinguishable IDs
+    /// based on array index: `obs-0`, `obs-1`, `obs-2`, etc.
+    pub async fn list_observations_with_indexed_ids(
+        &mut self,
+        option: Option<ListOption>,
+    ) -> anyhow::Result<crate::common::RedactedListResult> {
+        let ListOption { offset, limit } = option.unwrap_or_default();
+        let query = CallQuery::new()
+            .add_param("offset", offset)
+            .add_param("limit", limit);
+
+        let result = self
+            .get("/observations")?
+            .with_query(query)
+            .await
+            .context("list observations")?
+            .as_json_redacted::<ListObservations>()
+            .await?
+            // Use closure to generate index-based IDs
+            // Path is like "/observations/0/id", "/observations/1/id", etc.
+            .redact("$.observations[*].id", |path: &str, _val: &Value| {
+                let idx = path.split('/').nth(2).unwrap_or("0");
+                serde_json::json!(format!("obs-{idx}"))
+            })?
             .redact("$.observations[*].created_at", "2024-01-01T00:00:00Z")?
             .finish()
             .await;
