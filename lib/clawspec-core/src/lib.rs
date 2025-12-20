@@ -554,6 +554,10 @@
     feature = "redaction",
     doc = "- [`RedactedResult`] - Result containing both actual and redacted values"
 )]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- [`RedactOptions`] - Options for configuring redaction behavior"
+)]
 //!
 //! ## Re-exports
 //!
@@ -595,7 +599,7 @@ pub use utoipa::ToSchema;
 pub use http::StatusCode;
 
 #[cfg(feature = "redaction")]
-pub use self::client::{RedactedResult, RedactionBuilder};
+pub use self::client::{RedactOptions, RedactedResult, RedactionBuilder};
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below
 

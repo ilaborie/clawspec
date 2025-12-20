@@ -44,6 +44,40 @@ impl TestApp {
         Ok(result)
     }
 
+    /// Lists observations with wildcard redaction for all dynamic fields.
+    ///
+    /// Uses JSONPath wildcards to redact all `id` and `created_at` fields
+    /// in the observations array with stable values.
+    pub async fn list_observations_redacted(
+        &mut self,
+        option: Option<ListOption>,
+    ) -> anyhow::Result<crate::common::RedactedListResult> {
+        let ListOption { offset, limit } = option.unwrap_or_default();
+        let query = CallQuery::new()
+            .add_param("offset", offset)
+            .add_param("limit", limit);
+
+        let result = self
+            .get("/observations")?
+            .with_query(query)
+            .await
+            .context("list observations")?
+            .as_json_redacted::<ListObservations>()
+            .await?
+            .redact_replace(
+                "$.observations[*].id",
+                "019aaaaa-0000-7000-8000-000000000000",
+            )?
+            .redact_replace("$.observations[*].created_at", "2024-01-01T00:00:00Z")?
+            .finish()
+            .await;
+
+        Ok(crate::common::RedactedListResult {
+            value: result.value,
+            redacted: result.redacted,
+        })
+    }
+
     pub async fn create_observation(
         &mut self,
         new_observation: &PartialObservation,

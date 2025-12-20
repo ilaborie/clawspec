@@ -9,6 +9,15 @@ pub use self::test_app::*;
 mod client;
 pub use self::client::*;
 
+/// Result of listing observations with wildcard redaction.
+#[derive(Debug)]
+pub struct RedactedListResult {
+    /// The actual list of observations (with real dynamic values).
+    pub value: ListObservations,
+    /// The redacted JSON (with stable values for documentation).
+    pub redacted: serde_json::Value,
+}
+
 pub fn init_tracing() {
     // should be run once, fail otherwise, we skip that error
     let _ = tracing_subscriber::fmt()
