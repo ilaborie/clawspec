@@ -46,7 +46,7 @@ impl TestApp {
 
     /// Lists observations with wildcard redaction for all dynamic fields.
     ///
-    /// Uses JSONPath wildcards to redact all `id` and `created_at` fields
+    /// Uses `JSONPath` wildcards to redact all `id` and `created_at` fields
     /// in the observations array with stable values.
     pub async fn list_observations_redacted(
         &mut self,
@@ -64,11 +64,11 @@ impl TestApp {
             .context("list observations")?
             .as_json_redacted::<ListObservations>()
             .await?
-            .redact_replace(
+            .redact(
                 "$.observations[*].id",
                 "019aaaaa-0000-7000-8000-000000000000",
             )?
-            .redact_replace("$.observations[*].created_at", "2024-01-01T00:00:00Z")?
+            .redact("$.observations[*].created_at", "2024-01-01T00:00:00Z")?
             .finish()
             .await;
 
@@ -103,8 +103,8 @@ impl TestApp {
             .context("create observation")?
             .as_json_redacted::<Observation>()
             .await?
-            .redact_replace("/id", "019aaaaa-0000-7000-8000-000000000000")?
-            .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
+            .redact("/id", "019aaaaa-0000-7000-8000-000000000000")?
+            .redact("/created_at", "2024-01-01T00:00:00Z")?
             .finish()
             .await;
         Ok(result.value)

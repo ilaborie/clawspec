@@ -54,8 +54,8 @@
 //!     .as_json_redacted::<User>()
 //!     .await?
 //!     // Replace dynamic values with stable placeholders
-//!     .redact_replace("/id", "00000000-0000-0000-0000-000000000001")?
-//!     .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
+//!     .redact("/id", "00000000-0000-0000-0000-000000000001")?
+//!     .redact("/created_at", "2024-01-01T00:00:00Z")?
 //!     .finish()
 //!     .await;
 //!
@@ -75,7 +75,7 @@
 //!
 //! ### Replace Values
 //!
-//! Use `redact_replace` to substitute a value:
+//! Use `redact` to substitute a value:
 //!
 #![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
@@ -92,8 +92,8 @@
 //!     .await?
 //!     .as_json_redacted::<Response>()
 //!     .await?
-//!     .redact_replace("/token", "[REDACTED]")?
-//!     .redact_replace("/timestamp", "2024-01-01T00:00:00Z")?
+//!     .redact("/token", "[REDACTED]")?
+//!     .redact("/timestamp", "2024-01-01T00:00:00Z")?
 //!     .finish()
 //!     .await;
 //! # Ok(())
@@ -118,7 +118,7 @@
 //!     .await?
 //!     .as_json_redacted::<Response>()
 //!     .await?
-//!     .redact_replace("/public_id", "id-001")?
+//!     .redact("/public_id", "id-001")?
 //!     .redact_remove("/internal_ref")?  // Completely remove from example
 //!     .finish()
 //!     .await;
@@ -173,10 +173,10 @@
 //!     .await?
 //!     .as_json_redacted::<Order>()
 //!     .await?
-//!     .redact_replace("/id", "order-001")?
-//!     .redact_replace("/customer/id", "customer-001")?
-//!     .redact_replace("/customer/email", "user@example.com")?
-//!     .redact_replace("/items/0/sku", "SKU-001")?
+//!     .redact("/id", "order-001")?
+//!     .redact("/customer/id", "customer-001")?
+//!     .redact("/customer/email", "user@example.com")?
+//!     .redact("/items/0/sku", "SKU-001")?
 //!     .finish()
 //!     .await;
 //! # Ok(())
@@ -198,7 +198,7 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let mut client = ApiClient::builder().build()?;
 //! # let result = client.get("/users/1")?.await?.as_json_redacted::<User>().await?
-//! #     .redact_replace("/id", "user-001")?.finish().await;
+//! #     .redact("/id", "user-001")?.finish().await;
 //! // result.value: The deserialized struct with REAL values
 //! let user: User = result.value;
 //! println!("Real ID: {}", user.id);  // e.g., "550e8400-e29b-..."
@@ -226,7 +226,7 @@
 //! # let mut client = ApiClient::builder().build()?;
 //! # let builder = client.get("/test")?.await?.as_json_redacted::<Entity>().await?;
 //! // Use a recognizable placeholder format
-//! builder.redact_replace("/id", "00000000-0000-0000-0000-000000000001")?
+//! builder.redact("/id", "00000000-0000-0000-0000-000000000001")?
 //! # .finish().await;
 //! # Ok(())
 //! # }
@@ -247,8 +247,8 @@
 //! # let builder = client.get("/test")?.await?.as_json_redacted::<Entity>().await?;
 //! // Use ISO 8601 format with a memorable date
 //! builder
-//!     .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
-//!     .redact_replace("/updated_at", "2024-01-01T12:00:00Z")?
+//!     .redact("/created_at", "2024-01-01T00:00:00Z")?
+//!     .redact("/updated_at", "2024-01-01T12:00:00Z")?
 //! # .finish().await;
 //! # Ok(())
 //! # }
@@ -269,8 +269,8 @@
 //! # let builder = client.get("/test")?.await?.as_json_redacted::<AuthResponse>().await?;
 //! // Use descriptive placeholders
 //! builder
-//!     .redact_replace("/access_token", "[ACCESS_TOKEN]")?
-//!     .redact_replace("/refresh_token", "[REFRESH_TOKEN]")?
+//!     .redact("/access_token", "[ACCESS_TOKEN]")?
+//!     .redact("/refresh_token", "[REFRESH_TOKEN]")?
 //! # .finish().await;
 //! # Ok(())
 //! # }
@@ -280,7 +280,7 @@
 //!
 //! - Enable with `features = ["redaction"]` in Cargo.toml
 //! - Use `as_json_redacted()` instead of `as_json()`
-//! - `redact_replace()` substitutes values, `redact_remove()` deletes them
+//! - `redact()` substitutes values, `redact_remove()` deletes them
 //! - JSON Pointer syntax specifies paths to redact
 //! - `finish()` returns both real values (for tests) and redacted values (for docs)
 //!

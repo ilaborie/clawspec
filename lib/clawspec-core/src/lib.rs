@@ -358,9 +358,9 @@
 //!     .as_json_redacted()
 //!     .await?
 //!     // Replace dynamic UUID with stable value
-//!     .redact_replace("/id", "00000000-0000-0000-0000-000000000001")?
+//!     .redact("/id", "00000000-0000-0000-0000-000000000001")?
 //!     // Replace timestamp with stable value
-//!     .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
+//!     .redact("/created_at", "2024-01-01T00:00:00Z")?
 //!     .finish()
 //!     .await
 //!     .value;
@@ -376,7 +376,7 @@
 //!
 //! The redaction builder supports two operations using [JSON Pointer (RFC 6901)](https://tools.ietf.org/html/rfc6901):
 //!
-//! - **`redact_replace(pointer, value)`**: Replace a value at the given path with a stable value
+//! - **`redact(pointer, redactor)`**: Replace a value at the given path with a stable value or transformation
 //! - **`redact_remove(pointer)`**: Remove a value entirely from the OpenAPI example
 //!
 #![cfg_attr(feature = "redaction", doc = "```rust")]
@@ -393,8 +393,8 @@
 //!     .await?
 //!     .as_json_redacted()
 //!     .await?
-//!     .redact_replace("/token", "[REDACTED_TOKEN]")?
-//!     .redact_replace("/session_id", "session-00000000")?
+//!     .redact("/token", "[REDACTED_TOKEN]")?
+//!     .redact("/session_id", "session-00000000")?
 //!     .redact_remove("/internal_ref")?  // Remove internal field from docs
 //!     .finish()
 //!     .await
@@ -443,7 +443,7 @@
 //!     .await?
 //!     .as_json_redacted::<User>()
 //!     .await?
-//!     .redact_replace("/id", "user-00000000")?
+//!     .redact("/id", "user-00000000")?
 //!     .finish()
 //!     .await;
 //!
@@ -599,7 +599,7 @@ pub use utoipa::ToSchema;
 pub use http::StatusCode;
 
 #[cfg(feature = "redaction")]
-pub use self::client::{RedactOptions, RedactedResult, RedactionBuilder};
+pub use self::client::{RedactOptions, RedactedResult, RedactionBuilder, Redactor};
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below
 

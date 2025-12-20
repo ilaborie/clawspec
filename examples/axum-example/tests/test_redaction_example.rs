@@ -153,9 +153,9 @@ async fn test_redacted_example_appears_in_openapi_response(
     Ok(())
 }
 
-/// Tests wildcard redaction with JSONPath for array elements.
+/// Tests wildcard redaction with `JSONPath` for array elements.
 ///
-/// This test verifies that JSONPath wildcards like `$.observations[*].id` correctly
+/// This test verifies that `JSONPath` wildcards like `$.observations[*].id` correctly
 /// redact all matching fields in an array with a single call.
 #[rstest]
 #[tokio::test]
@@ -210,7 +210,7 @@ async fn test_wildcard_redaction_in_array(#[future] app: TestApp) -> anyhow::Res
         .value
         .observations
         .iter()
-        .map(|o| o.id.to_string())
+        .map(|obs| obs.id.to_string())
         .collect();
 
     // All actual IDs should be unique
@@ -317,7 +317,7 @@ async fn test_wildcard_redaction_in_array(#[future] app: TestApp) -> anyhow::Res
 
     // All IDs in the example should be the redacted stable UUID
     for (i, obs) in example_observations.iter().enumerate() {
-        let example_id = obs.get("id").and_then(|v| v.as_str());
+        let example_id = obs.get("id").and_then(|val| val.as_str());
         assert_eq!(
             example_id,
             Some("019aaaaa-0000-7000-8000-000000000000"),

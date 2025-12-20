@@ -22,6 +22,13 @@
 //! - `/user/email` - nested field
 //! - `/items/0/id` - specific array index
 //!
+//! # Redactor Types
+//!
+//! The [`redact`](RedactionBuilder::redact) method accepts any type implementing [`Redactor`]:
+//!
+//! - **Static values**: `&str`, `String`, `serde_json::Value`
+//! - **Functions**: `Fn(&str, &Value) -> Value` - transform based on path and/or value
+//!
 //! # Example
 //!
 //! ```ignore
@@ -38,23 +45,35 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = ApiClient::builder().with_base_path("http://localhost:8080".parse()?).build()?;
 //!
-//! // Using JSON Pointer (exact path)
+//! // Using static values
 //! let result = client
 //!     .get("/api/users/123")?
 //!     .await?
 //!     .as_json_redacted::<User>().await?
-//!     .redact_replace("/id", "550e8400-e29b-41d4-a716-446655440000")?
-//!     .redact_replace("/created_at", "2024-01-01T00:00:00Z")?
+//!     .redact("/id", "stable-uuid")?
+//!     .redact("/created_at", "2024-01-01T00:00:00Z")?
 //!     .finish()
 //!     .await;
 //!
-//! // Using JSONPath (wildcards) for arrays
+//! // Using JSONPath wildcards with static values
 //! let result = client
 //!     .get("/api/users")?
 //!     .await?
 //!     .as_json_redacted::<Vec<User>>().await?
-//!     .redact_replace("$[*].id", "redacted-uuid")?
-//!     .redact_replace("$[*].created_at", "2024-01-01T00:00:00Z")?
+//!     .redact("$[*].id", "redacted-uuid")?
+//!     .redact("$[*].created_at", "2024-01-01T00:00:00Z")?
+//!     .finish()
+//!     .await;
+//!
+//! // Using closure for index-based IDs
+//! let result = client
+//!     .get("/api/users")?
+//!     .await?
+//!     .as_json_redacted::<Vec<User>>().await?
+//!     .redact("$[*].id", |path, _val| {
+//!         let idx = path.split('/').nth(1).unwrap_or("0");
+//!         serde_json::json!(format!("user-{idx}"))
+//!     })?
 //!     .finish()
 //!     .await;
 //!
@@ -71,15 +90,19 @@ use std::any::{TypeId, type_name};
 
 use headers::ContentType;
 use http::StatusCode;
-use jsonptr::{Pointer, assign::Assign, delete::Delete};
-use serde::{Serialize, de::DeserializeOwned};
+use jsonptr::{Pointer, assign::Assign, delete::Delete, resolve::Resolve};
+use serde::de::DeserializeOwned;
+use serde_json::Deserializer;
 use utoipa::ToSchema;
 use utoipa::openapi::{RefOr, Schema};
 
 use super::output::Output;
+
 mod path_selector;
+mod redactor;
 
 use self::path_selector::PathSelector;
+pub use self::redactor::Redactor;
 use crate::client::CallResult;
 use crate::client::error::ApiClientError;
 use crate::client::openapi::channel::{CollectorMessage, CollectorSender};
@@ -119,7 +142,7 @@ impl CallResult {
     ///     .get("/api/users/123")?
     ///     .await?
     ///     .as_json_redacted::<User>().await?
-    ///     .redact_replace("/id", "stable-uuid")?
+    ///     .redact("/id", "stable-uuid")?
     ///     .finish()
     ///     .await;
     ///
@@ -131,9 +154,7 @@ impl CallResult {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn as_json_redacted<T>(
-        &mut self,
-    ) -> Result<super::redaction::RedactionBuilder<T>, ApiClientError>
+    pub async fn as_json_redacted<T>(&mut self) -> Result<RedactionBuilder<T>, ApiClientError>
     where
         T: DeserializeOwned + ToSchema + 'static,
     {
@@ -185,7 +206,7 @@ pub struct RedactedResult<T> {
 
 /// Options for configuring redaction behavior.
 ///
-/// Use this struct with [`RedactionBuilder::redact_replace_with`] and
+/// Use this struct with [`RedactionBuilder::redact_with_options`] and
 /// [`RedactionBuilder::redact_remove_with`] to customize how redaction
 /// handles edge cases.
 ///
@@ -198,7 +219,7 @@ pub struct RedactedResult<T> {
 /// let options = RedactOptions { allow_empty_match: true };
 ///
 /// builder
-///     .redact_replace_with("$.optional[*].field", "value", options)?
+///     .redact_with_options("$.optional[*].field", "value", options)?
 ///     .finish()
 ///     .await;
 /// ```
@@ -273,24 +294,27 @@ impl<T> RedactionBuilder<T> {
         }
     }
 
-    /// Replaces values at the specified path with a new value.
+    /// Redacts values at the specified path using a redactor.
     ///
     /// The path can be either JSON Pointer (RFC 6901) or JSONPath (RFC 9535).
     /// The syntax is auto-detected based on the prefix:
     /// - `$...` → JSONPath (supports wildcards)
     /// - `/...` → JSON Pointer (exact path)
     ///
+    /// The redactor can be:
+    /// - A static value: `"replacement"` or `serde_json::json!(...)`
+    /// - A closure: `|path, val| transform(path, val)`
+    ///
     /// # Arguments
     ///
     /// * `path` - Path expression (e.g., `/id`, `$.items[*].id`)
-    /// * `replacement` - Value to replace with (will be serialized to JSON)
+    /// * `redactor` - The redactor to apply (static value or closure)
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The path is invalid
     /// - The path matches no values
-    /// - The replacement value cannot be serialized
     ///
     /// # Example
     ///
@@ -298,43 +322,42 @@ impl<T> RedactionBuilder<T> {
     /// # use clawspec_core::ApiClient;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let client = ApiClient::builder().with_base_path("http://localhost".parse()?).build()?;
-    /// // JSON Pointer (exact path)
+    /// // Static value
     /// let result = client
     ///     .get("/api/users/123")?
     ///     .await?
     ///     .as_json_redacted::<serde_json::Value>().await?
-    ///     .redact_replace("/id", "test-uuid")?
+    ///     .redact("/id", "test-uuid")?
     ///     .finish()
     ///     .await;
     ///
-    /// // JSONPath (wildcards)
+    /// // Closure for index-based IDs
     /// let result = client
     ///     .get("/api/users")?
     ///     .await?
     ///     .as_json_redacted::<Vec<serde_json::Value>>().await?
-    ///     .redact_replace("$[*].id", "test-uuid")?
-    ///     .redact_replace("$[*].created_at", "2024-01-01T00:00:00Z")?
+    ///     .redact("$[*].id", |path, _val| {
+    ///         let idx = path.split('/').nth(1).unwrap_or("0");
+    ///         serde_json::json!(format!("user-{idx}"))
+    ///     })?
     ///     .finish()
     ///     .await;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn redact_replace<V>(self, path: &str, replacement: V) -> Result<Self, ApiClientError>
-    where
-        V: Serialize + Clone,
-    {
-        self.redact_replace_with(path, replacement, RedactOptions::default())
+    pub fn redact<R: Redactor>(self, path: &str, redactor: R) -> Result<Self, ApiClientError> {
+        self.redact_with_options(path, redactor, RedactOptions::default())
     }
 
-    /// Replaces values at the specified path with configurable options.
+    /// Redacts values at the specified path with configurable options.
     ///
-    /// This is like [`redact_replace`](Self::redact_replace) but allows customizing
+    /// This is like [`redact`](Self::redact) but allows customizing
     /// behavior through [`RedactOptions`].
     ///
     /// # Arguments
     ///
     /// * `path` - Path expression (e.g., `/id`, `$.items[*].id`)
-    /// * `replacement` - Value to replace with
+    /// * `redactor` - The redactor to apply
     /// * `options` - Configuration options
     ///
     /// # Example
@@ -346,19 +369,16 @@ impl<T> RedactionBuilder<T> {
     /// let options = RedactOptions { allow_empty_match: true };
     ///
     /// builder
-    ///     .redact_replace_with("$.optional[*].field", "value", options)?
+    ///     .redact_with_options("$.optional[*].field", "value", options)?
     ///     .finish()
     ///     .await;
     /// ```
-    pub fn redact_replace_with<V>(
+    pub fn redact_with_options<R: Redactor>(
         mut self,
         path: &str,
-        replacement: V,
+        redactor: R,
         options: RedactOptions,
-    ) -> Result<Self, ApiClientError>
-    where
-        V: Serialize + Clone,
-    {
+    ) -> Result<Self, ApiClientError> {
         // Parse the path (auto-detect JSONPath vs JSON Pointer)
         let selector = PathSelector::parse(path)?;
 
@@ -372,22 +392,28 @@ impl<T> RedactionBuilder<T> {
             });
         }
 
-        // Serialize the replacement value
-        let replacement_value =
-            serde_json::to_value(&replacement).map_err(|e| ApiClientError::SerializationError {
-                message: format!("Failed to serialize replacement value for path '{path}': {e}"),
-            })?;
-
-        // Apply replacement to each matched path
+        // Apply redactor to each matched path
         for pointer in concrete_paths {
             let ptr = Pointer::parse(&pointer).map_err(|e| ApiClientError::RedactionError {
                 message: format!("Invalid JSON Pointer '{pointer}': {e}"),
             })?;
 
+            // Get current value
+            let current_value =
+                self.redacted
+                    .resolve(ptr)
+                    .map_err(|e| ApiClientError::RedactionError {
+                        message: format!("Failed to resolve path '{pointer}': {e}"),
+                    })?;
+
+            // Apply redactor transformation
+            let new_value = redactor.apply(&pointer, current_value);
+
+            // Assign new value
             self.redacted
-                .assign(ptr, replacement_value.clone())
+                .assign(ptr, new_value)
                 .map_err(|e| ApiClientError::RedactionError {
-                    message: format!("Failed to replace value at path '{pointer}': {e}"),
+                    message: format!("Failed to assign value at path '{pointer}': {e}"),
                 })?;
         }
 
@@ -569,7 +595,7 @@ where
     T: DeserializeOwned + ToSchema + 'static,
 {
     // Deserialize the original value
-    let deserializer = &mut serde_json::Deserializer::from_str(json);
+    let deserializer = &mut Deserializer::from_str(json);
     let value: T = serde_path_to_error::deserialize(deserializer).map_err(|err| {
         ApiClientError::JsonError {
             path: err.path().to_string(),
