@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.2.3...clawspec-core-v0.3.0) - 2025-12-20
+
+### Added
+
+- *(redaction)* Add trait-based Redactor API with closure support
+- *(redaction)* Add wildcard support using JSONPath (RFC 9535)
+
+### Fixed
+
+- Replace removed `doc_auto_cfg` with `doc_cfg` for docs.rs ([#120](https://github.com/ilaborie/clawspec/pull/120))
+
+### Other
+
+- Add unit tests to improve code coverage
+- *(redaction)* Add JSONPath wildcards, closures, and RedactOptions documentation
+
 ## [0.2.3](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.2.2...clawspec-core-v0.2.3) - 2025-12-15
 
 ### Fixed
