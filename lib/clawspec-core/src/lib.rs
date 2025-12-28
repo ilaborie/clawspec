@@ -625,6 +625,14 @@
     feature = "redaction",
     doc = "- [`Redactor`] - Trait for types that can be used to redact values"
 )]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- [`redact_value`] - Entry point for redacting arbitrary JSON values"
+)]
+#![cfg_attr(
+    feature = "redaction",
+    doc = "- [`ValueRedactionBuilder`] - Builder for redacting arbitrary JSON values (e.g., OpenAPI specs)"
+)]
 //!
 //! ## Re-exports
 //!
@@ -666,7 +674,9 @@ pub use utoipa::ToSchema;
 pub use http::StatusCode;
 
 #[cfg(feature = "redaction")]
-pub use self::client::{RedactOptions, RedactedResult, RedactionBuilder, Redactor};
+pub use self::client::{
+    RedactOptions, RedactedResult, RedactionBuilder, Redactor, ValueRedactionBuilder, redact_value,
+};
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below
 

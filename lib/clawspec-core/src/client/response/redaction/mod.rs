@@ -90,7 +90,6 @@ use std::any::{TypeId, type_name};
 
 use headers::ContentType;
 use http::StatusCode;
-use jsonptr::{Pointer, assign::Assign, delete::Delete, resolve::Resolve};
 use serde::de::DeserializeOwned;
 use serde_json::Deserializer;
 use utoipa::ToSchema;
@@ -98,11 +97,13 @@ use utoipa::openapi::{RefOr, Schema};
 
 use super::output::Output;
 
+mod apply;
 mod path_selector;
 mod redactor;
+mod value_builder;
 
-use self::path_selector::PathSelector;
 pub use self::redactor::Redactor;
+pub use self::value_builder::ValueRedactionBuilder;
 use crate::client::CallResult;
 use crate::client::error::ApiClientError;
 use crate::client::openapi::channel::{CollectorMessage, CollectorSender};
@@ -379,44 +380,7 @@ impl<T> RedactionBuilder<T> {
         redactor: R,
         options: RedactOptions,
     ) -> Result<Self, ApiClientError> {
-        // Parse the path (auto-detect JSONPath vs JSON Pointer)
-        let selector = PathSelector::parse(path)?;
-
-        // Resolve to concrete JSON Pointer paths
-        let concrete_paths = selector.resolve(&self.redacted);
-
-        // Check for empty matches
-        if concrete_paths.is_empty() && !options.allow_empty_match {
-            return Err(ApiClientError::RedactionError {
-                message: format!("Path '{path}' matched no values"),
-            });
-        }
-
-        // Apply redactor to each matched path
-        for pointer in concrete_paths {
-            let ptr = Pointer::parse(&pointer).map_err(|e| ApiClientError::RedactionError {
-                message: format!("Invalid JSON Pointer '{pointer}': {e}"),
-            })?;
-
-            // Get current value
-            let current_value =
-                self.redacted
-                    .resolve(ptr)
-                    .map_err(|e| ApiClientError::RedactionError {
-                        message: format!("Failed to resolve path '{pointer}': {e}"),
-                    })?;
-
-            // Apply redactor transformation
-            let new_value = redactor.apply(&pointer, current_value);
-
-            // Assign new value
-            self.redacted
-                .assign(ptr, new_value)
-                .map_err(|e| ApiClientError::RedactionError {
-                    message: format!("Failed to assign value at path '{pointer}': {e}"),
-                })?;
-        }
-
+        apply::apply_redaction(&mut self.redacted, path, redactor, options)?;
         Ok(self)
     }
 
@@ -495,29 +459,7 @@ impl<T> RedactionBuilder<T> {
         path: &str,
         options: RedactOptions,
     ) -> Result<Self, ApiClientError> {
-        // Parse the path (auto-detect JSONPath vs JSON Pointer)
-        let selector = PathSelector::parse(path)?;
-
-        // Resolve to concrete JSON Pointer paths
-        let concrete_paths = selector.resolve(&self.redacted);
-
-        // Check for empty matches
-        if concrete_paths.is_empty() && !options.allow_empty_match {
-            return Err(ApiClientError::RedactionError {
-                message: format!("Path '{path}' matched no values"),
-            });
-        }
-
-        // Apply deletion to each matched path
-        for pointer in concrete_paths {
-            let ptr = Pointer::parse(&pointer).map_err(|e| ApiClientError::RedactionError {
-                message: format!("Invalid JSON Pointer '{pointer}': {e}"),
-            })?;
-
-            // Delete returns None if the pointer doesn't exist, which is fine
-            let _ = self.redacted.delete(ptr);
-        }
-
+        apply::apply_remove(&mut self.redacted, path, options)?;
         Ok(self)
     }
 
@@ -622,6 +564,74 @@ where
         content_type,
         schema,
     ))
+}
+
+/// Create a redaction builder for an arbitrary JSON value.
+///
+/// This allows applying the same redaction patterns used for response bodies
+/// to any JSON value, such as the full OpenAPI specification.
+///
+/// # Path Syntax
+///
+/// The syntax is auto-detected based on the path prefix:
+/// - `$...` → JSONPath (RFC 9535) - supports wildcards
+/// - `/...` → JSON Pointer (RFC 6901) - exact path only
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::redact_value;
+/// use serde_json::json;
+///
+/// let value = json!({
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "created_at": "2024-12-28T10:30:00Z"
+/// });
+///
+/// let redacted = redact_value(value)
+///     .redact("/id", "ENTITY_ID").unwrap()
+///     .redact("/created_at", "TIMESTAMP").unwrap()
+///     .finish();
+///
+/// assert_eq!(redacted["id"], "ENTITY_ID");
+/// assert_eq!(redacted["created_at"], "TIMESTAMP");
+/// ```
+///
+/// # Use Case: Stabilizing OpenAPI Specifications
+///
+/// ```rust
+/// use clawspec_core::redact_value;
+/// use serde_json::json;
+///
+/// let openapi_json = json!({
+///     "paths": {
+///         "/users": {
+///             "get": {
+///                 "responses": {
+///                     "200": {
+///                         "content": {
+///                             "application/json": {
+///                                 "example": {
+///                                     "id": "real-uuid",
+///                                     "created_at": "2024-12-28T10:30:00Z"
+///                                 }
+///                             }
+///                         }
+///                     }
+///                 }
+///             }
+///         }
+///     }
+/// });
+///
+/// // Stabilize all dynamic values in the OpenAPI spec
+/// let stabilized = redact_value(openapi_json)
+///     .redact("$..example.id", "ENTITY_ID").unwrap()
+///     .redact("$..example.created_at", "TIMESTAMP").unwrap()
+///     .finish();
+/// ```
+pub fn redact_value(value: serde_json::Value) -> ValueRedactionBuilder {
+    ValueRedactionBuilder::new(value)
 }
 
 #[cfg(test)]
