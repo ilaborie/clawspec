@@ -7,6 +7,7 @@
 //! (like UUIDs and timestamps) with stable values for consistent documentation.
 
 use anyhow::Context;
+use clawspec_core::redact_value;
 use rstest::rstest;
 use tracing::info;
 use utoipa::openapi::RefOr;
@@ -541,6 +542,192 @@ async fn test_non_redacted_response_has_no_example(#[future] app: TestApp) -> an
         json_content.example.is_none(),
         "non-redacted response content should not have an example"
     );
+
+    Ok(())
+}
+
+/// Tests using `redact_value` to stabilize the full `OpenAPI` specification.
+///
+/// This test demonstrates the use case from GitHub issue #123: applying redaction
+/// patterns to the entire `OpenAPI` specification after generation. This is useful
+/// for stabilizing dynamic values (like UUIDs and timestamps) in examples across
+/// the entire spec for consistent documentation output.
+#[rstest]
+#[tokio::test]
+async fn test_redact_value_stabilizes_openapi_spec(#[future] app: TestApp) -> anyhow::Result<()> {
+    let mut app = app.await;
+
+    info!("Testing redact_value for stabilizing full OpenAPI specification");
+
+    // Create an observation with redaction to get an example in the spec
+    let new_observation = PartialObservation {
+        name: "Spec Stabilization Test".to_string(),
+        position: LngLat { lng: 5.0, lat: 6.0 },
+        color: Some("purple".to_string()),
+        notes: Some("Testing redact_value for spec stabilization".to_string()),
+    };
+
+    app.create_observation_redacted(&new_observation)
+        .await
+        .context("should create observation with redacted response")?;
+
+    // Generate OpenAPI spec
+    let openapi_spec = app.collected_openapi().await;
+
+    // Convert to JSON for redaction
+    let openapi_json =
+        serde_json::to_value(&openapi_spec).context("should serialize OpenAPI spec to JSON")?;
+
+    info!("Generated OpenAPI spec, applying redact_value");
+
+    // Use redact_value to stabilize all dynamic values in the spec
+    // This demonstrates the primary use case from issue #123
+    let stabilized = redact_value(openapi_json)
+        .redact("$..example.id", "STABLE_ENTITY_ID")
+        .context("should redact example IDs")?
+        .redact("$..example.created_at", "STABLE_TIMESTAMP")
+        .context("should redact example timestamps")?
+        .finish();
+
+    info!("Applied redact_value to stabilize OpenAPI spec");
+
+    // Verify the redacted values are present in the stabilized spec
+    // Navigate to POST /api/observations -> 201 response -> example
+    let example = stabilized
+        .get("paths")
+        .and_then(|paths| paths.get("/api/observations"))
+        .and_then(|obs| obs.get("post"))
+        .and_then(|post| post.get("responses"))
+        .and_then(|resp| resp.get("201"))
+        .and_then(|r201| r201.get("content"))
+        .and_then(|content| content.get("application/json"))
+        .and_then(|json| json.get("example"))
+        .expect("should have example at POST /api/observations 201 response");
+
+    // Verify the example was redacted with our stable values
+    assert_eq!(
+        example.get("id").and_then(serde_json::Value::as_str),
+        Some("STABLE_ENTITY_ID"),
+        "example id should be redacted to STABLE_ENTITY_ID"
+    );
+
+    assert_eq!(
+        example
+            .get("created_at")
+            .and_then(serde_json::Value::as_str),
+        Some("STABLE_TIMESTAMP"),
+        "example created_at should be redacted to STABLE_TIMESTAMP"
+    );
+
+    // Verify non-redacted fields are preserved
+    assert_eq!(
+        example.get("name").and_then(serde_json::Value::as_str),
+        Some("Spec Stabilization Test"),
+        "example name should be preserved (not redacted)"
+    );
+
+    info!("redact_value successfully stabilized OpenAPI spec");
+
+    Ok(())
+}
+
+/// Tests using `redact_value` with recursive descent to redact deeply nested values.
+///
+/// This test demonstrates using `$..` (recursive descent) to find and redact
+/// all occurrences of a field anywhere in the JSON structure.
+#[rstest]
+#[tokio::test]
+async fn test_redact_value_with_recursive_descent(#[future] app: TestApp) -> anyhow::Result<()> {
+    // Helper functions defined first (before any statements)
+    fn collect_values_at_key<'a>(json: &'a serde_json::Value, key: &str) -> Vec<&'a str> {
+        fn recursive<'a>(json: &'a serde_json::Value, key: &str, values: &mut Vec<&'a str>) {
+            match json {
+                serde_json::Value::Object(map) => {
+                    for (field_key, field_value) in map {
+                        if field_key == key
+                            && let Some(str_val) = field_value.as_str()
+                        {
+                            values.push(str_val);
+                        }
+                        recursive(field_value, key, values);
+                    }
+                }
+                serde_json::Value::Array(arr) => {
+                    for element in arr {
+                        recursive(element, key, values);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut values = Vec::new();
+        recursive(json, key, &mut values);
+        values
+    }
+
+    let mut app = app.await;
+
+    info!("Testing redact_value with recursive descent for deeply nested values");
+
+    // Create multiple observations to populate the spec with examples
+    for idx in 0..2 {
+        let obs = PartialObservation {
+            name: format!("Bird {idx}"),
+            position: LngLat {
+                lng: f64::from(idx),
+                lat: f64::from(idx),
+            },
+            color: Some("blue".to_string()),
+            notes: None,
+        };
+        app.create_observation_redacted(&obs).await?;
+    }
+
+    // Also list observations to add GET response example
+    app.list_observations_redacted(None).await?;
+
+    // Generate OpenAPI spec
+    let openapi_spec = app.collected_openapi().await;
+
+    // Convert to JSON for redaction
+    let openapi_json = serde_json::to_value(&openapi_spec)?;
+
+    // Use recursive descent to redact ALL id and created_at fields anywhere in the spec
+    let stabilized = redact_value(openapi_json)
+        .redact("$..id", "REDACTED_ID")?
+        .redact("$..created_at", "REDACTED_TIMESTAMP")?
+        .finish();
+
+    // Collect all 'id' values from the stabilized spec
+    let all_ids = collect_values_at_key(&stabilized, "id");
+
+    info!("Found {} 'id' values in stabilized spec", all_ids.len());
+
+    // All collected IDs should be the redacted value
+    for id in &all_ids {
+        assert_eq!(
+            *id, "REDACTED_ID",
+            "all 'id' values should be redacted to REDACTED_ID"
+        );
+    }
+
+    // Collect all 'created_at' values from the stabilized spec
+    let all_timestamps = collect_values_at_key(&stabilized, "created_at");
+
+    info!(
+        "Found {} 'created_at' values in stabilized spec",
+        all_timestamps.len()
+    );
+
+    // All collected timestamps should be the redacted value
+    for timestamp in &all_timestamps {
+        assert_eq!(
+            *timestamp, "REDACTED_TIMESTAMP",
+            "all 'created_at' values should be redacted to REDACTED_TIMESTAMP"
+        );
+    }
+
+    info!("Recursive descent redaction test passed successfully");
 
     Ok(())
 }
