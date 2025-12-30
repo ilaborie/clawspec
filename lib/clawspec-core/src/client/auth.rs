@@ -5,6 +5,9 @@ use reqwest::header::{AUTHORIZATION, HeaderName};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+#[cfg(feature = "oauth2")]
+use super::oauth2::SharedOAuth2Config;
+
 /// Errors that can occur during authentication processing.
 ///
 /// This enum provides granular error information for authentication-related failures,
@@ -52,6 +55,19 @@ pub enum AuthenticationError {
     #[display("Base64 encoding failed: {message}")]
     EncodingError {
         /// Description of the encoding failure.
+        message: String,
+    },
+
+    /// OAuth2 token is not yet acquired.
+    #[cfg(feature = "oauth2")]
+    #[display("OAuth2 token has not been acquired yet")]
+    OAuth2TokenNotAcquired,
+
+    /// OAuth2 error.
+    #[cfg(feature = "oauth2")]
+    #[display("OAuth2 error: {message}")]
+    OAuth2Error {
+        /// Description of the OAuth2 error.
         message: String,
     },
 }
@@ -183,26 +199,43 @@ impl SecureString {
 ///     key: "secret-key".into(),
 /// };
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+// Serialize/Deserialize can only be derived when oauth2 feature is not enabled
+// because SharedOAuth2Config doesn't implement these traits
+#[derive(Clone)]
+#[cfg_attr(
+    not(feature = "oauth2"),
+    derive(Serialize, Deserialize),
+    serde(rename_all = "snake_case")
+)]
 pub enum Authentication {
-    /// Bearer token authentication (RFC 6750)
-    /// Adds `Authorization: Bearer <token>` header
+    /// Bearer token authentication (RFC 6750).
+    /// Adds `Authorization: Bearer <token>` header.
     Bearer(SecureString),
 
-    /// HTTP Basic authentication (RFC 7617)
-    /// Adds `Authorization: Basic <base64(username:password)>` header
+    /// HTTP Basic authentication (RFC 7617).
+    /// Adds `Authorization: Basic <base64(username:password)>` header.
     Basic {
+        /// The username for Basic authentication.
         username: String,
+        /// The password for Basic authentication.
         password: SecureString,
     },
 
-    /// API key authentication with custom header
-    /// Adds `<header_name>: <key>` header
+    /// API key authentication with custom header.
+    /// Adds `<header_name>: <key>` header.
     ApiKey {
+        /// The header name for the API key.
         header_name: String,
+        /// The API key value.
         key: SecureString,
     },
+
+    /// OAuth2 authentication.
+    ///
+    /// This variant requires the `oauth2` feature to be enabled.
+    /// Tokens are acquired automatically and cached for reuse.
+    #[cfg(feature = "oauth2")]
+    OAuth2(SharedOAuth2Config),
 }
 
 impl Authentication {
@@ -261,6 +294,33 @@ impl Authentication {
                 })?;
                 Ok((header, value))
             }
+
+            #[cfg(feature = "oauth2")]
+            Authentication::OAuth2(_) => {
+                // OAuth2 authentication requires async token acquisition
+                // This synchronous method cannot be used for OAuth2
+                Err(AuthenticationError::OAuth2TokenNotAcquired)
+            }
+        }
+    }
+}
+
+impl fmt::Debug for Authentication {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bearer(_) => f.debug_tuple("Bearer").field(&"[REDACTED]").finish(),
+            Self::Basic { username, .. } => f
+                .debug_struct("Basic")
+                .field("username", username)
+                .field("password", &"[REDACTED]")
+                .finish(),
+            Self::ApiKey { header_name, .. } => f
+                .debug_struct("ApiKey")
+                .field("header_name", header_name)
+                .field("key", &"[REDACTED]")
+                .finish(),
+            #[cfg(feature = "oauth2")]
+            Self::OAuth2(config) => f.debug_tuple("OAuth2").field(config).finish(),
         }
     }
 }
@@ -268,12 +328,16 @@ impl Authentication {
 impl fmt::Display for Authentication {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Authentication::Bearer(token) => {
+            Self::Bearer(token) => {
                 write!(f, "Bearer {token}")
             }
-            Authentication::Basic { username, .. } => write!(f, "Basic (username: {username})"),
-            Authentication::ApiKey { header_name, key } => {
+            Self::Basic { username, .. } => write!(f, "Basic (username: {username})"),
+            Self::ApiKey { header_name, key } => {
                 write!(f, "ApiKey ({header_name}: {key})")
+            }
+            #[cfg(feature = "oauth2")]
+            Self::OAuth2(config) => {
+                write!(f, "OAuth2 (client_id: {})", config.0.client_id)
             }
         }
     }
@@ -342,24 +406,27 @@ mod tests {
         assert_eq!(SecureString::mask_sensitive("123456789"), "1234...6789");
     }
 
+    // Note: Serialization tests are disabled when oauth2 feature is enabled
+    // because OAuth2 variant doesn't implement Serialize/Deserialize
+    #[cfg(not(feature = "oauth2"))]
     #[test]
     fn test_serialization() {
         let auth = Authentication::Bearer("token".into());
-        let json = serde_json::to_string(&auth).unwrap();
+        let json = serde_json::to_string(&auth).expect("serialize bearer");
         assert_eq!(json, r#"{"bearer":"token"}"#);
 
         let auth = Authentication::Basic {
             username: "user".to_string(),
             password: "pass".into(),
         };
-        let json = serde_json::to_string(&auth).unwrap();
+        let json = serde_json::to_string(&auth).expect("serialize basic");
         assert_eq!(json, r#"{"basic":{"username":"user","password":"pass"}}"#);
 
         let auth = Authentication::ApiKey {
             header_name: "X-API-Key".to_string(),
             key: "secret-key".into(),
         };
-        let json = serde_json::to_string(&auth).unwrap();
+        let json = serde_json::to_string(&auth).expect("serialize apikey");
         assert_eq!(
             json,
             r#"{"api_key":{"header_name":"X-API-Key","key":"secret-key"}}"#

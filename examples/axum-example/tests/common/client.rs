@@ -40,7 +40,7 @@ impl TestApp {
             .get("/observations")?
             .with_query(query)
             .await?
-            .as_json()
+            .as_json::<ListObservations>()
             .await?;
         Ok(result)
     }
@@ -222,7 +222,7 @@ impl TestApp {
             .with_query(query)
             .with_headers(headers)
             .await?
-            .as_json()
+            .as_json::<ListObservations>()
             .await?;
         Ok(result)
     }

@@ -75,7 +75,9 @@ paths:
         '200':
           description: Status code 200
           content:
-            application/json: {}
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListObservations'
       security:
       - apiKey: []
     post:

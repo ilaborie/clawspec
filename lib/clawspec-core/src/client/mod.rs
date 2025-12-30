@@ -28,6 +28,11 @@ pub use self::response::{
 mod auth;
 pub use self::auth::{Authentication, AuthenticationError, SecureString};
 
+#[cfg(feature = "oauth2")]
+pub mod oauth2;
+#[cfg(feature = "oauth2")]
+pub use self::oauth2::{OAuth2Config, OAuth2ConfigBuilder, OAuth2Error, OAuth2Token};
+
 mod security;
 pub use self::security::{
     ApiKeyLocation, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow, SecurityRequirement,

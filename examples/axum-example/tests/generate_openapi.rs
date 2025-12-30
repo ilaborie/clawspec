@@ -366,9 +366,11 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     let _list_result = app
         .get("/observations")?
         .with_tags(["observations", "listing"])
-        .with_description("List all observations with pagination support")
+        .with_description("Retrieve observations")
         .await
-        .context("should list observations with multiple tags")?;
+        .context("should list observations with multiple tags")?
+        .as_json::<ListObservations>()
+        .await?;
 
     // Demonstrate administrative operations
     let _import_result = app
@@ -449,10 +451,9 @@ async fn demonstrate_security(app: &mut TestApp) -> anyhow::Result<()> {
     // This uses a different security scheme than the default bearer auth
     app.get("/observations")?
         .with_security(SecurityRequirement::new("apiKey"))
-        .with_description("List observations using API key authentication for service calls")
         .await
         .context("should list with api key")?
-        .as_empty()
+        .as_json::<ListObservations>()
         .await?;
 
     // Most endpoints use the default bearer auth configured on the client
