@@ -361,15 +361,7 @@ impl CallResult {
     where
         T: DeserializeOwned + ToSchema + 'static,
     {
-        // Compute schema reference locally (no lock needed)
-        let schema = compute_schema_ref::<T>();
-
-        // Register the schema entry via channel
-        let entry = SchemaEntry::of::<T>();
-        self.collector_sender
-            .send(CollectorMessage::AddSchemaEntry(entry))
-            .await;
-
+        let schema = self.register_schema::<T>().await;
         let output = self.get_output(Some(schema)).await?;
 
         let Output::Json(json) = output else {
@@ -448,15 +440,7 @@ impl CallResult {
             return Ok(None);
         }
 
-        // Compute schema reference locally (no lock needed)
-        let schema = compute_schema_ref::<T>();
-
-        // Register the schema entry via channel
-        let entry = SchemaEntry::of::<T>();
-        self.collector_sender
-            .send(CollectorMessage::AddSchemaEntry(entry))
-            .await;
-
+        let schema = self.register_schema::<T>().await;
         let output = self.get_output(Some(schema)).await?;
 
         let Output::Json(json) = output else {
@@ -628,41 +612,19 @@ impl CallResult {
         T: DeserializeOwned + ToSchema + 'static,
         E: DeserializeOwned + ToSchema + 'static,
     {
+        // Register both schemas upfront (they're part of the API contract)
+        let success_schema = self.register_schema::<T>().await;
+        let error_schema = self.register_schema::<E>().await;
+
         // Check for 204/404 which indicate absence of data (when enabled)
         if treat_404_as_none
             && (self.status == StatusCode::NO_CONTENT || self.status == StatusCode::NOT_FOUND)
         {
-            // Register both schema entries via channel
-            let success_entry = SchemaEntry::of::<T>();
-            let error_entry = SchemaEntry::of::<E>();
-            self.collector_sender
-                .send(CollectorMessage::AddSchemaEntry(success_entry))
-                .await;
-            self.collector_sender
-                .send(CollectorMessage::AddSchemaEntry(error_entry))
-                .await;
-
             self.get_output(None).await?;
             return Ok(Ok(None));
         }
 
         let is_success = self.status.is_success();
-
-        // Compute schema references locally (no lock needed)
-        let success_schema = compute_schema_ref::<T>();
-        let error_schema = compute_schema_ref::<E>();
-
-        // Register both schema entries via channel
-        let success_entry = SchemaEntry::of::<T>();
-        let error_entry = SchemaEntry::of::<E>();
-        self.collector_sender
-            .send(CollectorMessage::AddSchemaEntry(success_entry))
-            .await;
-        self.collector_sender
-            .send(CollectorMessage::AddSchemaEntry(error_entry))
-            .await;
-
-        // Get the appropriate schema based on status code
         let schema = if is_success {
             success_schema
         } else {
@@ -689,6 +651,18 @@ impl CallResult {
             let error = self.deserialize_and_record::<E>(json).await?;
             Ok(Err(error))
         }
+    }
+
+    /// Registers a schema type and returns its reference.
+    ///
+    /// This helper reduces duplication across `as_json`, `as_optional_json`,
+    /// and `process_result_json_internal` methods.
+    async fn register_schema<T: ToSchema + 'static>(&self) -> RefOr<Schema> {
+        let schema = compute_schema_ref::<T>();
+        self.collector_sender
+            .send(CollectorMessage::AddSchemaEntry(SchemaEntry::of::<T>()))
+            .await;
+        schema
     }
 
     /// Helper to deserialize JSON and record examples.
