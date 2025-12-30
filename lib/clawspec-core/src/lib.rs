@@ -644,6 +644,8 @@ pub mod _tutorial;
 
 mod client;
 
+pub mod split;
+
 pub mod test_client;
 
 // Public API - only expose user-facing types and functions
