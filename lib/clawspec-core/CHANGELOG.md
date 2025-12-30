@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.3.0...clawspec-core-v0.4.0) - 2025-12-30
+
+### Added
+
+- *(oauth2)* Add OAuth2 Client Credentials authentication support (Issue #93) ([#128](https://github.com/ilaborie/clawspec/pull/128))
+- *(security)* Add OpenAPI security scheme support (Issue #23) ([#127](https://github.com/ilaborie/clawspec/pull/127))
+- *(redaction)* Add redact_value for arbitrary JSON value redaction
+
+### Other
+
+- Fix formatting for macro in collectors.rs
+- *(core)* Apply DRY and YAGNI principles to reduce code duplication
+
 ## [0.3.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.2.3...clawspec-core-v0.3.0) - 2025-12-20
 
 ### Added
