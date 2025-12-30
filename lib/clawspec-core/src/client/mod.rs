@@ -28,6 +28,12 @@ pub use self::response::{
 mod auth;
 pub use self::auth::{Authentication, AuthenticationError, SecureString};
 
+mod security;
+pub use self::security::{
+    ApiKeyLocation, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow, SecurityRequirement,
+    SecurityScheme,
+};
+
 mod call_parameters;
 
 mod openapi;
@@ -292,6 +298,8 @@ mod integration_tests;
 /// - Request bodies are streamed when possible
 /// - Response processing is lazy - schemas are only collected when responses are consumed
 /// - Internal caching reduces redundant schema processing
+use indexmap::IndexMap;
+
 #[derive(Debug, Clone)]
 pub struct ApiClient {
     client: reqwest::Client,
@@ -301,6 +309,8 @@ pub struct ApiClient {
     servers: Vec<Server>,
     collector_handle: CollectorHandle,
     authentication: Option<Authentication>,
+    security_schemes: IndexMap<String, SecurityScheme>,
+    default_security: Vec<SecurityRequirement>,
 }
 
 // Create
@@ -415,11 +425,16 @@ impl ApiClient {
         // Add paths
         builder = builder.paths(self.collected_paths().await);
 
-        // Add components with schemas
+        // Add components with schemas and security schemes
         let collectors = self.collector_handle.get_collectors().await;
-        let components = Components::builder()
-            .schemas_from_iter(collectors.schemas())
-            .build();
+        let mut components_builder = Components::builder().schemas_from_iter(collectors.schemas());
+
+        // Add security schemes to components
+        for (name, scheme) in &self.security_schemes {
+            components_builder = components_builder.security_scheme(name, scheme.to_utoipa());
+        }
+
+        let components = components_builder.build();
 
         // Compute tags from all operations
         let tags = self.compute_tags(&collectors).await;
@@ -432,6 +447,18 @@ impl ApiClient {
             builder
         } else {
             builder.tags(Some(tags))
+        };
+
+        // Add default security requirements if configured
+        let builder = if self.default_security.is_empty() {
+            builder
+        } else {
+            let security: Vec<_> = self
+                .default_security
+                .iter()
+                .map(SecurityRequirement::to_utoipa)
+                .collect();
+            builder.security(Some(security))
         };
 
         builder.build()
@@ -503,6 +530,13 @@ impl ApiClient {
 
 impl ApiClient {
     pub fn call(&self, method: Method, path: CallPath) -> Result<ApiCall, ApiClientError> {
+        // Convert default_security to Option only if not empty
+        let default_security = if self.default_security.is_empty() {
+            None
+        } else {
+            Some(self.default_security.clone())
+        };
+
         ApiCall::build(
             self.client.clone(),
             self.base_uri.clone(),
@@ -510,6 +544,7 @@ impl ApiClient {
             method,
             path,
             self.authentication.clone(),
+            default_security,
         )
     }
 

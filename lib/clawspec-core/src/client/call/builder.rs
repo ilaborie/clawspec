@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 use super::ApiCall;
 use crate::client::parameters::{ParamValue, ParameterValue};
 use crate::client::response::ExpectedStatusCodes;
+use crate::client::security::SecurityRequirement;
 use crate::client::{ApiClientError, CallBody, CallCookies, CallHeaders, CallQuery};
 
 impl ApiCall {
@@ -104,7 +105,7 @@ impl ApiCall {
     /// When called, this API call will be executed normally but will not appear
     /// in the generated OpenAPI specification. This is useful for:
     /// - Health check endpoints
-    /// - Debug/diagnostic endpoints  
+    /// - Debug/diagnostic endpoints
     /// - Authentication/session management calls
     /// - Test setup/teardown calls
     /// - Internal utility endpoints
@@ -137,6 +138,133 @@ impl ApiCall {
     /// ```
     pub fn without_collection(mut self) -> Self {
         self.skip_collection = true;
+        self
+    }
+
+    /// Sets the security requirements for this specific operation.
+    ///
+    /// This method overrides the default security configured on the client.
+    /// Use this when an endpoint requires different authentication than the default.
+    ///
+    /// # Parameters
+    ///
+    /// * `requirement` - The security requirement to apply to this operation
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, SecurityScheme, SecurityRequirement};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder()
+    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+    ///     .with_security_scheme("adminAuth", SecurityScheme::bearer_with_format("JWT"))
+    ///     .with_default_security(SecurityRequirement::new("bearerAuth"))
+    ///     .build()?;
+    ///
+    /// // This endpoint requires admin authentication instead of the default
+    /// client
+    ///     .post("/admin/users")?
+    ///     .with_security(SecurityRequirement::new("adminAuth"))
+    ///     .await?
+    ///     .as_empty()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Generated OpenAPI
+    ///
+    /// ```yaml
+    /// paths:
+    ///   /admin/users:
+    ///     post:
+    ///       security:
+    ///         - adminAuth: []
+    /// ```
+    pub fn with_security(mut self, requirement: SecurityRequirement) -> Self {
+        self.security = Some(vec![requirement]);
+        self
+    }
+
+    /// Sets multiple security requirements for this operation (OR relationship).
+    ///
+    /// When multiple security requirements are set, they represent alternative
+    /// authentication methods. The client can satisfy any one of them.
+    ///
+    /// # Parameters
+    ///
+    /// * `requirements` - Iterator of security requirements
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, SecurityScheme, SecurityRequirement, ApiKeyLocation};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder()
+    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+    ///     .with_security_scheme("apiKey", SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header))
+    ///     .build()?;
+    ///
+    /// // This endpoint accepts either bearer token OR API key
+    /// client
+    ///     .get("/data")?
+    ///     .with_securities([
+    ///         SecurityRequirement::new("bearerAuth"),
+    ///         SecurityRequirement::new("apiKey"),
+    ///     ])
+    ///     .await?
+    ///     .as_empty()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_securities(
+        mut self,
+        requirements: impl IntoIterator<Item = SecurityRequirement>,
+    ) -> Self {
+        self.security = Some(requirements.into_iter().collect());
+        self
+    }
+
+    /// Marks this operation as not requiring authentication.
+    ///
+    /// Use this for public endpoints that don't need security, overriding
+    /// any default security configured on the client.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, SecurityScheme, SecurityRequirement};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder()
+    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+    ///     .with_default_security(SecurityRequirement::new("bearerAuth"))
+    ///     .build()?;
+    ///
+    /// // Public endpoint - no authentication needed
+    /// client
+    ///     .get("/public/health")?
+    ///     .without_security()
+    ///     .await?
+    ///     .as_empty()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Generated OpenAPI
+    ///
+    /// ```yaml
+    /// paths:
+    ///   /public/health:
+    ///     get:
+    ///       security: []  # Empty array means no security required
+    /// ```
+    pub fn without_security(mut self) -> Self {
+        self.security = Some(vec![]); // Empty array = no security required
         self
     }
 

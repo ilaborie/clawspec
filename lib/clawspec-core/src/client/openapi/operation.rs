@@ -4,10 +4,12 @@ use tracing::error;
 use utoipa::openapi::Content;
 use utoipa::openapi::path::{Operation, Parameter};
 use utoipa::openapi::request_body::RequestBody;
+use utoipa::openapi::security::SecurityRequirement as UtoipaSecurityRequirement;
 
 use super::collectors::normalize_content_type;
 use super::result::CallResult;
 use crate::client::call_parameters::{CallParameters, OperationMetadata};
+use crate::client::security::SecurityRequirement;
 use crate::client::{CallBody, CallPath};
 
 /// Represents a called operation with its metadata and potential result.
@@ -34,6 +36,7 @@ impl CalledOperation {
         parameters: CallParameters,
         request_body: Option<&CallBody>,
         metadata: OperationMetadata,
+        security: Option<Vec<SecurityRequirement>>,
     ) -> Self {
         // Build parameters from path and CallParameters
         let mut all_parameters: Vec<_> = path.to_parameters().collect();
@@ -55,6 +58,15 @@ impl CalledOperation {
             .parameters(Some(all_parameters))
             .description(final_description)
             .tags(final_tags);
+
+        // Add security requirements if specified
+        let builder = if let Some(ref sec) = security {
+            let utoipa_security: Vec<UtoipaSecurityRequirement> =
+                sec.iter().map(SecurityRequirement::to_utoipa).collect();
+            builder.securities(Some(utoipa_security))
+        } else {
+            builder
+        };
 
         // Request body
         let builder = if let Some(body) = request_body {
@@ -152,7 +164,7 @@ pub(super) fn merge_operation(
         .parameters(merge_parameters(current.parameters, new.parameters))
         .request_body(merge_request_body(current.request_body, new.request_body))
         .deprecated(current.deprecated.or(new.deprecated))
-        // TODO security - https://github.com/ilaborie/clawspec/issues/23
+        .securities(merge_security(current.security, new.security))
         // TODO servers - https://github.com/ilaborie/clawspec/issues/23
         // extension
         .responses(merge_responses(current.responses, new.responses));
@@ -234,6 +246,30 @@ fn merge_tags(current: Option<Vec<String>>, new: Option<Vec<String>>) -> Option<
     current.dedup();
 
     Some(current)
+}
+
+/// Merges security requirements from two operations.
+///
+/// This function handles merging of operation-level security requirements when
+/// multiple test calls target the same endpoint. Security requirements in OpenAPI
+/// represent alternative authentication methods (OR relationship).
+///
+/// # Merge Strategy
+///
+/// - **New security wins**: If the new operation has security, it takes precedence
+/// - **Current preserved**: If new has no security, current is preserved
+/// - **Both None**: Returns None (inherit from global security)
+///
+/// Note: We don't merge security requirements because each call represents a distinct
+/// test scenario. The most recent security configuration is what matters.
+fn merge_security(
+    current: Option<Vec<UtoipaSecurityRequirement>>,
+    new: Option<Vec<UtoipaSecurityRequirement>>,
+) -> Option<Vec<UtoipaSecurityRequirement>> {
+    match (current, new) {
+        (_, Some(new)) => Some(new),
+        (current, None) => current,
+    }
 }
 
 /// Merges two parameter lists, combining parameters by name.

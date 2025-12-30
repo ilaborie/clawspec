@@ -24,6 +24,7 @@ impl ApiCall {
         method: Method,
         path: CallPath,
         authentication: Option<crate::client::Authentication>,
+        default_security: Option<Vec<crate::client::security::SecurityRequirement>>,
     ) -> Result<Self, ApiClientError> {
         let operation_id = slug::slugify(format!("{method} {}", path.path));
 
@@ -47,6 +48,7 @@ impl ApiCall {
             },
             response_description: None,
             skip_collection: false,
+            security: default_security,
         };
         Ok(result)
     }
@@ -128,6 +130,7 @@ impl ApiCall {
             metadata,
             response_description,
             skip_collection,
+            security,
         } = self;
 
         // Build URL and request
@@ -145,6 +148,7 @@ impl ApiCall {
             parameters.clone(),
             &body,
             response_description,
+            security,
         );
 
         // Execute HTTP request
@@ -263,6 +267,7 @@ impl ApiCall {
         parameters: CallParameters,
         body: &Option<CallBody>,
         response_description: Option<String>,
+        security: Option<Vec<crate::client::security::SecurityRequirement>>,
     ) -> CalledOperation {
         let OperationMetadata {
             operation_id,
@@ -283,6 +288,7 @@ impl ApiCall {
                 description,
                 response_description,
             },
+            security,
         )
     }
 

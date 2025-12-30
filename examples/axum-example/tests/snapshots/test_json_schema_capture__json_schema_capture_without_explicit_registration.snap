@@ -41,6 +41,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Observation"
+      security:
+        - bearerAuth: []
 components:
   schemas:
     LngLat:
@@ -86,5 +88,18 @@ components:
             - "null"
         position:
           $ref: "#/components/schemas/LngLat"
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service authentication
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login endpoint
+security:
+  - bearerAuth: []
 tags:
   - name: observations

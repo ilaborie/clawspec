@@ -11,6 +11,19 @@ servers:
 - url: https://api.birdwatch.example.com/api
   description: Production server
 paths:
+  /api/health:
+    get:
+      tags:
+      - health
+      description: Public health check endpoint - no authentication required
+      operationId: get-health
+      parameters: []
+      responses:
+        '200':
+          description: Status code 200
+          content:
+            application/json: {}
+      security: []
   /api/observations:
     get:
       tags:
@@ -62,9 +75,9 @@ paths:
         '200':
           description: Status code 200
           content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ListObservations'
+            application/json: {}
+      security:
+      - apiKey: []
     post:
       tags:
       - observations
@@ -132,6 +145,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TestClientError'
+      security:
+      - bearerAuth: []
   /api/observations/import:
     post:
       tags:
@@ -155,6 +170,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImportResponse'
+      security:
+      - bearerAuth: []
   /api/observations/upload:
     post:
       tags:
@@ -177,6 +194,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UploadResponse'
+      security:
+      - bearerAuth: []
   /api/observations/{observation_id}:
     put:
       tags:
@@ -205,6 +224,8 @@ paths:
       responses:
         '200':
           description: Status code 200
+      security:
+      - bearerAuth: []
     delete:
       tags:
       - observations
@@ -221,6 +242,8 @@ paths:
           description: Status code 200
           content:
             application/json: {}
+      security:
+      - bearerAuth: []
     patch:
       tags:
       - observations
@@ -249,6 +272,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Observation'
+      security:
+      - bearerAuth: []
 components:
   schemas:
     ExtractorError:
@@ -579,10 +604,24 @@ components:
         uploaded:
           type: integer
           minimum: 0
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service authentication
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login endpoint
+security:
+- bearerAuth: []
 tags:
 - name: admin
 - name: bulk-operations
 - name: file-operations
+- name: health
 - name: import
 - name: listing
 - name: modification
