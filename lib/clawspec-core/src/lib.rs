@@ -679,6 +679,9 @@ pub use self::client::{
     RedactOptions, RedactedResult, RedactionBuilder, Redactor, ValueRedactionBuilder, redact_value,
 };
 
+#[cfg(feature = "oauth2")]
+pub use self::client::{OAuth2Config, OAuth2ConfigBuilder, OAuth2Error, OAuth2Token};
+
 // Convenience macro re-exports are handled by the macro_rules! definitions below
 
 /// Creates an [`ExpectedStatusCodes`] instance with the specified status codes and ranges.

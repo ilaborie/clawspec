@@ -215,6 +215,27 @@ pub enum ApiClientError {
         /// The actual output type received.
         actual: String,
     },
+
+    /// OAuth2 authentication error.
+    ///
+    /// Occurs when OAuth2 token acquisition or refresh fails.
+    #[cfg(feature = "oauth2")]
+    #[display("OAuth2 error: {message}")]
+    #[from(skip)]
+    OAuth2Error {
+        /// Description of the OAuth2 error.
+        message: String,
+    },
+}
+
+#[cfg(feature = "oauth2")]
+impl ApiClientError {
+    /// Creates an OAuth2 error from any error type that implements Display.
+    pub fn oauth2_error(error: impl std::fmt::Display) -> Self {
+        Self::OAuth2Error {
+            message: error.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

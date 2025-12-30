@@ -720,6 +720,147 @@ impl ApiClientBuilder {
         self.default_security.extend(requirements);
         self
     }
+
+    // =========================================================================
+    // OAuth2 convenience methods (requires "oauth2" feature)
+    // =========================================================================
+
+    /// Configures OAuth2 authentication with Client Credentials flow.
+    ///
+    /// This is a convenience method for setting up OAuth2 authentication.
+    /// Tokens are automatically acquired and refreshed as needed.
+    ///
+    /// # Parameters
+    ///
+    /// * `client_id` - The OAuth2 client ID
+    /// * `client_secret` - The OAuth2 client secret
+    /// * `token_url` - The token endpoint URL
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_oauth2_client_credentials(
+    ///         "my-client-id",
+    ///         "my-client-secret",
+    ///         "https://auth.example.com/oauth/token",
+    ///     )?
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "oauth2")]
+    pub fn with_oauth2_client_credentials(
+        self,
+        client_id: impl Into<String>,
+        client_secret: impl Into<super::SecureString>,
+        token_url: impl AsRef<str>,
+    ) -> Result<Self, ApiClientError> {
+        use super::Authentication;
+        use super::oauth2::{OAuth2Config, SharedOAuth2Config};
+
+        let config = OAuth2Config::client_credentials(client_id, client_secret, token_url)
+            .map_err(ApiClientError::oauth2_error)?
+            .build()
+            .map_err(ApiClientError::oauth2_error)?;
+
+        Ok(self.with_authentication(Authentication::OAuth2(SharedOAuth2Config::new(config))))
+    }
+
+    /// Configures OAuth2 authentication with Client Credentials flow and scopes.
+    ///
+    /// This is a convenience method for setting up OAuth2 authentication with specific scopes.
+    ///
+    /// # Parameters
+    ///
+    /// * `client_id` - The OAuth2 client ID
+    /// * `client_secret` - The OAuth2 client secret
+    /// * `token_url` - The token endpoint URL
+    /// * `scopes` - The OAuth2 scopes to request
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_oauth2_client_credentials_scopes(
+    ///         "my-client-id",
+    ///         "my-client-secret",
+    ///         "https://auth.example.com/oauth/token",
+    ///         ["read:users", "write:users"],
+    ///     )?
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "oauth2")]
+    pub fn with_oauth2_client_credentials_scopes(
+        self,
+        client_id: impl Into<String>,
+        client_secret: impl Into<super::SecureString>,
+        token_url: impl AsRef<str>,
+        scopes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, ApiClientError> {
+        use super::Authentication;
+        use super::oauth2::{OAuth2Config, SharedOAuth2Config};
+
+        let config = OAuth2Config::client_credentials(client_id, client_secret, token_url)
+            .map_err(ApiClientError::oauth2_error)?
+            .add_scopes(scopes)
+            .build()
+            .map_err(ApiClientError::oauth2_error)?;
+
+        Ok(self.with_authentication(Authentication::OAuth2(SharedOAuth2Config::new(config))))
+    }
+
+    /// Configures OAuth2 authentication with a pre-acquired token.
+    ///
+    /// Use this method when you already have an access token from another source
+    /// (e.g., environment variable, test setup).
+    ///
+    /// # Parameters
+    ///
+    /// * `access_token` - The pre-acquired access token
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use clawspec_core::ApiClient;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let token = std::env::var("API_TOKEN").unwrap_or_else(|_| "test-token".to_string());
+    ///
+    /// let client = ApiClient::builder()
+    ///     .with_oauth2_token(token)?
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "oauth2")]
+    pub fn with_oauth2_token(
+        self,
+        access_token: impl Into<String>,
+    ) -> Result<Self, ApiClientError> {
+        use super::Authentication;
+        use super::oauth2::{OAuth2Config, SharedOAuth2Config};
+
+        // Use a dummy token URL for pre-acquired tokens
+        let config = OAuth2Config::pre_acquired(
+            "pre-acquired",
+            "https://placeholder.example.com/token",
+            access_token,
+        )
+        .map_err(ApiClientError::oauth2_error)?
+        .build()
+        .map_err(ApiClientError::oauth2_error)?;
+
+        Ok(self.with_authentication(Authentication::OAuth2(SharedOAuth2Config::new(config))))
+    }
 }
 
 impl Default for ApiClientBuilder {

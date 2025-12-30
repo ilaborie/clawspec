@@ -133,11 +133,13 @@ impl ApiCall {
             security,
         } = self;
 
+        // Resolve OAuth2 authentication to Bearer if needed
+        let resolved_auth = Self::resolve_authentication(authentication).await?;
+
         // Build URL and request
         let url = Self::build_url(&base_uri, &path, &query)?;
         let parameters = CallParameters::with_all(query.clone(), headers.clone(), cookies.clone());
-        let request =
-            Self::build_request(method.clone(), url, &parameters, &body, &authentication)?;
+        let request = Self::build_request(method.clone(), url, &parameters, &body, &resolved_auth)?;
 
         // Create operation for OpenAPI documentation
         let operation_id = metadata.operation_id.clone();
@@ -320,6 +322,42 @@ impl ApiCall {
         sender
             .send(CollectorMessage::RegisterOperation(operation))
             .await;
+    }
+
+    /// Resolves authentication, acquiring OAuth2 tokens if needed.
+    ///
+    /// For OAuth2 authentication, this method acquires a valid token and converts
+    /// the authentication to Bearer token. For other authentication types, the
+    /// original authentication is returned unchanged.
+    async fn resolve_authentication(
+        authentication: Option<crate::client::Authentication>,
+    ) -> Result<Option<crate::client::Authentication>, ApiClientError> {
+        #[cfg(feature = "oauth2")]
+        {
+            use crate::client::Authentication;
+
+            match authentication {
+                Some(Authentication::OAuth2(ref config)) => {
+                    // Acquire a valid token
+                    let token = config
+                        .0
+                        .get_valid_token()
+                        .await
+                        .map_err(ApiClientError::oauth2_error)?;
+
+                    // Convert to Bearer authentication
+                    Ok(Some(Authentication::Bearer(
+                        token.access_token().to_string().into(),
+                    )))
+                }
+                other => Ok(other),
+            }
+        }
+
+        #[cfg(not(feature = "oauth2"))]
+        {
+            Ok(authentication)
+        }
     }
 }
 
