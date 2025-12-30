@@ -47,6 +47,29 @@ impl<T: Serialize> Fragment<T> {
             content,
         }
     }
+
+    /// Serializes the fragment content to a YAML string.
+    ///
+    /// *Requires the `yaml` feature.*
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use clawspec_core::split::Fragment;
+    ///
+    /// let fragment = Fragment::new("common.yaml", components);
+    /// let yaml = fragment.to_yaml()?;
+    /// std::fs::write(&fragment.path, yaml)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`YamlError`](crate::YamlError) if serialization fails.
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
+    pub fn to_yaml(&self) -> Result<String, crate::YamlError> {
+        crate::ToYaml::to_yaml(&self.content)
+    }
 }
 
 /// The result of splitting an OpenAPI specification.
@@ -108,6 +131,29 @@ impl<T: Serialize> SplitResult<T> {
     pub fn fragment_count(&self) -> usize {
         self.fragments.len()
     }
+
+    /// Serializes the main OpenAPI specification to a YAML string.
+    ///
+    /// *Requires the `yaml` feature.*
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use clawspec_core::split::{OpenApiSplitter, SplitSchemasByTag};
+    ///
+    /// let result = splitter.split(spec);
+    /// let main_yaml = result.main_to_yaml()?;
+    /// std::fs::write("openapi.yaml", main_yaml)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`YamlError`](crate::YamlError) if serialization fails.
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
+    pub fn main_to_yaml(&self) -> Result<String, crate::YamlError> {
+        crate::ToYaml::to_yaml(&self.main)
+    }
 }
 
 #[cfg(test)]
@@ -142,5 +188,73 @@ mod tests {
 
         assert!(!result.is_unsplit());
         assert_eq!(result.fragment_count(), 2);
+    }
+}
+
+#[cfg(all(test, feature = "yaml"))]
+mod yaml_tests {
+    use super::*;
+    use utoipa::openapi::{Components, InfoBuilder, OpenApiBuilder};
+
+    #[test]
+    fn should_serialize_fragment_to_yaml() {
+        let components = Components::new();
+        let fragment = Fragment::new("schemas/common.yaml", components);
+
+        let yaml = fragment.to_yaml().expect("should serialize to YAML");
+
+        // serde_saphyr serializes empty objects without braces
+        assert!(yaml.trim().is_empty() || yaml.trim() == "{}");
+    }
+
+    #[test]
+    fn should_serialize_main_spec_to_yaml() {
+        let spec = OpenApiBuilder::new()
+            .info(
+                InfoBuilder::new()
+                    .title("Test API")
+                    .version("1.0.0")
+                    .build(),
+            )
+            .build();
+        let result: SplitResult<Components> = SplitResult::new(spec);
+
+        let yaml = result.main_to_yaml().expect("should serialize to YAML");
+
+        // Verify the essential structure is present
+        assert!(yaml.contains("openapi: 3.1.0"));
+        assert!(yaml.contains("title: Test API"));
+        assert!(yaml.contains("version: 1.0.0"));
+        assert!(yaml.contains("paths"));
+    }
+
+    #[test]
+    fn should_serialize_split_result_with_fragments() {
+        let spec = OpenApiBuilder::new()
+            .info(
+                InfoBuilder::new()
+                    .title("Split API")
+                    .version("2.0.0")
+                    .build(),
+            )
+            .build();
+        let mut result: SplitResult<Components> = SplitResult::new(spec);
+        result.add_fragment(Fragment::new("common.yaml", Components::new()));
+
+        let main_yaml = result
+            .main_to_yaml()
+            .expect("should serialize main to YAML");
+        let fragment_yaml = result.fragments[0]
+            .to_yaml()
+            .expect("should serialize fragment to YAML");
+
+        // Verify the essential structure is present
+        assert!(main_yaml.contains("openapi: 3.1.0"));
+        assert!(main_yaml.contains("title: Split API"));
+        assert!(main_yaml.contains("version: 2.0.0"));
+        assert!(main_yaml.contains("paths"));
+
+        // serde_saphyr serializes empty objects without braces
+        assert!(fragment_yaml.trim().is_empty() || fragment_yaml.trim() == "{}");
     }
 }

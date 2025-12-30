@@ -1,5 +1,11 @@
 //! OAuth2 token types and caching.
 
+// Note: The `unused_assignments` allow is needed because the `Zeroize`/`ZeroizeOnDrop`
+// derive macros generate code that clippy incorrectly flags as unused assignment for the
+// `expires_at` field (which is marked with `#[zeroize(skip)]`). The field IS used in
+// `is_expired()`, `should_refresh()`, and `time_until_expiry()` methods.
+#![allow(unused_assignments)]
+
 use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

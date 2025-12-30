@@ -18,6 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 oauth2 = ["dep:oauth2"]
 redaction = ["dep:jsonptr", "dep:serde_json_path"]
+yaml = ["dep:serde_saphyr"]
 
 [dependencies]
 
@@ -50,6 +51,7 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 jsonptr = { workspace = true, optional = true }
 oauth2 = { workspace = true, optional = true }
 serde_json_path = { workspace = true, optional = true }
+serde_saphyr = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

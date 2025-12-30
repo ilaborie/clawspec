@@ -197,21 +197,33 @@ impl RawResult {
 
 impl CallResult {
     /// Returns the HTTP status code of the response.
+    ///
+    /// Used by the redaction feature to register response examples.
+    #[cfg(feature = "redaction")]
     pub(in crate::client) fn status(&self) -> StatusCode {
         self.status
     }
 
     /// Returns the content type of the response, if present.
+    ///
+    /// Used by the redaction feature to register response examples.
+    #[cfg(feature = "redaction")]
     pub(in crate::client) fn content_type(&self) -> Option<&ContentType> {
         self.content_type.as_ref()
     }
 
     /// Returns the operation ID for this result.
+    ///
+    /// Used by the redaction feature to register response examples.
+    #[cfg(feature = "redaction")]
     pub(in crate::client) fn operation_id(&self) -> &str {
         &self.operation_id
     }
 
     /// Returns a reference to the output.
+    ///
+    /// Used by the redaction feature to access the JSON output for redaction.
+    #[cfg(feature = "redaction")]
     pub(in crate::client) fn output(&self) -> &Output {
         &self.output
     }

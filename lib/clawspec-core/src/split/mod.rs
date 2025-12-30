@@ -15,7 +15,10 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ## With the `yaml` feature (recommended)
+//!
+#![cfg_attr(feature = "yaml", doc = "```rust,ignore")]
+#![cfg_attr(not(feature = "yaml"), doc = "```rust,ignore")]
 //! use clawspec_core::split::{OpenApiSplitter, SplitSchemasByTag};
 //! use std::path::PathBuf;
 //!
@@ -25,14 +28,27 @@
 //! let splitter = SplitSchemasByTag::new(PathBuf::from("common-types.yaml"));
 //! let result = splitter.split(spec);
 //!
-//! // Write the main spec and fragments to files
-//! for fragment in result.fragments {
-//!     let content = serde_yaml::to_string(&fragment.content)?;
+//! // Write fragments using the convenient to_yaml() method
+//! for fragment in &result.fragments {
+//!     let content = fragment.to_yaml()?;
 //!     std::fs::write(&fragment.path, content)?;
 //! }
 //!
-//! let main_content = serde_yaml::to_string(&result.main)?;
+//! // Write main spec
+//! let main_content = result.main_to_yaml()?;
 //! std::fs::write("openapi.yaml", main_content)?;
+//! ```
+//!
+//! ## Using ToYaml trait directly
+//!
+#![cfg_attr(feature = "yaml", doc = "```rust,ignore")]
+#![cfg_attr(not(feature = "yaml"), doc = "```rust,ignore")]
+//! use clawspec_core::{ToYaml, split::{OpenApiSplitter, SplitSchemasByTag}};
+//!
+//! let result = splitter.split(spec);
+//!
+//! // The ToYaml trait is implemented for all Serialize types
+//! let main_yaml = result.main.to_yaml()?;
 //! ```
 
 mod fragment;
