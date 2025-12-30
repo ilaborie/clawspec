@@ -193,9 +193,7 @@ impl Collectors {
     pub(in crate::client) fn as_map(&mut self, base_path: &str) -> IndexMap<String, PathItem> {
         /// Merges an operation into the appropriate field of a PathItem based on HTTP method.
         macro_rules! merge_into {
-            ($item:expr, $field:ident, $operation_id:expr, $operation:expr) => {{
-                $item.$field = merge_operation($operation_id, $item.$field.clone(), $operation)
-            }};
+            ($item:expr, $field:ident, $operation_id:expr, $operation:expr) => {{ $item.$field = merge_operation($operation_id, $item.$field.clone(), $operation) }};
         }
 
         let mut result = IndexMap::<String, PathItem>::new();
