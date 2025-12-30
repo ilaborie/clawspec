@@ -13,8 +13,8 @@ use axum::http::StatusCode;
 use tracing::info;
 use utoipa::openapi::{ContactBuilder, InfoBuilder, ServerBuilder};
 
-use clawspec_core::ApiClient;
 use clawspec_core::test_client::{HealthStatus, TestClient, TestServer, TestServerConfig};
+use clawspec_core::{ApiClient, ApiKeyLocation, SecurityRequirement, SecurityScheme};
 
 use axum_example::launch;
 
@@ -81,7 +81,20 @@ impl TestServer for AppTestServer {
                     .url("https://api.birdwatch.example.com/api")
                     .description(Some("Production server"))
                     .build(),
-            );
+            )
+            // Add security schemes for API documentation
+            .with_security_scheme(
+                "bearerAuth",
+                SecurityScheme::bearer_with_format("JWT")
+                    .with_description("JWT token obtained from /auth/login endpoint"),
+            )
+            .with_security_scheme(
+                "apiKey",
+                SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header)
+                    .with_description("API key for service-to-service authentication"),
+            )
+            // Set bearer auth as the default security requirement
+            .with_default_security(SecurityRequirement::new("bearerAuth"));
         TestServerConfig {
             api_client: Some(client),
             ..Default::default()

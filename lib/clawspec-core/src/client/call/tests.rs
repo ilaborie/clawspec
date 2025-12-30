@@ -33,6 +33,7 @@ fn create_test_api_call() -> ApiCall {
         method,
         path,
         None,
+        None, // No default security
     )
     .expect("should build api call")
 }
@@ -818,4 +819,118 @@ fn test_authentication_override_in_method_chaining() {
     // Remove authentication
     call = call.with_authentication_none();
     assert!(call.authentication.is_none());
+}
+
+// =============================================================================
+// Security Requirement Tests
+// =============================================================================
+
+#[test]
+fn test_api_call_default_security_is_none() {
+    let call = create_test_api_call();
+    assert!(call.security.is_none());
+}
+
+#[test]
+fn test_api_call_with_security_sets_requirement() {
+    use crate::client::security::SecurityRequirement;
+
+    let call = create_test_api_call().with_security(SecurityRequirement::new("bearerAuth"));
+
+    assert!(call.security.is_some());
+    let security = call.security.expect("should have security");
+    assert_eq!(security.len(), 1);
+    assert_eq!(security[0].name, "bearerAuth");
+    assert!(security[0].scopes.is_empty());
+}
+
+#[test]
+fn test_api_call_with_security_with_scopes() {
+    use crate::client::security::SecurityRequirement;
+
+    let call = create_test_api_call().with_security(SecurityRequirement::with_scopes(
+        "oauth2",
+        ["read:users", "write:users"],
+    ));
+
+    let security = call.security.expect("should have security");
+    assert_eq!(security.len(), 1);
+    assert_eq!(security[0].name, "oauth2");
+    assert_eq!(security[0].scopes, vec!["read:users", "write:users"]);
+}
+
+#[test]
+fn test_api_call_with_securities_multiple_requirements() {
+    use crate::client::security::SecurityRequirement;
+
+    let call = create_test_api_call().with_securities([
+        SecurityRequirement::new("bearerAuth"),
+        SecurityRequirement::new("apiKey"),
+    ]);
+
+    let security = call.security.expect("should have security");
+    assert_eq!(security.len(), 2);
+    assert_eq!(security[0].name, "bearerAuth");
+    assert_eq!(security[1].name, "apiKey");
+}
+
+#[test]
+fn test_api_call_without_security_sets_empty_array() {
+    use crate::client::security::SecurityRequirement;
+
+    // Start with a security requirement
+    let call = create_test_api_call()
+        .with_security(SecurityRequirement::new("bearerAuth"))
+        .without_security();
+
+    // without_security should set an empty array, not None
+    let security = call.security.expect("should have security (empty array)");
+    assert!(security.is_empty(), "security should be empty array");
+}
+
+#[test]
+fn test_api_call_security_overrides_previous() {
+    use crate::client::security::SecurityRequirement;
+
+    let call = create_test_api_call()
+        .with_security(SecurityRequirement::new("bearerAuth"))
+        .with_security(SecurityRequirement::new("apiKey"));
+
+    let security = call.security.expect("should have security");
+    assert_eq!(security.len(), 1);
+    assert_eq!(security[0].name, "apiKey");
+}
+
+#[test]
+fn test_api_call_security_method_chaining() {
+    use crate::client::security::SecurityRequirement;
+
+    let call = create_test_api_call()
+        .with_operation_id("test-operation")
+        .with_description("Test operation")
+        .with_security(SecurityRequirement::new("bearerAuth"))
+        .with_header("X-Request-ID", "test-123");
+
+    assert_eq!(call.metadata.operation_id, "test-operation");
+    assert!(call.security.is_some());
+    assert!(call.headers.is_some());
+}
+
+#[test]
+fn test_api_call_security_with_method_chaining_without() {
+    use crate::client::security::SecurityRequirement;
+
+    let call = create_test_api_call()
+        .with_security(SecurityRequirement::new("bearerAuth"))
+        .with_description("Public endpoint")
+        .without_security();
+
+    // Security should be empty array (public endpoint)
+    let security = call.security.expect("should have security field set");
+    assert!(security.is_empty());
+    // Other metadata should still be present
+    assert_eq!(
+        call.metadata.description,
+        Some("Public endpoint".to_string())
+    );
 }

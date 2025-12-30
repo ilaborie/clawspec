@@ -3,9 +3,11 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use http::Uri;
 use http::uri::{PathAndQuery, Scheme};
+use indexmap::IndexMap;
 use utoipa::openapi::{Info, Server};
 
 use super::openapi::channel::CollectorHandle;
+use super::security::{SecurityRequirement, SecurityScheme};
 use super::{ApiClient, ApiClientError};
 
 /// Builder for creating `ApiClient` instances with comprehensive configuration options.
@@ -68,6 +70,8 @@ pub struct ApiClientBuilder {
     info: Option<Info>,
     servers: Vec<Server>,
     authentication: Option<super::Authentication>,
+    security_schemes: IndexMap<String, SecurityScheme>,
+    default_security: Vec<SecurityRequirement>,
 }
 
 impl ApiClientBuilder {
@@ -113,6 +117,8 @@ impl ApiClientBuilder {
             info,
             servers,
             authentication,
+            security_schemes,
+            default_security,
         } = self;
 
         let builder = Uri::builder()
@@ -140,6 +146,8 @@ impl ApiClientBuilder {
             servers,
             collector_handle,
             authentication,
+            security_schemes,
+            default_security,
         })
     }
 
@@ -599,6 +607,119 @@ impl ApiClientBuilder {
         self.servers.push(server);
         self
     }
+
+    /// Registers a named security scheme for OpenAPI documentation.
+    ///
+    /// Security schemes define the authentication methods available for your API.
+    /// They are included in the `components.securitySchemes` section of the generated
+    /// OpenAPI specification.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` - A unique identifier for this security scheme (referenced by security requirements)
+    /// * `scheme` - The security scheme configuration
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, SecurityScheme, ApiKeyLocation};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer_with_format("JWT"))
+    ///     .with_security_scheme("apiKey", SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header))
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Generated OpenAPI
+    ///
+    /// ```yaml
+    /// components:
+    ///   securitySchemes:
+    ///     bearerAuth:
+    ///       type: http
+    ///       scheme: bearer
+    ///       bearerFormat: JWT
+    ///     apiKey:
+    ///       type: apiKey
+    ///       name: X-API-Key
+    ///       in: header
+    /// ```
+    pub fn with_security_scheme(mut self, name: impl Into<String>, scheme: SecurityScheme) -> Self {
+        self.security_schemes.insert(name.into(), scheme);
+        self
+    }
+
+    /// Sets the default security requirement for all operations.
+    ///
+    /// Operations will inherit this security requirement unless they explicitly
+    /// override it with `without_security()` or `with_security()`.
+    ///
+    /// # Parameters
+    ///
+    /// * `requirement` - The security requirement to apply by default
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, SecurityScheme, SecurityRequirement};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+    ///     .with_default_security(SecurityRequirement::new("bearerAuth"))
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Generated OpenAPI
+    ///
+    /// ```yaml
+    /// security:
+    ///   - bearerAuth: []
+    /// ```
+    pub fn with_default_security(mut self, requirement: SecurityRequirement) -> Self {
+        self.default_security.push(requirement);
+        self
+    }
+
+    /// Adds multiple default security requirements (OR relationship).
+    ///
+    /// When multiple security requirements are added, they represent alternative
+    /// authentication methods (OR relationship). The client can satisfy any one
+    /// of them.
+    ///
+    /// # Parameters
+    ///
+    /// * `requirements` - Iterator of security requirements
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, SecurityScheme, SecurityRequirement, ApiKeyLocation};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+    ///     .with_security_scheme("apiKey", SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header))
+    ///     .with_default_securities([
+    ///         SecurityRequirement::new("bearerAuth"),
+    ///         SecurityRequirement::new("apiKey"),
+    ///     ])
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_default_securities(
+        mut self,
+        requirements: impl IntoIterator<Item = SecurityRequirement>,
+    ) -> Self {
+        self.default_security.extend(requirements);
+        self
+    }
 }
 
 impl Default for ApiClientBuilder {
@@ -612,6 +733,8 @@ impl Default for ApiClientBuilder {
             info: None,
             servers: Vec::new(),
             authentication: None,
+            security_schemes: IndexMap::new(),
+            default_security: Vec::new(),
         }
     }
 }
@@ -827,5 +950,102 @@ mod tests {
             .expect("should build client");
 
         assert!(client.authentication.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_builder_with_security_scheme() {
+        use super::super::security::{ApiKeyLocation, SecurityScheme};
+
+        let client = ApiClientBuilder::default()
+            .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+            .with_security_scheme(
+                "apiKey",
+                SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header),
+            )
+            .build()
+            .expect("should build client");
+
+        assert_eq!(client.security_schemes.len(), 2);
+        assert!(client.security_schemes.contains_key("bearerAuth"));
+        assert!(client.security_schemes.contains_key("apiKey"));
+    }
+
+    #[tokio::test]
+    async fn test_builder_with_default_security() {
+        use super::super::security::{SecurityRequirement, SecurityScheme};
+
+        let client = ApiClientBuilder::default()
+            .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+            .with_default_security(SecurityRequirement::new("bearerAuth"))
+            .build()
+            .expect("should build client");
+
+        assert_eq!(client.default_security.len(), 1);
+        assert_eq!(client.default_security[0].name, "bearerAuth");
+    }
+
+    #[tokio::test]
+    async fn test_builder_with_multiple_default_securities() {
+        use super::super::security::{ApiKeyLocation, SecurityRequirement, SecurityScheme};
+
+        let client = ApiClientBuilder::default()
+            .with_security_scheme("bearerAuth", SecurityScheme::bearer())
+            .with_security_scheme(
+                "apiKey",
+                SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header),
+            )
+            .with_default_securities([
+                SecurityRequirement::new("bearerAuth"),
+                SecurityRequirement::new("apiKey"),
+            ])
+            .build()
+            .expect("should build client");
+
+        assert_eq!(client.default_security.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_builder_security_scheme_with_description() {
+        use super::super::security::SecurityScheme;
+
+        let client = ApiClientBuilder::default()
+            .with_security_scheme(
+                "bearerAuth",
+                SecurityScheme::bearer_with_format("JWT")
+                    .with_description("JWT token from /auth/login"),
+            )
+            .build()
+            .expect("should build client");
+
+        let scheme = client.security_schemes.get("bearerAuth").unwrap();
+        assert!(matches!(
+            scheme,
+            SecurityScheme::Bearer {
+                format: Some(f),
+                description: Some(d)
+            } if f == "JWT" && d == "JWT token from /auth/login"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_security_schemes_appear_in_openapi() {
+        use super::super::security::{SecurityRequirement, SecurityScheme};
+
+        let mut client = ApiClientBuilder::default()
+            .with_security_scheme("bearerAuth", SecurityScheme::bearer_with_format("JWT"))
+            .with_default_security(SecurityRequirement::new("bearerAuth"))
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        // Check that security schemes are in components
+        let components = openapi.components.expect("should have components");
+        let security_schemes = components.security_schemes;
+        assert!(security_schemes.contains_key("bearerAuth"));
+
+        // Check that default security is present
+        let security = openapi.security.expect("should have security");
+        assert!(!security.is_empty());
     }
 }

@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Context;
-use clawspec_core::{CallHeaders, CallPath, ParamValue, register_schemas};
+use clawspec_core::{CallHeaders, CallPath, ParamValue, SecurityRequirement, register_schemas};
 use headers::ContentType;
 use rstest::rstest;
 use tracing::info;
@@ -37,6 +37,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     alternate_content_types(&mut app).await?;
     test_error_cases(&mut app).await?;
     Box::pin(demonstrate_tags_and_metadata(&mut app)).await?;
+    demonstrate_security(&mut app).await?;
     // Call redaction demo LAST so its example appears in the generated OpenAPI
     demonstrate_redaction(&mut app).await?;
 
@@ -421,6 +422,41 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .as_empty()
         .await
         .context("should process delete response")?;
+
+    Ok(())
+}
+
+/// Demonstrates the `OpenAPI` security scheme features.
+///
+/// This function showcases how to configure security requirements at the operation level,
+/// including public endpoints that don't require authentication and endpoints that
+/// use alternative security schemes.
+#[tracing::instrument(skip(app))]
+async fn demonstrate_security(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating OpenAPI security features");
+
+    // Public health endpoint - no authentication required
+    // This overrides the default bearer auth with an empty security array
+    app.get("/health")?
+        .without_security()
+        .with_description("Public health check endpoint - no authentication required")
+        .await
+        .context("should access health without auth")?
+        .as_empty()
+        .await?;
+
+    // Demonstrate API key authentication for service-to-service calls
+    // This uses a different security scheme than the default bearer auth
+    app.get("/observations")?
+        .with_security(SecurityRequirement::new("apiKey"))
+        .with_description("List observations using API key authentication for service calls")
+        .await
+        .context("should list with api key")?
+        .as_empty()
+        .await?;
+
+    // Most endpoints use the default bearer auth configured on the client
+    // No explicit security call needed - they inherit from the client's default_security
 
     Ok(())
 }

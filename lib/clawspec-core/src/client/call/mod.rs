@@ -3,6 +3,7 @@ use http::{Method, Uri};
 use super::call_parameters::OperationMetadata;
 use super::openapi::channel::CollectorSender;
 use super::response::ExpectedStatusCodes;
+use super::security::SecurityRequirement;
 use super::{CallBody, CallCookies, CallHeaders, CallPath, CallQuery};
 
 pub(in crate::client) const BODY_MAX_LENGTH: usize = 1024;
@@ -120,4 +121,6 @@ pub struct ApiCall {
     pub(super) response_description: Option<String>,
     /// Whether to skip collection for OpenAPI documentation (default: false)
     pub(super) skip_collection: bool,
+    /// Security requirements for this operation (None = inherit from global)
+    pub(super) security: Option<Vec<SecurityRequirement>>,
 }
