@@ -191,67 +191,37 @@ impl Collectors {
     }
 
     pub(in crate::client) fn as_map(&mut self, base_path: &str) -> IndexMap<String, PathItem> {
+        /// Merges an operation into the appropriate field of a PathItem based on HTTP method.
+        macro_rules! merge_into {
+            ($item:expr, $field:ident, $operation_id:expr, $operation:expr) => {{
+                $item.$field = merge_operation($operation_id, $item.$field.clone(), $operation)
+            }};
+        }
+
         let mut result = IndexMap::<String, PathItem>::new();
         for (operation_id, calls) in &self.operations {
             debug_assert!(!calls.is_empty(), "having at least a call");
             let path = format!("{base_path}/{}", calls[0].path.trim_start_matches('/'));
             let item = result.entry(path.clone()).or_default();
             for call in calls {
-                let method = call.method.clone();
-                match method {
-                    Method::GET => {
-                        item.get =
-                            merge_operation(operation_id, item.get.clone(), call.operation.clone());
+                match &call.method {
+                    &Method::GET => merge_into!(item, get, operation_id, call.operation.clone()),
+                    &Method::PUT => merge_into!(item, put, operation_id, call.operation.clone()),
+                    &Method::POST => merge_into!(item, post, operation_id, call.operation.clone()),
+                    &Method::DELETE => {
+                        merge_into!(item, delete, operation_id, call.operation.clone())
                     }
-                    Method::PUT => {
-                        item.put =
-                            merge_operation(operation_id, item.put.clone(), call.operation.clone());
+                    &Method::OPTIONS => {
+                        merge_into!(item, options, operation_id, call.operation.clone())
                     }
-                    Method::POST => {
-                        item.post = merge_operation(
-                            operation_id,
-                            item.post.clone(),
-                            call.operation.clone(),
-                        );
+                    &Method::HEAD => merge_into!(item, head, operation_id, call.operation.clone()),
+                    &Method::PATCH => {
+                        merge_into!(item, patch, operation_id, call.operation.clone())
                     }
-                    Method::DELETE => {
-                        item.delete = merge_operation(
-                            operation_id,
-                            item.delete.clone(),
-                            call.operation.clone(),
-                        );
+                    &Method::TRACE => {
+                        merge_into!(item, trace, operation_id, call.operation.clone())
                     }
-                    Method::OPTIONS => {
-                        item.options = merge_operation(
-                            operation_id,
-                            item.options.clone(),
-                            call.operation.clone(),
-                        );
-                    }
-                    Method::HEAD => {
-                        item.head = merge_operation(
-                            operation_id,
-                            item.head.clone(),
-                            call.operation.clone(),
-                        );
-                    }
-                    Method::PATCH => {
-                        item.patch = merge_operation(
-                            operation_id,
-                            item.patch.clone(),
-                            call.operation.clone(),
-                        );
-                    }
-                    Method::TRACE => {
-                        item.trace = merge_operation(
-                            operation_id,
-                            item.trace.clone(),
-                            call.operation.clone(),
-                        );
-                    }
-                    _ => {
-                        warn!(%method, "unsupported method");
-                    }
+                    method => warn!(%method, "unsupported method"),
                 }
             }
         }

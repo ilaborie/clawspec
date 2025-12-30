@@ -563,29 +563,6 @@ impl ApiClientBuilder {
         self
     }
 
-    /// Sets the HTTP scheme to HTTP (the default).
-    ///
-    /// This is a convenience method that doesn't require importing http types.
-    /// Note: HTTP is already the default scheme.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_http()  // Explicit, but same as default
-    ///     .with_host("localhost")
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_http(mut self) -> Self {
-        self.scheme = Scheme::HTTP;
-        self
-    }
-
     /// Adds a server to the OpenAPI specification using simple string parameters.
     ///
     /// This is a convenience method that doesn't require importing utoipa types.
