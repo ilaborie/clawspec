@@ -40,6 +40,9 @@ pub(in crate::client) enum CollectorMessage {
     },
 
     /// Register a response with an example value.
+    ///
+    /// Used by the redaction feature to register responses with redacted examples.
+    #[cfg(feature = "redaction")]
     RegisterResponseWithExample {
         operation_id: String,
         status: StatusCode,
@@ -144,6 +147,7 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
                     description,
                 );
             }
+            #[cfg(feature = "redaction")]
             CollectorMessage::RegisterResponseWithExample {
                 operation_id,
                 status,

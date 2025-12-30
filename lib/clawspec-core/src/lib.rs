@@ -603,6 +603,32 @@
 //! - [`ApiClientError`] - HTTP client errors (network, parsing, validation)
 //! - [`TestAppError`](test_client::TestAppError) - Test server lifecycle errors
 //!
+//! ## YAML Serialization
+//!
+//! *Requires the `yaml` feature.*
+//!
+//! The library provides YAML serialization support using [serde-saphyr](https://github.com/saphyr-rs/serde_saphyr),
+//! the modern replacement for the deprecated `serde_yaml` crate.
+//!
+#![cfg_attr(feature = "yaml", doc = "```rust")]
+#![cfg_attr(not(feature = "yaml"), doc = "```rust,ignore")]
+//! use clawspec_core::{ApiClient, ToYaml};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut client = ApiClient::builder()
+//!     .with_host("api.example.com")
+//!     .build()?;
+//!
+//! // ... make API calls ...
+//!
+//! let spec = client.collected_openapi().await;
+//! let yaml = spec.to_yaml()?;
+//!
+//! std::fs::write("openapi.yml", yaml)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## See Also
 //!
 //! - [`ApiClient`] - HTTP client with OpenAPI collection
@@ -633,6 +659,14 @@
     feature = "redaction",
     doc = "- [`ValueRedactionBuilder`] - Builder for redacting arbitrary JSON values (e.g., OpenAPI specs)"
 )]
+#![cfg_attr(
+    feature = "yaml",
+    doc = "- [`ToYaml`] - Extension trait for YAML serialization"
+)]
+#![cfg_attr(
+    feature = "yaml",
+    doc = "- [`YamlError`] - Error type for YAML serialization"
+)]
 //!
 //! ## Re-exports
 //!
@@ -645,6 +679,10 @@ pub mod _tutorial;
 mod client;
 
 pub mod split;
+
+#[cfg(feature = "yaml")]
+#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
+mod yaml;
 
 pub mod test_client;
 
@@ -683,6 +721,10 @@ pub use self::client::{
 
 #[cfg(feature = "oauth2")]
 pub use self::client::{OAuth2Config, OAuth2ConfigBuilder, OAuth2Error, OAuth2Token};
+
+#[cfg(feature = "yaml")]
+#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
+pub use self::yaml::{ToYaml, YamlError};
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below
 
