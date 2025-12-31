@@ -1,3 +1,10 @@
+//! Response handling, status validation, and redaction.
+//!
+//! This module provides:
+//!
+//! - [`ExpectedStatusCodes`] - Define valid status codes for API calls
+//! - Redaction utilities (with `redaction` feature) for stable examples
+
 mod status;
 pub use self::status::ExpectedStatusCodes;
 

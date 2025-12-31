@@ -54,7 +54,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! clawspec-core = "0.2"
+//! clawspec-core = "0.4"
 //! serde = { version = "1", features = ["derive"] }
 //! utoipa = { version = "5", features = ["preserve_order"] }
 //! tokio = { version = "1", features = ["full"] }

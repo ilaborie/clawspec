@@ -1,3 +1,13 @@
+//! OpenAPI schema collection and result handling.
+//!
+//! This module provides:
+//!
+//! - [`CallResult`] - Response wrapper for deserializing and collecting schemas
+//! - [`RawResult`] - Raw response access before schema collection
+//! - [`RawBody`] - Raw response body content
+//!
+//! Internal types for schema collection are not exported.
+
 pub(in crate::client) mod channel;
 pub(in crate::client) mod schema;
 

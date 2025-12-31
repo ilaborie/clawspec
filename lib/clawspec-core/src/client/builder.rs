@@ -151,139 +151,29 @@ impl ApiClientBuilder {
         })
     }
 
-    /// Sets the HTTP scheme (protocol) for the API client.
-    ///
-    /// # Parameters
-    ///
-    /// * `scheme` - The HTTP scheme to use (HTTP or HTTPS)
-    ///
-    /// # Default
-    ///
-    /// If not specified, defaults to `Scheme::HTTP`.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    /// use http::uri::Scheme;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_scheme(Scheme::HTTPS)  // Use HTTPS for secure connections
-    ///     .with_host("api.example.com")
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sets the HTTP scheme. Defaults to `HTTP`. Use [`with_https()`](Self::with_https) for convenience.
     pub fn with_scheme(mut self, scheme: Scheme) -> Self {
         self.scheme = scheme;
         self
     }
 
-    /// Sets the hostname for the API client.
-    ///
-    /// # Parameters
-    ///
-    /// * `host` - The hostname or IP address of the API server
-    ///
-    /// # Default
-    ///
-    /// If not specified, defaults to `"127.0.0.1"` (localhost).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_host("api.example.com")     // Domain name
-    ///     .build()?;
-    ///
-    /// let client = ApiClient::builder()
-    ///     .with_host("192.168.1.10")       // IP address
-    ///     .build()?;
-    ///
-    /// let client = ApiClient::builder()
-    ///     .with_host("localhost")          // Local development
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sets the hostname or IP address. Defaults to `127.0.0.1`.
     pub fn with_host(mut self, host: impl Into<String>) -> Self {
         self.host = host.into();
         self
     }
 
-    /// Sets the port number for the API client.
-    ///
-    /// # Parameters
-    ///
-    /// * `port` - The port number to connect to on the server
-    ///
-    /// # Default
-    ///
-    /// If not specified, defaults to `80` (standard HTTP port).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    /// use http::uri::Scheme;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_scheme(Scheme::HTTPS)
-    ///     .with_host("api.example.com")
-    ///     .with_port(443)              // Standard HTTPS port
-    ///     .build()?;
-    ///
-    /// let client = ApiClient::builder()
-    ///     .with_host("localhost")
-    ///     .with_port(8080)             // Common development port
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sets the port number. Defaults to `80`.
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
         self
     }
 
-    /// Sets the base path for all API requests.
-    ///
-    /// This path will be prepended to all request paths. The path must be valid
-    /// according to URI standards (no spaces, properly encoded, etc.).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // API versioning
-    /// let client = ApiClient::builder()
-    ///     .with_host("api.example.com")
-    ///     .with_base_path("/v1")?              // All requests will start with /v1
-    ///     .build()?;
-    ///
-    /// // More complex base paths
-    /// let client = ApiClient::builder()
-    ///     .with_base_path("/api/v2")?          // Multiple path segments
-    ///     .build()?;
-    ///
-    /// // Nested API paths
-    /// let client = ApiClient::builder()
-    ///     .with_base_path("/services/user-api/v1")?  // Deep nesting
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sets the base path prepended to all requests (e.g., `/v1` or `/api/v2`).
     ///
     /// # Errors
     ///
-    /// Returns `ApiClientError::InvalidBasePath` if the path contains invalid characters
-    /// (such as spaces) or cannot be parsed as a valid URI path.
+    /// Returns [`ApiClientError::InvalidBasePath`] if the path is invalid.
     pub fn with_base_path<P>(mut self, base_path: P) -> Result<Self, ApiClientError>
     where
         P: TryInto<PathAndQuery>,
@@ -298,182 +188,29 @@ impl ApiClientBuilder {
         Ok(self)
     }
 
-    /// Sets the OpenAPI info metadata for the generated specification.
+    /// Sets the OpenAPI info metadata (title, version, description, etc.).
     ///
-    /// The info object provides metadata about the API including title, version,
-    /// description, contact information, license, and other details that will
-    /// appear in the generated OpenAPI specification.
-    ///
-    /// # Parameters
-    ///
-    /// * `info` - The OpenAPI Info object containing API metadata
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    /// use utoipa::openapi::InfoBuilder;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_info(
-    ///         InfoBuilder::new()
-    ///             .title("My API")
-    ///             .version("1.0.0")
-    ///             .description(Some("A comprehensive API for managing resources"))
-    ///             .build()
-    ///     )
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// - If no info is set, the generated OpenAPI specification will not include an info section
-    /// - The info can be updated by calling this method multiple times (last call wins)
-    /// - Common practice is to set at least title and version for OpenAPI compliance
+    /// Use [`with_info_simple()`](Self::with_info_simple) for basic cases.
     pub fn with_info(mut self, info: Info) -> Self {
         self.info = Some(info);
         self
     }
 
-    /// Sets the complete list of servers for the OpenAPI specification.
-    ///
-    /// This method replaces any previously configured servers. Use `add_server()`
-    /// if you want to add servers incrementally.
-    ///
-    /// # Parameters
-    ///
-    /// * `servers` - A vector of Server objects defining the available API servers
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    /// use utoipa::openapi::ServerBuilder;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let servers = vec![
-    ///     ServerBuilder::new()
-    ///         .url("https://api.example.com/v1")
-    ///         .description(Some("Production server"))
-    ///         .build(),
-    ///     ServerBuilder::new()
-    ///         .url("https://staging.example.com/v1")
-    ///         .description(Some("Staging server"))
-    ///         .build(),
-    /// ];
-    ///
-    /// let client = ApiClient::builder()
-    ///     .with_servers(servers)
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sets the OpenAPI servers list. Use [`add_server()`](Self::add_server) to add incrementally.
     pub fn with_servers(mut self, servers: Vec<Server>) -> Self {
         self.servers = servers;
         self
     }
 
-    /// Adds a single server to the OpenAPI specification.
-    ///
-    /// This method allows you to incrementally add servers to the configuration.
-    /// Each call adds to the existing list of servers.
-    ///
-    /// # Parameters
-    ///
-    /// * `server` - A Server object defining an available API server
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    /// use utoipa::openapi::ServerBuilder;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .add_server(
-    ///         ServerBuilder::new()
-    ///             .url("https://api.example.com/v1")
-    ///             .description(Some("Production server"))
-    ///             .build()
-    ///     )
-    ///     .add_server(
-    ///         ServerBuilder::new()
-    ///             .url("https://staging.example.com/v1")
-    ///             .description(Some("Staging server"))
-    ///             .build()
-    ///     )
-    ///     .add_server(
-    ///         ServerBuilder::new()
-    ///             .url("http://localhost:8080")
-    ///             .description(Some("Development server"))
-    ///             .build()
-    ///     )
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Server Definition Best Practices
-    ///
-    /// - Include meaningful descriptions for each server
-    /// - Order servers by preference (production first, then staging, then development)
-    /// - Use HTTPS for production servers when available
-    /// - Include the full base URL including API version paths
+    /// Adds a server to the OpenAPI specification. Use [`add_server_simple()`](Self::add_server_simple) for convenience.
     pub fn add_server(mut self, server: Server) -> Self {
         self.servers.push(server);
         self
     }
 
-    /// Sets the authentication configuration for the API client.
+    /// Sets the default authentication for all requests. Can be overridden per-request.
     ///
-    /// This authentication will be applied to all requests made by the client,
-    /// unless overridden on a per-request basis.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use clawspec_core::{ApiClient, Authentication};
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Bearer token authentication
-    /// let client = ApiClient::builder()
-    ///     .with_authentication(Authentication::Bearer("my-api-token".into()))
-    ///     .build()?;
-    ///
-    /// // Basic authentication
-    /// let client = ApiClient::builder()
-    ///     .with_authentication(Authentication::Basic {
-    ///         username: "user".to_string(),
-    ///         password: "pass".into(),
-    ///     })
-    ///     .build()?;
-    ///
-    /// // API key authentication
-    /// let client = ApiClient::builder()
-    ///     .with_authentication(Authentication::ApiKey {
-    ///         header_name: "X-API-Key".to_string(),
-    ///         key: "secret-key".into(),
-    ///     })
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Authentication Types
-    ///
-    /// - **Bearer**: Adds `Authorization: Bearer <token>` header
-    /// - **Basic**: Adds `Authorization: Basic <base64(username:password)>` header
-    /// - **ApiKey**: Adds custom header with API key
-    ///
-    /// # Security Considerations
-    ///
-    /// - Authentication credentials are stored in memory and may be logged
-    /// - Use secure token storage and rotation practices
-    /// - Avoid hardcoding credentials in source code
-    /// - Consider using environment variables or secure vaults
+    /// Supports `Bearer`, `Basic`, and `ApiKey` authentication types.
     pub fn with_authentication(mut self, authentication: super::Authentication) -> Self {
         self.authentication = Some(authentication);
         self
@@ -483,28 +220,7 @@ impl ApiClientBuilder {
     // Simplified builder methods (no external types required)
     // =========================================================================
 
-    /// Sets the OpenAPI info metadata using simple string parameters.
-    ///
-    /// This is a convenience method that doesn't require importing utoipa types.
-    /// For more advanced configuration, use [`with_info`](Self::with_info) with an `Info` object.
-    ///
-    /// # Parameters
-    ///
-    /// * `title` - The title of the API
-    /// * `version` - The version of the API (e.g., "1.0.0")
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_info_simple("My API", "1.0.0")
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Convenience method to set API title and version without importing utoipa types.
     pub fn with_info_simple(
         mut self,
         title: impl Into<String>,
@@ -515,24 +231,7 @@ impl ApiClientBuilder {
         self
     }
 
-    /// Sets or updates the description in the OpenAPI info metadata.
-    ///
-    /// If info was previously set, this updates its description.
-    /// If no info was set, this creates a new info with default title and version.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_info_simple("My API", "1.0.0")
-    ///     .with_description("A comprehensive API for managing resources")
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sets or updates the API description. Creates default info if not set.
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         use utoipa::openapi::InfoBuilder;
         let description = description.into();
@@ -549,51 +248,13 @@ impl ApiClientBuilder {
         self
     }
 
-    /// Sets the HTTP scheme to HTTPS.
-    ///
-    /// This is a convenience method that doesn't require importing http types.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_https()
-    ///     .with_host("api.example.com")
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sets the HTTP scheme to HTTPS. Convenience method for `with_scheme(Scheme::HTTPS)`.
     pub fn with_https(mut self) -> Self {
         self.scheme = Scheme::HTTPS;
         self
     }
 
-    /// Adds a server to the OpenAPI specification using simple string parameters.
-    ///
-    /// This is a convenience method that doesn't require importing utoipa types.
-    /// For more advanced configuration, use [`add_server`](Self::add_server) with a `Server` object.
-    ///
-    /// # Parameters
-    ///
-    /// * `url` - The URL of the server (e.g., "https://api.example.com/v1")
-    /// * `description` - A description of the server (e.g., "Production server")
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .add_server_simple("https://api.example.com/v1", "Production server")
-    ///     .add_server_simple("https://staging.example.com/v1", "Staging server")
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Adds a server with URL and description. No utoipa imports needed.
     pub fn add_server_simple(
         mut self,
         url: impl Into<String>,
@@ -608,111 +269,19 @@ impl ApiClientBuilder {
         self
     }
 
-    /// Registers a named security scheme for OpenAPI documentation.
-    ///
-    /// Security schemes define the authentication methods available for your API.
-    /// They are included in the `components.securitySchemes` section of the generated
-    /// OpenAPI specification.
-    ///
-    /// # Parameters
-    ///
-    /// * `name` - A unique identifier for this security scheme (referenced by security requirements)
-    /// * `scheme` - The security scheme configuration
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::{ApiClient, SecurityScheme, ApiKeyLocation};
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer_with_format("JWT"))
-    ///     .with_security_scheme("apiKey", SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header))
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Generated OpenAPI
-    ///
-    /// ```yaml
-    /// components:
-    ///   securitySchemes:
-    ///     bearerAuth:
-    ///       type: http
-    ///       scheme: bearer
-    ///       bearerFormat: JWT
-    ///     apiKey:
-    ///       type: apiKey
-    ///       name: X-API-Key
-    ///       in: header
-    /// ```
+    /// Registers a named security scheme for OpenAPI `components.securitySchemes`.
     pub fn with_security_scheme(mut self, name: impl Into<String>, scheme: SecurityScheme) -> Self {
         self.security_schemes.insert(name.into(), scheme);
         self
     }
 
     /// Sets the default security requirement for all operations.
-    ///
-    /// Operations will inherit this security requirement unless they explicitly
-    /// override it with `without_security()` or `with_security()`.
-    ///
-    /// # Parameters
-    ///
-    /// * `requirement` - The security requirement to apply by default
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::{ApiClient, SecurityScheme, SecurityRequirement};
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer())
-    ///     .with_default_security(SecurityRequirement::new("bearerAuth"))
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Generated OpenAPI
-    ///
-    /// ```yaml
-    /// security:
-    ///   - bearerAuth: []
-    /// ```
     pub fn with_default_security(mut self, requirement: SecurityRequirement) -> Self {
         self.default_security.push(requirement);
         self
     }
 
     /// Adds multiple default security requirements (OR relationship).
-    ///
-    /// When multiple security requirements are added, they represent alternative
-    /// authentication methods (OR relationship). The client can satisfy any one
-    /// of them.
-    ///
-    /// # Parameters
-    ///
-    /// * `requirements` - Iterator of security requirements
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::{ApiClient, SecurityScheme, SecurityRequirement, ApiKeyLocation};
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ApiClient::builder()
-    ///     .with_security_scheme("bearerAuth", SecurityScheme::bearer())
-    ///     .with_security_scheme("apiKey", SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header))
-    ///     .with_default_securities([
-    ///         SecurityRequirement::new("bearerAuth"),
-    ///         SecurityRequirement::new("apiKey"),
-    ///     ])
-    ///     .build()?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn with_default_securities(
         mut self,
         requirements: impl IntoIterator<Item = SecurityRequirement>,
@@ -725,29 +294,15 @@ impl ApiClientBuilder {
     // OAuth2 convenience methods (requires "oauth2" feature)
     // =========================================================================
 
-    /// Configures OAuth2 authentication with Client Credentials flow.
+    /// Configures OAuth2 Client Credentials authentication. Tokens are auto-refreshed.
     ///
-    /// This is a convenience method for setting up OAuth2 authentication.
-    /// Tokens are automatically acquired and refreshed as needed.
+    /// # Errors
     ///
-    /// # Parameters
-    ///
-    /// * `client_id` - The OAuth2 client ID
-    /// * `client_secret` - The OAuth2 client secret
-    /// * `token_url` - The token endpoint URL
-    ///
-    /// # Example
+    /// Returns an error if the token URL is invalid.
     ///
     /// ```rust,ignore
-    /// use clawspec_core::ApiClient;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = ApiClient::builder()
-    ///     .with_oauth2_client_credentials(
-    ///         "my-client-id",
-    ///         "my-client-secret",
-    ///         "https://auth.example.com/oauth/token",
-    ///     )?
+    ///     .with_oauth2_client_credentials("client-id", "secret", "https://auth.example.com/token")?
     ///     .build()?;
     /// # Ok(())
     /// # }

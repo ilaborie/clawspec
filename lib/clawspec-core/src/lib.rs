@@ -104,179 +104,43 @@
 //! # }
 //! ```
 //!
-//! ## OpenAPI 3.1.0 Parameter Styles
+//! ## Parameter Styles
 //!
-//! This library supports all OpenAPI 3.1.0 parameter styles for different parameter types:
-//!
-//! ### Path Parameters
+//! The library supports OpenAPI 3.1.0 parameter styles. Use [`ParamStyle`] for advanced serialization:
 //!
 //! ```rust
-//! use clawspec_core::{CallPath, ParamValue, ParamStyle};
+//! use clawspec_core::{CallPath, CallQuery, ParamValue, ParamStyle};
 //!
-//! # async fn example() {
-//! // Simple style (default): /users/123
-//! let path = CallPath::from("/users/{id}")
-//!     .add_param("id", ParamValue::new(123));
+//! // Path: simple (default), label, matrix
+//! let path = CallPath::from("/users/{id}").add_param("id", ParamValue::new(123));
 //!
-//! // Label style: /users/.123
-//! let path = CallPath::from("/users/{id}")
-//!     .add_param("id", ParamValue::with_style(123, ParamStyle::Label));
-//!
-//! // Matrix style: /users/;id=123
-//! let path = CallPath::from("/users/{id}")
-//!     .add_param("id", ParamValue::with_style(123, ParamStyle::Matrix));
-//!
-//! // Arrays with different styles
-//! let tags = vec!["rust", "web", "api"];
-//!
-//! // Simple: /search/rust,web,api
-//! let path = CallPath::from("/search/{tags}")
-//!     .add_param("tags", ParamValue::with_style(tags.clone(), ParamStyle::Simple));
-//!
-//! // Label: /search/.rust,web,api
-//! let path = CallPath::from("/search/{tags}")
-//!     .add_param("tags", ParamValue::with_style(tags.clone(), ParamStyle::Label));
-//!
-//! // Matrix: /search/;tags=rust,web,api
-//! let path = CallPath::from("/search/{tags}")
-//!     .add_param("tags", ParamValue::with_style(tags, ParamStyle::Matrix));
-//! # }
+//! // Query: form (default), spaceDelimited, pipeDelimited, deepObject
+//! let query = CallQuery::new()
+//!     .add_param("tags", ParamValue::with_style(vec!["a", "b"], ParamStyle::PipeDelimited));
 //! ```
 //!
-//! ### Query Parameters
-//!
-//! ```rust
-//! use clawspec_core::{CallQuery, ParamValue, ParamStyle};
-//!
-//! # async fn example() {
-//! let tags = vec!["rust", "web", "api"];
-//!
-//! // Form style (default): ?tags=rust&tags=web&tags=api
-//! let query = CallQuery::new()
-//!     .add_param("tags", ParamValue::new(tags.clone()));
-//!
-//! // Space delimited: ?tags=rust%20web%20api
-//! let query = CallQuery::new()
-//!     .add_param("tags", ParamValue::with_style(tags.clone(), ParamStyle::SpaceDelimited));
-//!
-//! // Pipe delimited: ?tags=rust|web|api
-//! let query = CallQuery::new()
-//!     .add_param("tags", ParamValue::with_style(tags, ParamStyle::PipeDelimited));
-//!
-//! // Deep object style: ?user[name]=john&user[age]=30
-//! let user_data = serde_json::json!({"name": "john", "age": 30});
-//! let query = CallQuery::new()
-//!     .add_param("user", ParamValue::with_style(user_data, ParamStyle::DeepObject));
-//! # }
-//! ```
-//!
-//! ### Cookie Parameters
-//!
-//! ```rust
-//! use clawspec_core::{CallCookies, ParamValue};
-//!
-//! # async fn example() {
-//! // Simple cookie values
-//! let cookies = CallCookies::new()
-//!     .add_cookie("session_id", "abc123")
-//!     .add_cookie("user_id", 456)
-//!     .add_cookie("is_admin", true);
-//!
-//! // Array values in cookies (comma-separated)
-//! let cookies = CallCookies::new()
-//!     .add_cookie("preferences", vec!["dark_mode", "notifications"])
-//!     .add_cookie("selected_tags", vec!["rust", "web", "api"]);
-//!
-//! // Custom types with automatic serialization
-//! #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-//! struct UserId(u64);
-//!
-//! let cookies = CallCookies::new()
-//!     .add_cookie("user", UserId(12345));
-//! # }
-//! ```
+//! See [Chapter 4: Advanced Parameters](crate::_tutorial::chapter_4) for detailed examples.
 //!
 //! ## Authentication
 //!
-//! The library supports various authentication methods that can be configured at the client level
-//! or overridden for individual requests.
-//!
-//! ### Client-Level Authentication
+//! Configure authentication at the client or per-request level:
 //!
 //! ```rust
 //! use clawspec_core::{ApiClient, Authentication};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Bearer token authentication
-//! let client = ApiClient::builder()
-//!     .with_host("api.example.com")
-//!     .with_authentication(Authentication::Bearer("my-api-token".into()))
-//!     .build()?;
-//!
-//! // Basic authentication
-//! let client = ApiClient::builder()
-//!     .with_host("api.example.com")
-//!     .with_authentication(Authentication::Basic {
-//!         username: "user".to_string(),
-//!         password: "pass".into(),
-//!     })
-//!     .build()?;
-//!
-//! // API key authentication
-//! let client = ApiClient::builder()
-//!     .with_host("api.example.com")
-//!     .with_authentication(Authentication::ApiKey {
-//!         header_name: "X-API-Key".to_string(),
-//!         key: "secret-key".into(),
-//!     })
-//!     .build()?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ### Per-Request Authentication Override
-//!
-//! ```rust
-//! use clawspec_core::{ApiClient, Authentication};
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Client with default authentication
 //! let mut client = ApiClient::builder()
 //!     .with_host("api.example.com")
-//!     .with_authentication(Authentication::Bearer("default-token".into()))
+//!     .with_authentication(Authentication::Bearer("token".into()))
 //!     .build()?;
 //!
-//! // Use different authentication for admin endpoints
-//! let admin_users = client
-//!     .get("/admin/users")?
-//!     .with_authentication(Authentication::Bearer("admin-token".into()))
-//!     .await?
-//!     .as_json::<serde_json::Value>()
-//!     .await?;
-//!
-//! // Remove authentication for public endpoints
-//! let public_data = client
-//!     .get("/public/health")?
-//!     .with_authentication_none()
-//!     .await?
-//!     .as_text()
-//!     .await?;
+//! // Override per-request
+//! client.get("/admin")?.with_authentication(Authentication::Bearer("admin-token".into())).await?;
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! ### Authentication Types
-//!
-//! - **Bearer**: Adds `Authorization: Bearer <token>` header
-//! - **Basic**: Adds `Authorization: Basic <base64(username:password)>` header  
-//! - **ApiKey**: Adds custom header with API key
-//!
-//! ### Security Best Practices
-//!
-//! - Store credentials securely using environment variables or secret management tools
-//! - Rotate tokens regularly
-//! - Use HTTPS for all authenticated requests
-//! - Avoid logging authentication headers
+//! Supported types: `Bearer`, `Basic`, `ApiKey`. See [Chapter 4](crate::_tutorial::chapter_4) for details.
 //!
 //! ## Status Code Validation
 //!
@@ -523,79 +387,25 @@
 //!
 //! ## Schema Registration
 //!
-//! ### Automatic Schema Capture
-//!
-//! JSON request and response body schemas are **automatically captured** when using `.json()` and `.as_json()` methods:
-//!
-//! ```rust
-//! use clawspec_core::ApiClient;
-//! # use serde::{Serialize, Deserialize};
-//! # use utoipa::ToSchema;
-//!
-//! #[derive(Serialize, Deserialize, ToSchema)]
-//! struct CreateUser { name: String, email: String }
-//!
-//! #[derive(Deserialize, ToSchema)]
-//! struct User { id: u32, name: String, email: String }
-//!
-//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
-//! // Schemas are captured automatically - no explicit registration needed
-//! let user: User = client
-//!     .post("/users")?
-//!     .json(&CreateUser { name: "Alice".to_string(), email: "alice@example.com".to_string() })?
-//!     .await?
-//!     .as_json()
-//!     .await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ### Manual Schema Registration
-//!
-//! For nested schemas or when you need to ensure all dependencies are included, use the `register_schemas!` macro:
+//! Schemas are **automatically captured** when using `.json()` and `.as_json()` methods.
+//! For nested schemas or error types, use `register_schemas!`:
 //!
 //! ```rust
 //! use clawspec_core::{ApiClient, register_schemas};
 //! # use serde::{Serialize, Deserialize};
 //! # use utoipa::ToSchema;
-//!
-//! #[derive(Serialize, Deserialize, ToSchema)]
-//! struct Address { street: String, city: String }
-//!
-//! #[derive(Serialize, Deserialize, ToSchema)]
-//! struct CreateUser { name: String, email: String, address: Address }
-//!
-//! #[derive(Deserialize, ToSchema)]
-//! struct ErrorResponse { code: String, message: String }
+//! # #[derive(Serialize, Deserialize, ToSchema)]
+//! # struct Address { street: String }
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct ErrorResponse { code: String }
 //!
 //! # async fn example(client: &mut ApiClient) {
-//! // Register nested schemas and error types for complete documentation
-//! register_schemas!(client, CreateUser, Address, ErrorResponse).await;
+//! register_schemas!(client, Address, ErrorResponse).await;
 //! # }
 //! ```
 //!
-//! ### ⚠️ Nested Schema Limitation
-//!
-//! **Current Limitation**: While main JSON body schemas are captured automatically, nested schemas may not be fully resolved. If you encounter missing nested schemas in your OpenAPI specification, use the `register_schemas!` macro to explicitly register them:
-//!
-//! ```rust
-//! use clawspec_core::{ApiClient, register_schemas};
-//! # use serde::{Serialize, Deserialize};
-//! # use utoipa::ToSchema;
-//!
-//! #[derive(Serialize, Deserialize, ToSchema)]
-//! struct Position { lat: f64, lng: f64 }
-//!
-//! #[derive(Serialize, Deserialize, ToSchema)]
-//! struct Location { name: String, position: Position }  // Position is nested
-//!
-//! # async fn example(client: &mut ApiClient) {
-//! // Register both main and nested schemas to ensure complete OpenAPI generation
-//! register_schemas!(client, Location, Position).await;
-//! # }
-//! ```
-//!
-//! **Workaround**: Always register nested schemas explicitly when you need complete OpenAPI documentation with all referenced types properly defined.
+//! **Note**: Nested schemas may not be fully resolved automatically. Register them explicitly
+//! if they're missing from your OpenAPI output.
 //!
 //! ## Error Handling
 //!
