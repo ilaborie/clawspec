@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.0...clawspec-core-v0.4.1) - 2025-12-31
+
+### Added
+
+- *(oauth2)* Add comprehensive tests for OAuth2 token acquisition
+- *(yaml)* Add serde-saphyr support for YAML serialization (Issue #131)
+- *(split)* Add OpenAPI specification splitting utilities (Issue #51) ([#129](https://github.com/ilaborie/clawspec/pull/129))
+
+### Fixed
+
+- Bump annotate-snippets minimum version for minimal-versions CI
+- Update oauth2 crate to 5.0 API
+
+### Other
+
+- Reduce derive_more features from 'full' to specific macros
+- Simplify and consolidate documentation
+
 ## [0.4.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.3.0...clawspec-core-v0.4.0) - 2025-12-30
 
 ### Added
