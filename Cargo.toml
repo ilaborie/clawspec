@@ -29,7 +29,9 @@ percent-encoding = "2.3.1"
 
 regex = "1.11.1"
 tracing = "0.1.43"
-# Transitive dependency - minimum version required for Display impl on Style
+# Transitive dependencies - minimum versions for compatibility
+# annotate-snippets uses anstyle Display impl (added in 1.0.5)
+annotate-snippets = "0.12.5"
 anstyle = "1.0.5"
 derive_more = { version = "2.1.0", default-features = false, features = ["error", "display", "from", "deref", "deref_mut", "debug"] }
 indexmap = "2.12.1"
