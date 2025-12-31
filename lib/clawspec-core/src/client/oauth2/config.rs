@@ -4,8 +4,6 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use oauth2::basic::BasicClient;
-use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenUrl};
 use url::Url;
 
 use super::error::OAuth2Error;
@@ -88,43 +86,6 @@ impl OAuth2Config {
     /// Stores a token in the cache.
     pub async fn set_token(&self, token: OAuth2Token) {
         self.token_cache.set(token).await;
-    }
-
-    /// Creates an oauth2 BasicClient for token requests.
-    ///
-    /// This client is configured with redirect disabled for SSRF prevention.
-    pub(crate) fn create_oauth2_client(&self) -> Result<BasicClient, OAuth2Error> {
-        let client_id = ClientId::new(self.client_id.clone());
-        let client_secret = self
-            .client_secret
-            .as_ref()
-            .map(|s| ClientSecret::new(s.as_str().to_string()));
-
-        // Use a dummy auth URL if not specified (client_credentials doesn't need it)
-        let auth_url_str = self
-            .auth_url
-            .as_ref()
-            .map(|u| u.to_string())
-            .unwrap_or_else(|| format!("{}/../authorize", self.token_url));
-
-        let auth_url = AuthUrl::new(auth_url_str).map_err(|e| OAuth2Error::ConfigurationError {
-            reason: format!("Invalid authorization URL: {e}"),
-        })?;
-
-        let token_url = TokenUrl::new(self.token_url.to_string()).map_err(|e| {
-            OAuth2Error::ConfigurationError {
-                reason: format!("Invalid token URL: {e}"),
-            }
-        })?;
-
-        let client = BasicClient::new(client_id, client_secret, auth_url, Some(token_url));
-
-        Ok(client)
-    }
-
-    /// Returns the scopes as oauth2 Scope objects.
-    pub(crate) fn oauth2_scopes(&self) -> Vec<Scope> {
-        self.scopes.iter().map(|s| Scope::new(s.clone())).collect()
     }
 }
 

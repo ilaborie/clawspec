@@ -25,6 +25,7 @@ pub(in crate::client) struct CalledOperation {
     pub(super) path: String,
     pub(super) operation: Operation,
     pub(super) result: Option<CallResult>,
+    #[cfg(feature = "redaction")]
     pub(super) response_description: Option<String>,
 }
 
@@ -97,6 +98,7 @@ impl CalledOperation {
             path: path_name.to_string(),
             operation,
             result: None,
+            #[cfg(feature = "redaction")]
             response_description: metadata.response_description,
         }
     }

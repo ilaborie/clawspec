@@ -28,12 +28,12 @@ paths:
             schema:
               $ref: "#/components/schemas/PartialObservation"
             example:
-              color: blue
               name: Test Bird for Schema Capture
-              notes: Testing automatic schema capture
               position:
-                lat: -25.1
                 lng: 12.4
+                lat: -25.1
+              color: blue
+              notes: Testing automatic schema capture
       responses:
         "201":
           description: Status code 201

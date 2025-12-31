@@ -102,12 +102,12 @@ paths:
             schema:
               $ref: '#/components/schemas/PartialObservation'
             example:
-              color: rainbow
               name: Redaction Demo Bird
-              notes: This observation demonstrates the redaction feature
               position:
-                lat: 0.0
                 lng: 0.0
+                lat: 0.0
+              color: rainbow
+              notes: This observation demonstrates the redaction feature
           application/pdf:
             schema:
               type: string
@@ -127,14 +127,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/Observation'
               example:
-                color: rainbow
-                created_at: 2024-01-01T00:00:00Z
                 id: 019aaaaa-0000-7000-8000-000000000000
+                created_at: 2024-01-01T00:00:00Z
                 name: Redaction Demo Bird
-                notes: This observation demonstrates the redaction feature
                 position:
-                  lat: 0.0
                   lng: 0.0
+                  lat: 0.0
+                color: rainbow
+                notes: This observation demonstrates the redaction feature
         '400':
           description: Status code 400
           content:
@@ -217,12 +217,12 @@ paths:
             schema:
               $ref: '#/components/schemas/PartialObservation'
             example:
-              color: rainbow
               name: Updated Metadata Demo
-              notes: Used to demonstrate OpenAPI metadata features
               position:
-                lat: -90.0
                 lng: 45.0
+                lat: -90.0
+              color: rainbow
+              notes: Used to demonstrate OpenAPI metadata features
       responses:
         '200':
           description: Status code 200
@@ -263,10 +263,10 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchObservation'
             example:
-              color: red
               name: Partially Updated Parrot
-              notes: null
               position: null
+              color: red
+              notes: null
       responses:
         '200':
           description: Status code 200

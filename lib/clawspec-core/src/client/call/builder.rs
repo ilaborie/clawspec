@@ -84,10 +84,13 @@ impl ApiCall {
     /// The description will be applied to whatever status code is actually returned by the server
     /// and included in the generated OpenAPI specification.
     ///
+    /// **Note**: This method is only available with the `redaction` feature enabled.
+    ///
     /// # Examples
     ///
     /// ```rust
     /// # use clawspec_core::ApiClient;
+    /// # #[cfg(feature = "redaction")]
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = ApiClient::builder().build()?;
     /// let call = client.get("/users/{id}")?
@@ -95,6 +98,7 @@ impl ApiCall {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(feature = "redaction")]
     pub fn with_response_description(mut self, description: impl Into<String>) -> Self {
         self.response_description = Some(description.into());
         self

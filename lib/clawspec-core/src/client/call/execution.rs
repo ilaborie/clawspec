@@ -44,8 +44,10 @@ impl ApiCall {
                 operation_id,
                 tags: None,
                 description: None,
+                #[cfg(feature = "redaction")]
                 response_description: None,
             },
+            #[cfg(feature = "redaction")]
             response_description: None,
             skip_collection: false,
             security: default_security,
@@ -128,6 +130,7 @@ impl ApiCall {
             cookies,
             expected_status_codes,
             metadata,
+            #[cfg(feature = "redaction")]
             response_description,
             skip_collection,
             security,
@@ -143,6 +146,7 @@ impl ApiCall {
 
         // Create operation for OpenAPI documentation
         let operation_id = metadata.operation_id.clone();
+        #[cfg(feature = "redaction")]
         let mut operation = Self::build_operation(
             metadata,
             &method,
@@ -150,6 +154,15 @@ impl ApiCall {
             parameters.clone(),
             &body,
             response_description,
+            security,
+        );
+        #[cfg(not(feature = "redaction"))]
+        let mut operation = Self::build_operation(
+            metadata,
+            &method,
+            &path,
+            parameters.clone(),
+            &body,
             security,
         );
 
@@ -262,6 +275,7 @@ impl ApiCall {
         Ok(request)
     }
 
+    #[cfg(feature = "redaction")]
     fn build_operation(
         metadata: OperationMetadata,
         method: &Method,
@@ -290,6 +304,26 @@ impl ApiCall {
                 description,
                 response_description,
             },
+            security,
+        )
+    }
+
+    #[cfg(not(feature = "redaction"))]
+    fn build_operation(
+        metadata: OperationMetadata,
+        method: &Method,
+        path: &CallPath,
+        parameters: CallParameters,
+        body: &Option<CallBody>,
+        security: Option<Vec<crate::client::security::SecurityRequirement>>,
+    ) -> CalledOperation {
+        CalledOperation::build(
+            method.clone(),
+            &path.path,
+            path,
+            parameters,
+            body.as_ref(),
+            metadata,
             security,
         )
     }

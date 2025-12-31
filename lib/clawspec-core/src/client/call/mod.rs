@@ -46,7 +46,7 @@ mod tests;
 /// - [`with_tags(tags)`](Self::with_tags) - Set operation tags (or use automatic tagging)
 /// - [`with_description(desc)`](Self::with_description) - Set operation description (or use automatic description)
 ///
-/// ## Response Descriptions
+/// ## Response Descriptions (requires `redaction` feature)
 /// - [`with_response_description(desc)`](Self::with_response_description) - Set description for the actual returned status code
 ///
 /// ## Execution
@@ -117,7 +117,8 @@ pub struct ApiCall {
     pub(super) expected_status_codes: ExpectedStatusCodes,
     /// Operation metadata for OpenAPI documentation
     pub(super) metadata: OperationMetadata,
-    /// Response description for the actual returned status code
+    /// Response description for the actual returned status code (redaction feature only)
+    #[cfg(feature = "redaction")]
     pub(super) response_description: Option<String>,
     /// Whether to skip collection for OpenAPI documentation (default: false)
     pub(super) skip_collection: bool,
