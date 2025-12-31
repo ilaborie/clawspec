@@ -38,7 +38,7 @@ serde_path_to_error = {workspace = true}
 serde_urlencoded = {workspace = true}
 
 regex = { workspace = true }
-derive_more = { workspace = true, features = ["full"] }
+derive_more = { workspace = true }
 tracing = {workspace = true }
 indexmap = {workspace = true }
 slug = { workspace = true }

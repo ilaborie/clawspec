@@ -29,7 +29,7 @@ percent-encoding = "2.3.1"
 
 regex = "1.11.1"
 tracing = "0.1.43"
-derive_more = "2.1.0"
+derive_more = { version = "2.1.0", default-features = false, features = ["error", "display", "from", "deref", "deref_mut", "debug"] }
 indexmap = "2.12.1"
 slug = "0.1.6"
 anyhow = "1.0.98"
