@@ -90,3 +90,20 @@ The test automatically captures:
 - Operation metadata (tags, descriptions)
 
 This approach ensures the OpenAPI documentation stays synchronized with the actual API implementation, as any changes to the API will be reflected when the tests run.
+
+## Response Handling Patterns
+
+Clawspec provides several methods for handling API responses:
+
+| Method | Use Case |
+|--------|----------|
+| `as_json::<T>()` | Standard JSON deserialization |
+| `as_optional_json::<T>()` | When response may be empty or null |
+| `as_result_json::<T, E>()` | For APIs with typed error responses |
+| `as_result_option_json::<T, E>()` | Combining Result and Option |
+| `as_text()` | Plain text responses |
+| `as_bytes()` | Binary data |
+| `as_empty()` | No-body responses (e.g., 204 No Content) |
+| `as_raw()` | Raw response access before schema collection |
+
+See the test files in `tests/` for examples of each pattern.

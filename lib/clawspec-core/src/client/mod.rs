@@ -51,258 +51,41 @@ pub use self::error::ApiClientError;
 #[cfg(test)]
 mod integration_tests;
 
-/// A type-safe HTTP client for API testing and OpenAPI documentation generation.
+/// HTTP client for API testing with automatic OpenAPI schema collection.
 ///
-/// `ApiClient` is the core component of clawspec that enables you to make HTTP requests
-/// while automatically capturing request/response schemas for OpenAPI specification generation.
-/// It provides a fluent API for building requests with comprehensive parameter support,
-/// status code validation, and automatic schema collection.
+/// `ApiClient` captures request/response schemas during test execution to generate
+/// OpenAPI specifications. Use [`ApiClientBuilder`] to create instances.
 ///
-/// # Key Features
-///
-/// - **Test-Driven Documentation**: Automatically generates OpenAPI specifications from test execution
-/// - **Type Safety**: Compile-time guarantees for API parameters and response types
-/// - **Flexible Status Code Validation**: Support for ranges, specific codes, and custom patterns
-/// - **Comprehensive Parameter Support**: Path, query, and header parameters with multiple styles
-/// - **Request Body Formats**: JSON, form-encoded, multipart, and raw binary data
-/// - **Schema Collection**: Automatic detection and collection of request/response schemas
-/// - **OpenAPI Metadata**: Configurable API info, servers, and operation documentation
-///
-/// # Basic Usage
+/// # Example
 ///
 /// ```rust,no_run
 /// use clawspec_core::ApiClient;
-/// use serde::{Deserialize, Serialize};
-/// use utoipa::ToSchema;
-///
-/// #[derive(Debug, Deserialize, ToSchema)]
-/// struct User {
-///     id: u32,
-///     name: String,
-///     email: String,
-/// }
-///
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Create an API client
-///     let mut client = ApiClient::builder()
-///         .with_host("api.example.com")
-///         .with_base_path("/v1")?
-///         .build()?;
-///
-///     // Make a request and capture the schema
-///     let user: User = client
-///         .get("/users/123")?
-///
-///         .await?
-///         .as_json()
-///         .await?;
-///
-///     println!("User: {:?}", user);
-///
-///     // Generate OpenAPI specification from collected data
-///     let openapi_spec = client.collected_openapi().await;
-///     let yaml = serde_saphyr::to_string(&openapi_spec)?;
-///     println!("{yaml}");
-///
-///     Ok(())
-/// }
-/// ```
-///
-/// # Builder Pattern
-///
-/// The client is created using a builder pattern. For simple cases, use the simplified methods:
-///
-/// ```rust
-/// use clawspec_core::ApiClient;
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = ApiClient::builder()
-///     .with_https()
-///     .with_host("api.github.com")
-///     .with_port(443)
-///     .with_base_path("/api/v3")?
-///     .with_info_simple("GitHub API Client", "1.0.0")
-///     .with_description("Auto-generated from tests")
-///     .add_server_simple("https://api.github.com/api/v3", "GitHub API v3")
-///     .build()?;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// For advanced configuration, use the builder types (re-exported from clawspec_core):
-///
-/// ```rust
-/// use clawspec_core::{ApiClient, InfoBuilder, ServerBuilder};
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = ApiClient::builder()
-///     .with_https()
-///     .with_host("api.github.com")
-///     .with_port(443)
-///     .with_base_path("/api/v3")?
-///     .with_info(
-///         InfoBuilder::new()
-///             .title("GitHub API Client")
-///             .version("1.0.0")
-///             .description(Some("Auto-generated from tests"))
-///             .build()
-///     )
-///     .add_server(
-///         ServerBuilder::new()
-///             .url("https://api.github.com/api/v3")
-///             .description(Some("GitHub API v3"))
-///             .build()
-///     )
-///     .build()?;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// # Making Requests
-///
-/// The client supports all standard HTTP methods with a fluent API:
-///
-/// ```rust
-/// use clawspec_core::{ApiClient, expected_status_codes, CallQuery, CallHeaders, ParamValue};
-/// use serde::{Serialize, Deserialize};
-/// use utoipa::ToSchema;
-///
-/// #[derive(Serialize, Deserialize, ToSchema)]
-/// struct UserData { name: String }
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let mut client = ApiClient::builder().build()?;
-/// let user_data = UserData { name: "John".to_string() };
-///
-/// // GET request with query parameters and headers
-/// let users = client
-///     .get("/users")?
-///     .with_query(
-///         CallQuery::new()
-///             .add_param("page", ParamValue::new(1))
-///             .add_param("per_page", ParamValue::new(50))
-///     )
-///     .with_header("Authorization", "Bearer token123")
-///     .with_expected_status_codes(expected_status_codes!(200, 404))
-///
-///     .await?
-///     .as_json::<Vec<UserData>>()
-///     .await?;
-///
-/// // POST request with JSON body
-/// let new_user = client
-///     .post("/users")?
-///     .json(&user_data)?
-///     .with_expected_status_codes(expected_status_codes!(201, 409))
-///
-///     .await?
-///     .as_json::<UserData>()
-///     .await?;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// # Schema Registration
-///
-/// For types that aren't automatically detected, you can manually register them:
-///
-/// ```rust
-/// use clawspec_core::{ApiClient, register_schemas};
+/// # use serde::Deserialize;
 /// # use utoipa::ToSchema;
-/// # use serde::{Deserialize, Serialize};
+/// # #[derive(Deserialize, ToSchema)]
+/// # struct User { id: u32, name: String }
 ///
-/// #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-/// struct ErrorType { message: String }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut client = ApiClient::builder()
+///     .with_host("api.example.com")
+///     .build()?;
 ///
-/// #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-/// struct NestedType { value: i32 }
+/// // Schemas are captured automatically
+/// let user: User = client.get("/users/123")?.await?.as_json().await?;
 ///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let mut client = ApiClient::builder().build()?;
-///
-/// // Register multiple schemas at once
-/// register_schemas!(client, ErrorType, NestedType);
-///
-/// // Or register individually
-/// client.register_schema::<ErrorType>().await;
+/// // Generate OpenAPI spec
+/// let spec = client.collected_openapi().await;
 /// # Ok(())
 /// # }
 /// ```
 ///
-/// # OpenAPI Generation
-///
-/// The client automatically collects information during test execution and can generate
-/// comprehensive OpenAPI specifications:
-///
-/// ```rust
-/// # use clawspec_core::ApiClient;
-/// # use serde::{Serialize, Deserialize};
-/// # use utoipa::ToSchema;
-/// # #[derive(Serialize, Deserialize, ToSchema)]
-/// # struct UserData { name: String }
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let mut client = ApiClient::builder().build()?;
-/// let user_data = UserData { name: "John".to_string() };
-///
-/// // Make some API calls...
-/// client.get("/users")?.await?.as_json::<Vec<UserData>>().await?;
-/// client.post("/users")?.json(&user_data)?.await?.as_json::<UserData>().await?;
-///
-/// // Generate OpenAPI specification
-/// let openapi = client.collected_openapi().await;
-///
-/// // Convert to YAML or JSON
-/// let yaml = serde_saphyr::to_string(&openapi)?;
-/// let json = serde_json::to_string_pretty(&openapi)?;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// # Error Handling
-///
-/// The client provides comprehensive error handling for various scenarios:
-///
-/// ```rust
-/// use clawspec_core::{ApiClient, ApiClientError};
-///
-/// # async fn example() -> Result<(), ApiClientError> {
-/// let mut client = ApiClient::builder().build()?;
-///
-/// match client.get("/users/999")?.await {
-///     Ok(response) => {
-///         // Handle successful response
-///         println!("Success!");
-///     }
-///     Err(ApiClientError::UnexpectedStatusCode { status_code, body }) => {
-///         // Handle HTTP errors
-///         println!("HTTP {} error: {}", status_code, body);
-///     }
-///     Err(ApiClientError::ReqwestError(source)) => {
-///         // Handle network/request errors
-///         println!("Request failed: {}", source);
-///     }
-///     Err(err) => {
-///         // Handle other errors
-///         println!("Other error: {}", err);
-///     }
-/// }
-/// # Ok(())
-/// # }
-/// ```
+/// See the [crate documentation](crate) for detailed usage and the
+/// [Tutorial](crate::_tutorial) for a step-by-step guide.
 ///
 /// # Thread Safety
 ///
-/// `ApiClient` is designed to be safe to use across multiple threads. The internal schema
-/// collection is protected by async locks, allowing concurrent request execution while
-/// maintaining data consistency.
-///
-/// # Performance Considerations
-///
-/// - Schema collection has minimal runtime overhead
-/// - Request bodies are streamed when possible
-/// - Response processing is lazy - schemas are only collected when responses are consumed
-/// - Internal caching reduces redundant schema processing
+/// Schema collection is protected by async locks, allowing concurrent request execution.
 use indexmap::IndexMap;
 
 #[derive(Debug, Clone)]

@@ -1,3 +1,17 @@
+//! Request parameter types for building API calls.
+//!
+//! This module provides types for handling different kinds of HTTP request parameters:
+//!
+//! - [`CallPath`] - Path parameters (e.g., `/users/{id}`)
+//! - [`CallQuery`] - Query string parameters
+//! - [`CallHeaders`] - HTTP headers
+//! - [`CallCookies`] - Cookie parameters
+//! - [`CallBody`] - Request body content
+//!
+//! All parameter types support automatic OpenAPI schema generation.
+//!
+//! See the [Tutorial](crate::_tutorial) for usage examples.
+
 mod param;
 pub use self::param::{ParamStyle, ParamValue, ParameterValue};
 
