@@ -18,7 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 oauth2 = ["dep:oauth2"]
 redaction = ["dep:jsonptr", "dep:serde_json_path"]
-yaml = ["dep:serde_saphyr"]
+yaml = ["dep:serde-saphyr"]
 
 [dependencies]
 
@@ -26,7 +26,7 @@ utoipa = { workspace = true, features = ["debug", "yaml"] }
 
 tokio = { workspace = true , features = ["sync"]}
 
-reqwest = { workspace = true,  default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { workspace = true,  default-features = false, features = [ "json"] }
 headers = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
@@ -51,14 +51,14 @@ zeroize = { workspace = true, features = ["zeroize_derive"] }
 jsonptr = { workspace = true, optional = true }
 oauth2 = { workspace = true, optional = true }
 serde_json_path = { workspace = true, optional = true }
-serde_saphyr = { workspace = true, optional = true }
+serde-saphyr = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt"]}
 tokio = { workspace = true, features = ["full"]}
 insta = { workspace = true }
-serde_saphyr = { workspace = true}
+serde-saphyr = { workspace = true}
 criterion = { workspace = true }
 
 [[bench]]

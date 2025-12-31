@@ -53,6 +53,7 @@ fn test_operation_metadata_creation() {
         operation_id: "test-operation".to_string(),
         tags: Some(vec!["users".to_string(), "admin".to_string()]),
         description: Some("Test operation description".to_string()),
+        #[cfg(feature = "redaction")]
         response_description: Some("Test response description".to_string()),
     };
 
@@ -639,6 +640,7 @@ fn test_into_future_api_demonstration() {
         call.into_future();
 }
 
+#[cfg(feature = "redaction")]
 #[test]
 fn test_api_call_with_response_description() {
     let call = create_test_api_call();
@@ -649,6 +651,7 @@ fn test_api_call_with_response_description() {
     );
 }
 
+#[cfg(feature = "redaction")]
 #[test]
 fn test_api_call_response_description_method_chaining() {
     let call = create_test_api_call();
@@ -663,6 +666,7 @@ fn test_api_call_response_description_method_chaining() {
     );
 }
 
+#[cfg(feature = "redaction")]
 #[test]
 fn test_api_call_response_description_none_by_default() {
     let call = create_test_api_call();

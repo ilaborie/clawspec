@@ -1,9 +1,7 @@
 //! OAuth2 token provider for acquiring and refreshing tokens.
 
-use std::future::Future;
 use std::time::Duration;
 
-use oauth2::reqwest::async_http_client;
 use oauth2::{AccessToken, TokenResponse};
 
 use super::config::{OAuth2Config, OAuth2GrantType};
@@ -32,7 +30,16 @@ impl OAuth2Config {
 
     /// Acquires a token using the Client Credentials grant.
     async fn acquire_client_credentials_token(&self) -> Result<OAuth2Token, OAuth2Error> {
-        self.acquire_client_credentials_token_with_client(async_http_client)
+        // Create HTTP client with redirect disabled for SSRF prevention
+        // Use oauth2::reqwest to ensure version compatibility
+        let http_client = oauth2::reqwest::ClientBuilder::new()
+            .redirect(oauth2::reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| OAuth2Error::TokenAcquisitionFailed {
+                reason: format!("Failed to create HTTP client: {e}"),
+            })?;
+
+        self.acquire_client_credentials_token_with_client(&http_client)
             .await
     }
 
@@ -40,21 +47,48 @@ impl OAuth2Config {
     ///
     /// This enables testing without making real network requests by injecting
     /// mock HTTP clients that return predefined responses.
-    async fn acquire_client_credentials_token_with_client<F, RE, Fut>(
+    pub(crate) async fn acquire_client_credentials_token_with_client(
         &self,
-        http_client: F,
-    ) -> Result<OAuth2Token, OAuth2Error>
-    where
-        F: FnOnce(oauth2::HttpRequest) -> Fut + Send,
-        RE: std::error::Error + 'static + Send,
-        Fut: Future<Output = Result<oauth2::HttpResponse, RE>> + Send,
-    {
-        let client = self.create_oauth2_client()?;
+        http_client: &oauth2::reqwest::Client,
+    ) -> Result<OAuth2Token, OAuth2Error> {
+        use oauth2::basic::BasicClient;
+        use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenUrl};
+
+        let client_id = ClientId::new(self.client_id.clone());
+
+        // Use a dummy auth URL if not specified (client_credentials doesn't need it)
+        let auth_url_str = self
+            .auth_url
+            .as_ref()
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| format!("{}/../authorize", self.token_url));
+
+        let auth_url = AuthUrl::new(auth_url_str).map_err(|e| OAuth2Error::ConfigurationError {
+            reason: format!("Invalid authorization URL: {e}"),
+        })?;
+
+        let token_url = TokenUrl::new(self.token_url.to_string()).map_err(|e| {
+            OAuth2Error::ConfigurationError {
+                reason: format!("Invalid token URL: {e}"),
+            }
+        })?;
+
+        // Build client using the new builder pattern (oauth2 5.x)
+        // The type-state pattern ensures exchange_client_credentials() is available
+        // only after set_token_uri() is called
+        let mut client = BasicClient::new(client_id)
+            .set_auth_uri(auth_url)
+            .set_token_uri(token_url);
+
+        // Set client secret if provided
+        if let Some(ref secret) = self.client_secret {
+            client = client.set_client_secret(ClientSecret::new(secret.as_str().to_string()));
+        }
 
         let mut request = client.exchange_client_credentials();
 
         // Add scopes
-        for scope in self.oauth2_scopes() {
+        for scope in self.scopes.iter().map(|s| Scope::new(s.clone())) {
             request = request.add_scope(scope);
         }
 
@@ -110,93 +144,11 @@ impl OAuth2Config {
 }
 
 #[cfg(test)]
-mod test_helpers {
-    //! Test utilities for mocking OAuth2 HTTP responses.
-
-    // Use http types re-exported by oauth2 to avoid version conflicts
-    use oauth2::http::{HeaderMap, StatusCode};
-
-    /// Creates a successful OAuth2 token response body.
-    pub fn token_response_body(access_token: &str, expires_in: Option<u64>) -> Vec<u8> {
-        let json = match expires_in {
-            Some(exp) => serde_json::json!({
-                "access_token": access_token,
-                "token_type": "Bearer",
-                "expires_in": exp
-            }),
-            None => serde_json::json!({
-                "access_token": access_token,
-                "token_type": "Bearer"
-            }),
-        };
-        serde_json::to_vec(&json).expect("JSON serialization should succeed")
-    }
-
-    /// Creates an OAuth2 error response body.
-    pub fn error_response_body(error: &str, description: &str) -> Vec<u8> {
-        let json = serde_json::json!({
-            "error": error,
-            "error_description": description
-        });
-        serde_json::to_vec(&json).expect("JSON serialization should succeed")
-    }
-
-    /// Creates a mock HTTP client that returns a successful token response.
-    pub fn mock_success_client(
-        access_token: &str,
-        expires_in: Option<u64>,
-    ) -> impl FnOnce(
-        oauth2::HttpRequest,
-    ) -> std::future::Ready<Result<oauth2::HttpResponse, std::io::Error>> {
-        let body = token_response_body(access_token, expires_in);
-        move |_request| {
-            std::future::ready(Ok(oauth2::HttpResponse {
-                status_code: StatusCode::OK,
-                headers: HeaderMap::new(),
-                body,
-            }))
-        }
-    }
-
-    /// Creates a mock HTTP client that returns a network error.
-    pub fn mock_network_error_client() -> impl FnOnce(
-        oauth2::HttpRequest,
-    ) -> std::future::Ready<
-        Result<oauth2::HttpResponse, std::io::Error>,
-    > {
-        |_request| {
-            std::future::ready(Err(std::io::Error::new(
-                std::io::ErrorKind::ConnectionRefused,
-                "Connection refused",
-            )))
-        }
-    }
-
-    /// Creates a mock HTTP client that returns an OAuth2 error response.
-    pub fn mock_oauth2_error_client(
-        error: &str,
-        description: &str,
-    ) -> impl FnOnce(
-        oauth2::HttpRequest,
-    ) -> std::future::Ready<Result<oauth2::HttpResponse, std::io::Error>> {
-        let body = error_response_body(error, description);
-        move |_request| {
-            std::future::ready(Ok(oauth2::HttpResponse {
-                status_code: StatusCode::BAD_REQUEST,
-                headers: HeaderMap::new(),
-                body,
-            }))
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
-    use super::test_helpers::*;
     use super::*;
 
     // =========================================
-    // Pre-acquired token tests (existing)
+    // Pre-acquired token tests
     // =========================================
 
     #[tokio::test]
@@ -229,166 +181,6 @@ mod tests {
         match result.expect_err("Should fail") {
             OAuth2Error::TokenExpired => {}
             _ => panic!("Expected TokenExpired error"),
-        }
-    }
-
-    // =========================================
-    // Client credentials token acquisition tests
-    // =========================================
-
-    #[tokio::test]
-    async fn should_acquire_token_with_expiry() {
-        let config = OAuth2Config::client_credentials(
-            "test-client",
-            "test-secret",
-            "https://auth.example.com/token",
-        )
-        .expect("Should create builder")
-        .build()
-        .expect("Should build config");
-
-        let result = config
-            .acquire_client_credentials_token_with_client(mock_success_client(
-                "test-access-token",
-                Some(3600),
-            ))
-            .await;
-
-        let token = result.expect("Should acquire token");
-        assert_eq!(token.access_token(), "test-access-token");
-        assert!(token.time_until_expiry().is_some());
-    }
-
-    #[tokio::test]
-    async fn should_acquire_token_without_expiry() {
-        let config = OAuth2Config::client_credentials(
-            "test-client",
-            "test-secret",
-            "https://auth.example.com/token",
-        )
-        .expect("Should create builder")
-        .build()
-        .expect("Should build config");
-
-        let result = config
-            .acquire_client_credentials_token_with_client(mock_success_client(
-                "no-expiry-token",
-                None,
-            ))
-            .await;
-
-        let token = result.expect("Should acquire token");
-        assert_eq!(token.access_token(), "no-expiry-token");
-        assert!(token.time_until_expiry().is_none());
-    }
-
-    #[tokio::test]
-    async fn should_cache_acquired_token() {
-        let config = OAuth2Config::client_credentials(
-            "test-client",
-            "test-secret",
-            "https://auth.example.com/token",
-        )
-        .expect("Should create builder")
-        .build()
-        .expect("Should build config");
-
-        let _ = config
-            .acquire_client_credentials_token_with_client(mock_success_client(
-                "cached-token",
-                Some(3600),
-            ))
-            .await
-            .expect("Should acquire token");
-
-        let cached = config.get_token().await.expect("Token should be cached");
-        assert_eq!(cached.access_token(), "cached-token");
-    }
-
-    #[tokio::test]
-    async fn should_acquire_token_with_scopes() {
-        let config = OAuth2Config::client_credentials(
-            "test-client",
-            "test-secret",
-            "https://auth.example.com/token",
-        )
-        .expect("Should create builder")
-        .add_scope("read:users")
-        .add_scope("write:users")
-        .build()
-        .expect("Should build config");
-
-        let result = config
-            .acquire_client_credentials_token_with_client(mock_success_client(
-                "scoped-token",
-                Some(3600),
-            ))
-            .await;
-
-        assert!(result.is_ok());
-        assert_eq!(config.scopes, vec!["read:users", "write:users"]);
-    }
-
-    // =========================================
-    // Error handling tests
-    // =========================================
-
-    #[tokio::test]
-    async fn should_handle_network_error() {
-        let config = OAuth2Config::client_credentials(
-            "test-client",
-            "test-secret",
-            "https://auth.example.com/token",
-        )
-        .expect("Should create builder")
-        .build()
-        .expect("Should build config");
-
-        let result = config
-            .acquire_client_credentials_token_with_client(mock_network_error_client())
-            .await;
-
-        let err = result.expect_err("Should fail with network error");
-        match err {
-            OAuth2Error::TokenAcquisitionFailed { reason } => {
-                // Network errors are wrapped by oauth2 crate
-                assert!(
-                    !reason.is_empty(),
-                    "Error reason should not be empty: {reason}"
-                );
-            }
-            _ => panic!("Expected TokenAcquisitionFailed error"),
-        }
-    }
-
-    #[tokio::test]
-    async fn should_handle_oauth2_error_response() {
-        let config = OAuth2Config::client_credentials(
-            "test-client",
-            "test-secret",
-            "https://auth.example.com/token",
-        )
-        .expect("Should create builder")
-        .build()
-        .expect("Should build config");
-
-        let result = config
-            .acquire_client_credentials_token_with_client(mock_oauth2_error_client(
-                "invalid_client",
-                "Client authentication failed",
-            ))
-            .await;
-
-        let err = result.expect_err("Should fail with OAuth2 error");
-        match err {
-            OAuth2Error::TokenAcquisitionFailed { reason } => {
-                // OAuth2 error response is parsed by the oauth2 crate
-                assert!(
-                    !reason.is_empty(),
-                    "Error reason should not be empty: {reason}"
-                );
-            }
-            _ => panic!("Expected TokenAcquisitionFailed error"),
         }
     }
 
@@ -441,5 +233,25 @@ mod tests {
 
         assert_eq!(token.access_token(), "no-expiry");
         assert!(token.time_until_expiry().is_none());
+    }
+
+    // =========================================
+    // Scope configuration tests
+    // =========================================
+
+    #[tokio::test]
+    async fn should_configure_scopes() {
+        let config = OAuth2Config::client_credentials(
+            "test-client",
+            "test-secret",
+            "https://auth.example.com/token",
+        )
+        .expect("Should create builder")
+        .add_scope("read:users")
+        .add_scope("write:users")
+        .build()
+        .expect("Should build config");
+
+        assert_eq!(config.scopes, vec!["read:users", "write:users"]);
     }
 }

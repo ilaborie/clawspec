@@ -18,6 +18,7 @@ pub(super) struct OperationMetadata {
     pub(super) operation_id: String,
     pub(super) tags: Option<Vec<String>>,
     pub(super) description: Option<String>,
+    #[cfg(feature = "redaction")]
     pub(super) response_description: Option<String>,
 }
 
@@ -276,6 +277,7 @@ mod tests {
         assert!(metadata.operation_id.is_empty());
         assert!(metadata.tags.is_none());
         assert!(metadata.description.is_none());
+        #[cfg(feature = "redaction")]
         assert!(metadata.response_description.is_none());
     }
 }

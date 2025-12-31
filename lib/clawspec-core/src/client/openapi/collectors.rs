@@ -161,6 +161,7 @@ impl Collectors {
     ///
     /// This method is used by the redaction feature to add a response with the redacted
     /// example after all redactions have been applied.
+    #[cfg(feature = "redaction")]
     pub(in crate::client) fn register_response_with_example(
         &mut self,
         operation_id: &str,
