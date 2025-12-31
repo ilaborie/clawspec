@@ -94,13 +94,28 @@
 //! // Get the collected OpenAPI spec
 //! let openapi = client.collected_openapi().await;
 //!
-//! // Output as YAML
-//! println!("{}", openapi.to_yaml()?);
-//!
-//! // Or as JSON
+//! // Output as JSON
 //! println!("{}", openapi.to_pretty_json()?);
 //! # Ok(())
 //! # }
+//! ```
+//!
+//! ### YAML Output
+//!
+//! To output YAML instead of JSON, enable the `yaml` feature in your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! clawspec-core = { version = "...", features = ["yaml"] }
+//! ```
+//!
+//! Then use the [`ToYaml`][crate::ToYaml] trait:
+//!
+//! ```rust,ignore
+//! use clawspec_core::ToYaml;
+//!
+//! let yaml = openapi.to_yaml()?;
+//! println!("{yaml}");
 //! ```
 //!
 //! ## Response Without Parsing
