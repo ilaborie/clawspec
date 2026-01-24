@@ -254,4 +254,225 @@ mod tests {
 
         assert_eq!(config.scopes, vec!["read:users", "write:users"]);
     }
+
+    // =========================================
+    // Mock server tests for token acquisition
+    // =========================================
+
+    mod mock_server_tests {
+        use super::*;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        #[tokio::test]
+        async fn should_acquire_client_credentials_token() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "test-access-token-12345",
+                    "token_type": "Bearer",
+                    "expires_in": 3600
+                })))
+                .expect(1)
+                .mount(&mock_server)
+                .await;
+
+            let token_url = format!("{}/oauth/token", mock_server.uri());
+            let config = OAuth2Config::client_credentials("test-client", "test-secret", &token_url)
+                .expect("Should create builder")
+                .build()
+                .expect("Should build config");
+
+            let token = config
+                .acquire_token()
+                .await
+                .expect("Should acquire token successfully");
+
+            assert_eq!(token.access_token(), "test-access-token-12345");
+            assert!(token.time_until_expiry().is_some());
+        }
+
+        #[tokio::test]
+        async fn should_include_scopes_in_token_request() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .and(wiremock::matchers::body_string_contains(
+                    "scope=read%3Ausers",
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "scoped-token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600
+                })))
+                .expect(1)
+                .mount(&mock_server)
+                .await;
+
+            let token_url = format!("{}/oauth/token", mock_server.uri());
+            let config = OAuth2Config::client_credentials("test-client", "test-secret", &token_url)
+                .expect("Should create builder")
+                .add_scope("read:users")
+                .build()
+                .expect("Should build config");
+
+            let token = config
+                .acquire_token()
+                .await
+                .expect("Should acquire token with scopes");
+
+            assert_eq!(token.access_token(), "scoped-token");
+        }
+
+        #[tokio::test]
+        async fn should_handle_token_request_failure() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                    "error": "invalid_client",
+                    "error_description": "Client authentication failed"
+                })))
+                .expect(1)
+                .mount(&mock_server)
+                .await;
+
+            let token_url = format!("{}/oauth/token", mock_server.uri());
+            let config =
+                OAuth2Config::client_credentials("invalid-client", "wrong-secret", &token_url)
+                    .expect("Should create builder")
+                    .build()
+                    .expect("Should build config");
+
+            let result = config.acquire_token().await;
+
+            assert!(result.is_err());
+            match result.expect_err("Should fail") {
+                OAuth2Error::TokenAcquisitionFailed { reason } => {
+                    assert!(
+                        reason.contains("invalid_client") || reason.contains("Client"),
+                        "Error should contain client error info: {reason}"
+                    );
+                }
+                other => panic!("Expected TokenAcquisitionFailed, got {:?}", other),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_handle_invalid_token_url() {
+            // Use an invalid URL that will fail URL parsing within the oauth2 crate
+            let result =
+                OAuth2Config::client_credentials("test-client", "test-secret", "not-a-valid-url");
+
+            assert!(result.is_err());
+        }
+
+        #[tokio::test]
+        async fn should_acquire_token_with_multiple_scopes() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .and(wiremock::matchers::body_string_contains(
+                    "scope=read%3Ausers",
+                ))
+                .and(wiremock::matchers::body_string_contains("write%3Ausers"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "multi-scope-token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600
+                })))
+                .expect(1)
+                .mount(&mock_server)
+                .await;
+
+            let token_url = format!("{}/oauth/token", mock_server.uri());
+            let config = OAuth2Config::client_credentials("test-client", "test-secret", &token_url)
+                .expect("Should create builder")
+                .add_scope("read:users")
+                .add_scope("write:users")
+                .build()
+                .expect("Should build config");
+
+            let token = config
+                .acquire_token()
+                .await
+                .expect("Should acquire token with multiple scopes");
+
+            assert_eq!(token.access_token(), "multi-scope-token");
+        }
+
+        #[tokio::test]
+        async fn should_handle_token_without_expiry() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "no-expiry-token",
+                    "token_type": "Bearer"
+                })))
+                .expect(1)
+                .mount(&mock_server)
+                .await;
+
+            let token_url = format!("{}/oauth/token", mock_server.uri());
+            let config = OAuth2Config::client_credentials("test-client", "test-secret", &token_url)
+                .expect("Should create builder")
+                .build()
+                .expect("Should build config");
+
+            let token = config
+                .acquire_token()
+                .await
+                .expect("Should acquire token without expiry");
+
+            assert_eq!(token.access_token(), "no-expiry-token");
+            assert!(
+                token.time_until_expiry().is_none(),
+                "Token without expires_in should have no expiry"
+            );
+        }
+
+        #[tokio::test]
+        async fn should_cache_token_after_acquisition() {
+            let mock_server = MockServer::start().await;
+
+            Mock::given(method("POST"))
+                .and(path("/oauth/token"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "cached-token-value",
+                    "token_type": "Bearer",
+                    "expires_in": 3600
+                })))
+                .expect(1) // Should only be called once due to caching
+                .mount(&mock_server)
+                .await;
+
+            let token_url = format!("{}/oauth/token", mock_server.uri());
+            let config = OAuth2Config::client_credentials("test-client", "test-secret", &token_url)
+                .expect("Should create builder")
+                .build()
+                .expect("Should build config");
+
+            // First call - should hit the server
+            let token1 = config
+                .acquire_token()
+                .await
+                .expect("First token acquisition should succeed");
+
+            // Second call - should use cached token (get_valid_token checks cache first)
+            let token2 = config
+                .get_valid_token()
+                .await
+                .expect("Second call should use cached token");
+
+            assert_eq!(token1.access_token(), "cached-token-value");
+            assert_eq!(token2.access_token(), "cached-token-value");
+        }
+    }
 }

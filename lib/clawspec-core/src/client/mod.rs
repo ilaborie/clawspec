@@ -52,6 +52,9 @@ pub use self::error::ApiClientError;
 #[cfg(test)]
 mod integration_tests;
 
+#[cfg(test)]
+mod mock_server_tests;
+
 /// HTTP client for API testing with automatic OpenAPI schema collection.
 ///
 /// `ApiClient` captures request/response schemas during test execution to generate
