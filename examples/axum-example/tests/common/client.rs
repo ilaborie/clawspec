@@ -147,6 +147,49 @@ impl TestApp {
         Ok(result.value)
     }
 
+    /// Creates an observation with request body redaction.
+    ///
+    /// This method demonstrates the request body redaction feature where
+    /// sensitive fields are redacted in the `OpenAPI` example but the original
+    /// values are sent in the HTTP request.
+    pub async fn create_observation_with_redacted_request(
+        &mut self,
+        new_observation: &PartialObservation,
+    ) -> anyhow::Result<Observation> {
+        let result = self
+            .post("/observations")?
+            .json_redacted(new_observation)?
+            .redact("/notes", "[INTERNAL_NOTES_REDACTED]")?
+            .await
+            .context("create observation with redacted request")?
+            .as_json()
+            .await?;
+        Ok(result)
+    }
+
+    /// Creates an observation with both request and response body redaction.
+    ///
+    /// This method demonstrates the full redaction workflow where both the
+    /// request body and response body are redacted in the `OpenAPI` examples.
+    pub async fn create_observation_with_full_redaction(
+        &mut self,
+        new_observation: &PartialObservation,
+    ) -> anyhow::Result<Observation> {
+        let result = self
+            .post("/observations")?
+            .json_redacted(new_observation)?
+            .redact("/notes", "[INTERNAL_NOTES_REDACTED]")?
+            .await
+            .context("create observation with full redaction")?
+            .as_json_redacted::<Observation>()
+            .await?
+            .redact("/id", "019aaaaa-0000-7000-8000-000000000000")?
+            .redact("/created_at", "2024-01-01T00:00:00Z")?
+            .finish()
+            .await;
+        Ok(result.value)
+    }
+
     pub async fn update_observation(
         &mut self,
         id: ObservationId,

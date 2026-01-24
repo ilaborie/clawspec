@@ -215,6 +215,39 @@ impl CallBody {
             data: body_data,
         }
     }
+
+    /// Creates a JSON body without setting an example.
+    ///
+    /// This method is used internally by the redaction feature to create a body
+    /// where the example will be set later after redaction is applied.
+    ///
+    /// The original value is serialized for the HTTP request, but no example
+    /// is added to the schema entry. The example will be set separately with
+    /// the redacted value for OpenAPI documentation.
+    #[cfg(feature = "redaction")]
+    pub(crate) fn json_without_example<T>(t: &T) -> Result<Self, ApiClientError>
+    where
+        T: Serialize + ToSchema + 'static,
+    {
+        let content_type = ContentType::json();
+        let entry = SchemaEntry::of::<T>(); // No example yet
+        let data = serde_json::to_vec(t)?;
+
+        Ok(Self {
+            content_type,
+            entry,
+            data,
+        })
+    }
+
+    /// Sets the example on the schema entry.
+    ///
+    /// This method is used internally by the redaction feature to set the
+    /// redacted example value for OpenAPI documentation.
+    #[cfg(feature = "redaction")]
+    pub(crate) fn set_example(&mut self, example: serde_json::Value) {
+        self.entry.add_example(example);
+    }
 }
 
 #[cfg(test)]

@@ -100,9 +100,11 @@ use super::output::Output;
 mod apply;
 mod path_selector;
 mod redactor;
+mod request_body;
 mod value_builder;
 
 pub use self::redactor::Redactor;
+pub use self::request_body::RequestBodyRedactionBuilder;
 pub use self::value_builder::ValueRedactionBuilder;
 use crate::client::CallResult;
 use crate::client::error::ApiClientError;

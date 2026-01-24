@@ -11,8 +11,9 @@ pub use self::status::ExpectedStatusCodes;
 pub(in crate::client) mod output;
 
 #[cfg(feature = "redaction")]
-mod redaction;
+pub(in crate::client) mod redaction;
 #[cfg(feature = "redaction")]
 pub use self::redaction::{
-    RedactOptions, RedactedResult, RedactionBuilder, Redactor, ValueRedactionBuilder, redact_value,
+    RedactOptions, RedactedResult, RedactionBuilder, Redactor, RequestBodyRedactionBuilder,
+    ValueRedactionBuilder, redact_value,
 };

@@ -236,12 +236,47 @@
 //! # }
 //! ```
 //!
+//! ### Request Body Redaction
+//!
+//! The same pattern works for request bodies using `json_redacted()`:
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! use clawspec_core::ApiClient;
+//! # use serde::Serialize;
+//! # use utoipa::ToSchema;
+//!
+//! #[derive(Clone, Serialize, ToSchema)]
+//! struct LoginRequest {
+//!     username: String,
+//!     password: String,
+//! }
+//!
+//! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
+//! let request = LoginRequest {
+//!     username: "alice".to_string(),
+//!     password: "my-secret-password".to_string(),
+//! };
+//!
+//! // The HTTP request contains the real password,
+//! // but the OpenAPI example shows "[REDACTED]"
+//! client
+//!     .post("/auth/login")?
+//!     .json_redacted(&request)?
+//!     .redact("/password", "[REDACTED]")?
+//!     .finish()?
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ### Redaction Operations
 //!
-//! The redaction builder supports two operations using [JSON Pointer (RFC 6901)](https://tools.ietf.org/html/rfc6901):
+//! The redaction builder supports two operations using [JSON Pointer (RFC 6901)](https://tools.ietf.org/html/rfc6901)
+//! or [JSONPath (RFC 9535)](https://www.rfc-editor.org/rfc/rfc9535):
 //!
-//! - **`redact(pointer, redactor)`**: Replace a value at the given path with a stable value or transformation
-//! - **`redact_remove(pointer)`**: Remove a value entirely from the OpenAPI example
+//! - **`redact(path, redactor)`**: Replace a value at the given path with a stable value or transformation
+//! - **`redact_remove(path)`**: Remove a value entirely from the OpenAPI example
 //!
 #![cfg_attr(feature = "redaction", doc = "```rust")]
 #![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
@@ -526,7 +561,8 @@ pub use http::StatusCode;
 
 #[cfg(feature = "redaction")]
 pub use self::client::{
-    RedactOptions, RedactedResult, RedactionBuilder, Redactor, ValueRedactionBuilder, redact_value,
+    RedactOptions, RedactedResult, RedactionBuilder, Redactor, RequestBodyRedactionBuilder,
+    ValueRedactionBuilder, redact_value,
 };
 
 #[cfg(feature = "oauth2")]
