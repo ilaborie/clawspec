@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.1...clawspec-core-v0.4.2) - 2026-01-24
+
+### Added
+
+- *(clawspec-core)* add request body redaction support
+
+### Other
+
+- *(clawspec-core)* improve test coverage for oauth2/provider and split/strategies
+- *(clawspec-core)* add mock server tests for redaction verification
+
 ## [0.4.1](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.0...clawspec-core-v0.4.1) - 2025-12-31
 
 ### Added
