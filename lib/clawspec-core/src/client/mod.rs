@@ -22,7 +22,8 @@ mod response;
 pub use self::response::ExpectedStatusCodes;
 #[cfg(feature = "redaction")]
 pub use self::response::{
-    RedactOptions, RedactedResult, RedactionBuilder, Redactor, ValueRedactionBuilder, redact_value,
+    RedactOptions, RedactedResult, RedactionBuilder, Redactor, RequestBodyRedactionBuilder,
+    ValueRedactionBuilder, redact_value,
 };
 
 mod auth;

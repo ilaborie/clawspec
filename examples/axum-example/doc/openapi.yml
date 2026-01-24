@@ -115,6 +115,12 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/FlatObservation'
+            example:
+              name: Form Bird
+              lng: 2.5
+              lat: 3.5
+              color: orange
+              notes: Created via form encoding
           text/xml:
             schema:
               type: string

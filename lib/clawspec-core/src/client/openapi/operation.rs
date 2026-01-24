@@ -73,7 +73,12 @@ impl CalledOperation {
         let builder = if let Some(body) = request_body {
             let schema_ref = schemas.add_entry(body.entry.clone());
             let content_type = normalize_content_type(&body.content_type);
-            let example = if body.content_type == ContentType::json() {
+
+            // Use the example from the schema entry if available (for redaction support),
+            // otherwise deserialize from the body data
+            let example = if !body.entry.examples.is_empty() {
+                body.entry.examples.first().cloned()
+            } else if body.content_type == ContentType::json() {
                 serde_json::from_slice(&body.data).ok()
             } else {
                 None

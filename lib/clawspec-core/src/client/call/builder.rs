@@ -6,6 +6,8 @@ use utoipa::ToSchema;
 use super::ApiCall;
 use crate::client::parameters::{ParamValue, ParameterValue};
 use crate::client::response::ExpectedStatusCodes;
+#[cfg(feature = "redaction")]
+use crate::client::response::RequestBodyRedactionBuilder;
 use crate::client::security::SecurityRequirement;
 use crate::client::{ApiClientError, CallBody, CallCookies, CallHeaders, CallQuery};
 
@@ -781,6 +783,152 @@ impl ApiCall {
         let body = CallBody::json(t)?;
         self.body = Some(body);
         Ok(self)
+    }
+
+    /// Sets the request body to JSON with redaction support for OpenAPI examples.
+    ///
+    /// This method returns a [`RequestBodyRedactionBuilder`] that allows you to
+    /// redact sensitive values (like passwords, API keys, tokens) in the OpenAPI
+    /// documentation while sending the original values in the HTTP request.
+    ///
+    /// **Key principle:**
+    /// - **HTTP Request**: Uses the original value with real data for testing
+    /// - **OpenAPI Example**: Uses the redacted value with stable placeholders
+    ///
+    /// This is useful when you want to:
+    /// - Hide sensitive credentials in documentation
+    /// - Create stable, deterministic OpenAPI examples
+    /// - Test with real data while documenting with sanitized examples
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type to serialize. Must implement `Serialize`, `ToSchema`, and `Clone`.
+    ///
+    /// # Examples
+    ///
+    /// ## Basic Usage
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::Serialize;
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Clone, Serialize, ToSchema)]
+    /// struct LoginRequest {
+    ///     username: String,
+    ///     password: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    /// let request = LoginRequest {
+    ///     username: "alice".to_string(),
+    ///     password: "secret123".to_string(),
+    /// };
+    ///
+    /// // The HTTP request will contain the real password,
+    /// // but the OpenAPI example will show "[REDACTED]"
+    /// client
+    ///     .post("/auth/login")?
+    ///     .json_redacted(&request)?
+    ///     .redact("/password", "[REDACTED]")?
+    ///     .await?;  // IntoFuture - no .finish() needed
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## Multiple Redactions
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::Serialize;
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Clone, Serialize, ToSchema)]
+    /// struct CreateApiKey {
+    ///     name: String,
+    ///     secret: String,
+    ///     internal_id: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    /// let request = CreateApiKey {
+    ///     name: "my-key".to_string(),
+    ///     secret: "sk-live-abc123def456".to_string(),
+    ///     internal_id: "internal-ref-789".to_string(),
+    /// };
+    ///
+    /// client
+    ///     .post("/api-keys")?
+    ///     .json_redacted(&request)?
+    ///     .redact("/secret", "[REDACTED_SECRET]")?
+    ///     .redact_remove("/internal_id")?  // Remove entirely from docs
+    ///     .await?;  // IntoFuture - no .finish() needed
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ## JSONPath Wildcards
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::Serialize;
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Clone, Serialize, ToSchema)]
+    /// struct BulkCreateUsers {
+    ///     users: Vec<UserData>,
+    /// }
+    ///
+    /// #[derive(Clone, Serialize, ToSchema)]
+    /// struct UserData {
+    ///     name: String,
+    ///     password: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    /// let request = BulkCreateUsers {
+    ///     users: vec![
+    ///         UserData { name: "alice".to_string(), password: "secret1".to_string() },
+    ///         UserData { name: "bob".to_string(), password: "secret2".to_string() },
+    ///     ],
+    /// };
+    ///
+    /// // Redact ALL passwords in the array
+    /// client
+    ///     .post("/users/bulk")?
+    ///     .json_redacted(&request)?
+    ///     .redact("$.users[*].password", "[REDACTED]")?
+    ///     .await?;  // IntoFuture - no .finish() needed
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if JSON serialization fails.
+    ///
+    /// # Feature Flag
+    ///
+    /// This method requires the `redaction` feature to be enabled:
+    ///
+    /// ```toml
+    /// [dependencies]
+    /// clawspec-core = { version = "...", features = ["redaction"] }
+    /// ```
+    #[cfg(feature = "redaction")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "redaction")))]
+    pub fn json_redacted<T>(self, t: &T) -> Result<RequestBodyRedactionBuilder<T>, ApiClientError>
+    where
+        T: Serialize + ToSchema + Clone + 'static,
+    {
+        let body = CallBody::json_without_example(t)?;
+        let json_value = serde_json::to_value(t)?;
+        Ok(RequestBodyRedactionBuilder::new(
+            t.clone(),
+            json_value,
+            body,
+            self,
+        ))
     }
 
     /// Sets the request body to form-encoded data.

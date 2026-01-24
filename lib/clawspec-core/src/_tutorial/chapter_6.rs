@@ -434,10 +434,178 @@
 //! # }
 //! ```
 //!
+//! ## Request Body Redaction
+//!
+//! The same redaction patterns work for request bodies too. When sending POST/PUT/PATCH
+//! requests with sensitive data, you can redact values in the OpenAPI documentation
+//! while sending the real data in the HTTP request.
+//!
+//! **Key principle:**
+//! - **HTTP Request**: Uses the original value with real data for testing
+//! - **OpenAPI Example**: Uses the redacted value with stable placeholders
+//!
+//! ### Basic Usage
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! use clawspec_core::ApiClient;
+//! use serde::Serialize;
+//! use utoipa::ToSchema;
+//!
+//! #[derive(Clone, Serialize, ToSchema)]
+//! struct LoginRequest {
+//!     username: String,
+//!     password: String,
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let request = LoginRequest {
+//!     username: "alice".to_string(),
+//!     password: "my-secret-password".to_string(),
+//! };
+//!
+//! // Use json_redacted() instead of json()
+//! client
+//!     .post("/auth/login")?
+//!     .json_redacted(&request)?
+//!     .redact("/password", "[REDACTED]")?
+//!     .await?;  // Executes the HTTP request
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Redacting Multiple Fields
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Serialize;
+//! # use utoipa::ToSchema;
+//! #[derive(Clone, Serialize, ToSchema)]
+//! struct CreateApiKey {
+//!     name: String,
+//!     secret: String,
+//!     internal_ref: String,
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let request = CreateApiKey {
+//!     name: "my-key".to_string(),
+//!     secret: "sk-live-abc123def456".to_string(),
+//!     internal_ref: "internal-id-789".to_string(),
+//! };
+//!
+//! client
+//!     .post("/api-keys")?
+//!     .json_redacted(&request)?
+//!     .redact("/secret", "[REDACTED_SECRET]")?
+//!     .redact_remove("/internal_ref")?  // Remove entirely from docs
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Using JSONPath Wildcards
+//!
+//! For arrays, use JSONPath syntax to redact all matching fields:
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::Serialize;
+//! # use utoipa::ToSchema;
+//! #[derive(Clone, Serialize, ToSchema)]
+//! struct BulkCreateUsers {
+//!     users: Vec<UserData>,
+//! }
+//!
+//! #[derive(Clone, Serialize, ToSchema)]
+//! struct UserData {
+//!     name: String,
+//!     password: String,
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let request = BulkCreateUsers {
+//!     users: vec![
+//!         UserData { name: "alice".into(), password: "secret1".into() },
+//!         UserData { name: "bob".into(), password: "secret2".into() },
+//!     ],
+//! };
+//!
+//! // Redact ALL passwords in the array
+//! client
+//!     .post("/users/bulk")?
+//!     .json_redacted(&request)?
+//!     .redact("$.users[*].password", "[REDACTED]")?
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Response and Request Redaction Together
+//!
+//! You can combine request body and response redaction in the same test:
+//!
+#![cfg_attr(feature = "redaction", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "redaction"), doc = "```rust,ignore")]
+//! # use clawspec_core::ApiClient;
+//! # use serde::{Serialize, Deserialize};
+//! # use utoipa::ToSchema;
+//! #[derive(Clone, Serialize, ToSchema)]
+//! struct CreateUserRequest {
+//!     username: String,
+//!     password: String,
+//! }
+//!
+//! #[derive(Deserialize, ToSchema)]
+//! struct CreateUserResponse {
+//!     id: String,
+//!     username: String,
+//!     created_at: String,
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let request = CreateUserRequest {
+//!     username: "alice".to_string(),
+//!     password: "secret123".to_string(),
+//! };
+//!
+//! // Redact request body (password hidden in docs)
+//! let mut response = client
+//!     .post("/users")?
+//!     .json_redacted(&request)?
+//!     .redact("/password", "[REDACTED]")?
+//!     .await?;
+//!
+//! // Redact response body (stable IDs and timestamps)
+//! let result = response
+//!     .as_json_redacted::<CreateUserResponse>()
+//!     .await?
+//!     .redact("/id", "user-00000000")?
+//!     .redact("/created_at", "2024-01-01T00:00:00Z")?
+//!     .finish()
+//!     .await;
+//!
+//! // Test assertions use real values
+//! assert!(!result.value.id.is_empty());
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Key Points
 //!
 //! - Enable with `features = ["redaction"]` in Cargo.toml
-//! - Use `as_json_redacted()` instead of `as_json()`
+//! - **Response redaction**: Use `as_json_redacted()` instead of `as_json()`
+//! - **Request body redaction**: Use `json_redacted()` instead of `json()`
 //! - Paths are auto-detected:
 //!   - `/...` - JSON Pointer (RFC 6901) for exact paths
 //!   - `$...` - JSONPath (RFC 9535) for wildcards
