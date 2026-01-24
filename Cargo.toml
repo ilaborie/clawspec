@@ -59,6 +59,7 @@ insta = "1.44.3"
 assert2 = "0.3.15"
 tracing-subscriber = "0.3.22"
 criterion = "0.8.1"
+wiremock = "0.6"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

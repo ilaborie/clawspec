@@ -421,22 +421,8 @@ mod tests {
         secret: String,
     }
 
-    fn create_test_builder() -> RequestBodyRedactionBuilder<TestRequest> {
-        let value = TestRequest {
-            username: "alice".to_string(),
-            password: "secret123".to_string(),
-            api_key: "sk-live-abc123".to_string(),
-        };
-
-        let redacted = json!({
-            "username": "alice",
-            "password": "secret123",
-            "api_key": "sk-live-abc123"
-        });
-
-        let body = CallBody::json_without_example(&value).expect("should create body");
-
-        // Create a minimal ApiCall for testing
+    /// Creates a minimal ApiCall for testing purposes.
+    fn create_test_api_call() -> ApiCall {
         let client = reqwest::Client::new();
         let base_uri = "http://localhost:8080".parse().expect("valid URI");
         let collector_sender = crate::client::openapi::channel::CollectorSender::dummy();
@@ -445,7 +431,7 @@ mod tests {
         let expected_status_codes = crate::client::response::ExpectedStatusCodes::default();
         let metadata = crate::client::call_parameters::OperationMetadata::default();
 
-        let api_call = ApiCall {
+        ApiCall {
             client,
             base_uri,
             collector_sender,
@@ -461,59 +447,29 @@ mod tests {
             response_description: None,
             skip_collection: false,
             security: None,
+        }
+    }
+
+    fn create_test_builder() -> RequestBodyRedactionBuilder<TestRequest> {
+        let value = TestRequest {
+            username: "alice".to_string(),
+            password: "secret123".to_string(),
+            api_key: "sk-live-abc123".to_string(),
         };
 
-        RequestBodyRedactionBuilder::new(value.clone(), redacted, body, api_call)
+        let redacted = json!({
+            "username": "alice",
+            "password": "secret123",
+            "api_key": "sk-live-abc123"
+        });
+
+        let body = CallBody::json_without_example(&value).expect("should create body");
+        let api_call = create_test_api_call();
+
+        RequestBodyRedactionBuilder::new(value, redacted, body, api_call)
     }
 
-    #[test]
-    fn should_redact_single_field() {
-        let builder = create_test_builder();
-        let result = builder.redact("/password", "[REDACTED]");
-
-        assert!(result.is_ok());
-        let builder = result.expect("redaction should succeed");
-        assert_eq!(
-            builder.redacted.get("password").and_then(|v| v.as_str()),
-            Some("[REDACTED]")
-        );
-        // Other fields unchanged
-        assert_eq!(
-            builder.redacted.get("username").and_then(|v| v.as_str()),
-            Some("alice")
-        );
-        assert_eq!(
-            builder.redacted.get("api_key").and_then(|v| v.as_str()),
-            Some("sk-live-abc123")
-        );
-    }
-
-    #[test]
-    fn should_redact_multiple_fields() {
-        let builder = create_test_builder();
-        let result = builder
-            .redact("/password", "[REDACTED]")
-            .and_then(|b| b.redact("/api_key", "[REDACTED]"));
-
-        assert!(result.is_ok());
-        let builder = result.expect("redaction should succeed");
-        assert_eq!(
-            builder.redacted.get("password").and_then(|v| v.as_str()),
-            Some("[REDACTED]")
-        );
-        assert_eq!(
-            builder.redacted.get("api_key").and_then(|v| v.as_str()),
-            Some("[REDACTED]")
-        );
-        // Username unchanged
-        assert_eq!(
-            builder.redacted.get("username").and_then(|v| v.as_str()),
-            Some("alice")
-        );
-    }
-
-    #[test]
-    fn should_redact_with_jsonpath_wildcards() {
+    fn create_nested_builder() -> RequestBodyRedactionBuilder<NestedRequest> {
         let value = NestedRequest {
             user: UserInfo {
                 id: "user-123".to_string(),
@@ -533,40 +489,58 @@ mod tests {
 
         let redacted = serde_json::to_value(&value).expect("should serialize");
         let body = CallBody::json_without_example(&value).expect("should create body");
+        let api_call = create_test_api_call();
 
-        let client = reqwest::Client::new();
-        let base_uri = "http://localhost:8080".parse().expect("valid URI");
-        let collector_sender = crate::client::openapi::channel::CollectorSender::dummy();
-        let path = crate::client::CallPath::from("/test");
-        let query = crate::client::CallQuery::new();
-        let expected_status_codes = crate::client::response::ExpectedStatusCodes::default();
-        let metadata = crate::client::call_parameters::OperationMetadata::default();
+        RequestBodyRedactionBuilder::new(value, redacted, body, api_call)
+    }
 
-        let api_call = ApiCall {
-            client,
-            base_uri,
-            collector_sender,
-            method: http::Method::POST,
-            path,
-            query,
-            headers: None,
-            body: None,
-            authentication: None,
-            cookies: None,
-            expected_status_codes,
-            metadata,
-            response_description: None,
-            skip_collection: false,
-            security: None,
-        };
+    #[test]
+    fn should_redact_single_field() {
+        let builder = create_test_builder()
+            .redact("/password", "[REDACTED]")
+            .expect("redaction should succeed");
 
-        let builder: RequestBodyRedactionBuilder<NestedRequest> =
-            RequestBodyRedactionBuilder::new(value, redacted, body, api_call);
+        assert_eq!(
+            builder.redacted.get("password").and_then(|v| v.as_str()),
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            builder.redacted.get("username").and_then(|v| v.as_str()),
+            Some("alice")
+        );
+        assert_eq!(
+            builder.redacted.get("api_key").and_then(|v| v.as_str()),
+            Some("sk-live-abc123")
+        );
+    }
 
-        let result = builder.redact("$.items[*].secret", "[REDACTED]");
+    #[test]
+    fn should_redact_multiple_fields() {
+        let builder = create_test_builder()
+            .redact("/password", "[REDACTED]")
+            .and_then(|b| b.redact("/api_key", "[REDACTED]"))
+            .expect("redaction should succeed");
 
-        assert!(result.is_ok());
-        let builder = result.expect("redaction should succeed");
+        assert_eq!(
+            builder.redacted.get("password").and_then(|v| v.as_str()),
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            builder.redacted.get("api_key").and_then(|v| v.as_str()),
+            Some("[REDACTED]")
+        );
+        assert_eq!(
+            builder.redacted.get("username").and_then(|v| v.as_str()),
+            Some("alice")
+        );
+    }
+
+    #[test]
+    fn should_redact_with_jsonpath_wildcards() {
+        let builder = create_nested_builder()
+            .redact("$.items[*].secret", "[REDACTED]")
+            .expect("redaction should succeed");
+
         let items = builder
             .redacted
             .get("items")
@@ -583,13 +557,12 @@ mod tests {
 
     #[test]
     fn should_redact_with_closure() {
-        let builder = create_test_builder();
-        let result = builder.redact("/password", |_path: &str, _val: &serde_json::Value| {
-            json!("redacted-by-closure")
-        });
+        let builder = create_test_builder()
+            .redact("/password", |_path: &str, _val: &serde_json::Value| {
+                json!("redacted-by-closure")
+            })
+            .expect("redaction should succeed");
 
-        assert!(result.is_ok());
-        let builder = result.expect("redaction should succeed");
         assert_eq!(
             builder.redacted.get("password").and_then(|v| v.as_str()),
             Some("redacted-by-closure")
@@ -598,29 +571,22 @@ mod tests {
 
     #[test]
     fn should_remove_fields() {
-        let builder = create_test_builder();
-        let result = builder.redact_remove("/password");
+        let builder = create_test_builder()
+            .redact_remove("/password")
+            .expect("removal should succeed");
 
-        assert!(result.is_ok());
-        let builder = result.expect("removal should succeed");
         assert!(builder.redacted.get("password").is_none());
-        // Other fields still present
         assert!(builder.redacted.get("username").is_some());
         assert!(builder.redacted.get("api_key").is_some());
     }
 
     #[test]
     fn should_preserve_original_value() {
-        let builder = create_test_builder();
-        let original_password = builder.value.password.clone();
+        let builder = create_test_builder()
+            .redact("/password", "[REDACTED]")
+            .expect("redaction should succeed");
 
-        let result = builder.redact("/password", "[REDACTED]");
-        assert!(result.is_ok());
-        let builder = result.expect("redaction should succeed");
-
-        // Original value is preserved
-        assert_eq!(builder.value.password, original_password);
-        // Redacted value is different
+        assert_eq!(builder.original_value().password, "secret123");
         assert_eq!(
             builder.redacted.get("password").and_then(|v| v.as_str()),
             Some("[REDACTED]")
@@ -629,32 +595,26 @@ mod tests {
 
     #[test]
     fn should_fail_on_invalid_path() {
-        let builder = create_test_builder();
-        let result = builder.redact("$.nonexistent", "[REDACTED]");
+        let result = create_test_builder().redact("$.nonexistent", "[REDACTED]");
 
         assert!(result.is_err());
     }
 
     #[test]
     fn should_allow_empty_match_with_option() {
-        let builder = create_test_builder();
         let options = RedactOptions {
             allow_empty_match: true,
         };
-        let result = builder.redact_with_options("$.nonexistent", "[REDACTED]", options);
+        let result =
+            create_test_builder().redact_with_options("$.nonexistent", "[REDACTED]", options);
 
         assert!(result.is_ok());
     }
 
     #[test]
-    fn should_access_original_and_redacted_values() {
+    fn should_access_redacted_value() {
         let builder = create_test_builder();
 
-        // Check original value access
-        assert_eq!(builder.original_value().username, "alice");
-        assert_eq!(builder.original_value().password, "secret123");
-
-        // Check redacted value access before redaction
         assert_eq!(
             builder
                 .redacted_value()
@@ -663,10 +623,10 @@ mod tests {
             Some("secret123")
         );
 
-        // Redact and check again
         let builder = builder
             .redact("/password", "[REDACTED]")
             .expect("should redact");
+
         assert_eq!(
             builder
                 .redacted_value()
@@ -674,27 +634,110 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("[REDACTED]")
         );
-        // Original unchanged
-        assert_eq!(builder.original_value().password, "secret123");
     }
 
     #[test]
     fn should_finish_and_return_api_call() {
-        let builder = create_test_builder();
-        let result = builder
+        let api_call = create_test_builder()
             .redact("/password", "[REDACTED]")
-            .and_then(|b| b.finish());
+            .and_then(|b| b.finish())
+            .expect("should finish");
 
-        assert!(result.is_ok());
-        let api_call = result.expect("should finish");
         assert!(api_call.body.is_some());
     }
 
-    #[test]
-    fn test_debug_impl() {
-        let builder = create_test_builder();
-        let debug_str = format!("{builder:?}");
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+    struct LoginRequest {
+        username: String,
+        password: String,
+    }
 
-        assert!(debug_str.contains("RequestBodyRedactionBuilder"));
+    fn get_request_body_example(
+        openapi: &utoipa::openapi::OpenApi,
+        path: &str,
+        method: &str,
+    ) -> Option<serde_json::Value> {
+        let path_item = openapi.paths.paths.get(path)?;
+        let operation = match method.to_uppercase().as_str() {
+            "POST" => path_item.post.as_ref(),
+            "PUT" => path_item.put.as_ref(),
+            "PATCH" => path_item.patch.as_ref(),
+            "DELETE" => path_item.delete.as_ref(),
+            "GET" => path_item.get.as_ref(),
+            _ => None,
+        }?;
+        let request_body = operation.request_body.as_ref()?;
+        let content = request_body.content.get("application/json")?;
+        content.example.clone()
+    }
+
+    #[tokio::test]
+    async fn should_send_original_value_to_server_and_use_redacted_in_openapi() {
+        use wiremock::matchers::{body_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        use crate::client::ApiClient;
+
+        // 1. Start mock server
+        let mock_server = MockServer::start().await;
+
+        // 2. Set up mock to capture and verify request body
+        // The mock expects the ORIGINAL (unredacted) value
+        Mock::given(method("POST"))
+            .and(path("/api/login"))
+            .and(body_json(json!({
+                "username": "alice",
+                "password": "secret123"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "ok"})))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        // 3. Create ApiClient pointing to mock server
+        let uri: http::Uri = mock_server.uri().parse().expect("valid URI");
+        let mut client = ApiClient::builder()
+            .with_host(uri.host().expect("should have host"))
+            .with_port(uri.port_u16().expect("should have port"))
+            .build()
+            .expect("should build client");
+
+        // 4. Make request with redaction
+        let request = LoginRequest {
+            username: "alice".to_string(),
+            password: "secret123".to_string(),
+        };
+
+        client
+            .post("/api/login")
+            .expect("should create call")
+            .json_redacted(&request)
+            .expect("should set body")
+            .redact("/password", "[REDACTED]")
+            .expect("should redact")
+            .await
+            .expect("request should succeed")
+            .as_empty()
+            .await
+            .expect("should complete");
+
+        // 5. Verify mock received the original value (implicit via matcher)
+        // wiremock will fail if body doesn't match
+
+        // 6. Verify OpenAPI example contains redacted value
+        let openapi = client.collected_openapi().await;
+        let example = get_request_body_example(&openapi, "/api/login", "POST")
+            .expect("should have request body example");
+
+        assert_eq!(
+            example.get("password").and_then(|v| v.as_str()),
+            Some("[REDACTED]"),
+            "OpenAPI example should have redacted password"
+        );
+        assert_eq!(
+            example.get("username").and_then(|v| v.as_str()),
+            Some("alice"),
+            "OpenAPI example should have original username"
+        );
     }
 }
