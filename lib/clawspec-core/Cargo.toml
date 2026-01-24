@@ -60,6 +60,7 @@ tokio = { workspace = true, features = ["full"]}
 insta = { workspace = true }
 serde-saphyr = { workspace = true}
 criterion = { workspace = true }
+wiremock = { workspace = true }
 # Force minimum versions for minimal-versions CI (annotate-snippets has incorrect anstyle dep)
 annotate-snippets = { workspace = true }
 anstyle = { workspace = true }

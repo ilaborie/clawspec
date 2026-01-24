@@ -987,4 +987,113 @@ mod tests {
 
         assert!(result.is_err());
     }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+    struct LoginResponse {
+        session_token: String,
+        user_id: String,
+    }
+
+    fn get_response_example(
+        openapi: &utoipa::openapi::OpenApi,
+        path: &str,
+        method: &str,
+        status_code: &str,
+    ) -> Option<serde_json::Value> {
+        let path_item = openapi.paths.paths.get(path)?;
+        let operation = match method.to_uppercase().as_str() {
+            "POST" => path_item.post.as_ref(),
+            "PUT" => path_item.put.as_ref(),
+            "PATCH" => path_item.patch.as_ref(),
+            "DELETE" => path_item.delete.as_ref(),
+            "GET" => path_item.get.as_ref(),
+            _ => None,
+        }?;
+        let response = operation.responses.responses.get(status_code)?;
+        let utoipa::openapi::RefOr::T(response) = response else {
+            return None;
+        };
+        let content = response.content.get("application/json")?;
+        content.example.clone()
+    }
+
+    #[tokio::test]
+    async fn should_return_original_value_and_use_redacted_in_openapi_for_response() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        use crate::client::ApiClient;
+
+        // 1. Start mock server
+        let mock_server = MockServer::start().await;
+
+        // 2. Set up mock to return a response with sensitive data
+        Mock::given(method("POST"))
+            .and(path("/api/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "session_token": "secret-token-abc123",
+                "user_id": "user-42"
+            })))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        // 3. Create ApiClient pointing to mock server
+        let uri: http::Uri = mock_server.uri().parse().expect("valid URI");
+        let mut client = ApiClient::builder()
+            .with_host(uri.host().expect("should have host"))
+            .with_port(uri.port_u16().expect("should have port"))
+            .build()
+            .expect("should build client");
+
+        // 4. Make request and apply response redaction
+        let result = client
+            .post("/api/login")
+            .expect("should create call")
+            .await
+            .expect("request should succeed")
+            .as_json_redacted::<LoginResponse>()
+            .await
+            .expect("should parse response")
+            .redact("/session_token", "[REDACTED]")
+            .expect("should redact")
+            .finish()
+            .await;
+
+        // 5. Verify the returned value contains the ORIGINAL (unredacted) data
+        assert_eq!(
+            result.value.session_token, "secret-token-abc123",
+            "Original value should have real session token"
+        );
+        assert_eq!(
+            result.value.user_id, "user-42",
+            "Original value should have real user_id"
+        );
+
+        // 6. Verify the redacted field in the result
+        assert_eq!(
+            result
+                .redacted
+                .get("session_token")
+                .and_then(|v| v.as_str()),
+            Some("[REDACTED]"),
+            "Redacted result should have redacted session_token"
+        );
+
+        // 7. Verify OpenAPI example contains the redacted value
+        let openapi = client.collected_openapi().await;
+        let example = get_response_example(&openapi, "/api/login", "POST", "200")
+            .expect("should have response example");
+
+        assert_eq!(
+            example.get("session_token").and_then(|v| v.as_str()),
+            Some("[REDACTED]"),
+            "OpenAPI example should have redacted session_token"
+        );
+        assert_eq!(
+            example.get("user_id").and_then(|v| v.as_str()),
+            Some("user-42"),
+            "OpenAPI example should have original user_id"
+        );
+    }
 }
