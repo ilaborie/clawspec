@@ -566,4 +566,495 @@ mod tests {
         let error_tags = usage.get("Error").expect("Error should be tracked");
         assert!(error_tags.contains("orders"));
     }
+
+    #[test]
+    fn should_not_split_when_all_schemas_map_to_one_file() {
+        // Create a spec where all schemas are used by the same tag
+        let user_schema = ObjectBuilder::new()
+            .property(
+                "id",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::Integer),
+            )
+            .build();
+
+        let profile_schema = ObjectBuilder::new()
+            .property(
+                "bio",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::String),
+            )
+            .build();
+
+        let mut components = Components::new();
+        components
+            .schemas
+            .insert("User".to_string(), RefOr::T(user_schema.into()));
+        components
+            .schemas
+            .insert("Profile".to_string(), RefOr::T(profile_schema.into()));
+
+        // All operations have the same tag
+        let get_users = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/User"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        let get_profile = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/Profile"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        let mut paths = utoipa::openapi::Paths::new();
+        paths.paths.insert(
+            "/users".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Get, get_users)
+                .build(),
+        );
+        paths.paths.insert(
+            "/profile".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Get, get_profile)
+                .build(),
+        );
+
+        let spec = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build();
+
+        let splitter = SplitSchemasByTag::new("common.yaml");
+        let result = splitter.split(spec);
+
+        // Should not split because all schemas go to users.yaml
+        assert!(result.is_unsplit());
+    }
+
+    #[test]
+    fn should_collect_schemas_from_parameters() {
+        use utoipa::openapi::path::ParameterBuilder;
+        use utoipa::openapi::path::ParameterIn;
+
+        let id_schema = ObjectBuilder::new()
+            .schema_type(utoipa::openapi::Type::String)
+            .build();
+
+        let mut components = Components::new();
+        components
+            .schemas
+            .insert("UserId".to_string(), RefOr::T(id_schema.into()));
+
+        // Operation with a parameter that references a schema
+        let get_user = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .parameter(
+                ParameterBuilder::new()
+                    .name("id")
+                    .parameter_in(ParameterIn::Path)
+                    .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/UserId"))))
+                    .build(),
+            )
+            .response("200", ResponseBuilder::new().description("OK").build())
+            .build();
+
+        let mut paths = utoipa::openapi::Paths::new();
+        paths.paths.insert(
+            "/users/{id}".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Get, get_user)
+                .build(),
+        );
+
+        let spec = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build();
+
+        let splitter = SplitSchemasByTag::new("common.yaml");
+        let usage = splitter.analyze_schema_usage(&spec);
+
+        // UserId should be tracked as used by "users" tag
+        assert!(
+            usage
+                .get("UserId")
+                .map(|t| t.contains("users"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn should_analyze_non_get_operations() {
+        let user_schema = ObjectBuilder::new()
+            .property(
+                "id",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::Integer),
+            )
+            .build();
+
+        let order_schema = ObjectBuilder::new()
+            .property(
+                "id",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::Integer),
+            )
+            .build();
+
+        let mut components = Components::new();
+        components
+            .schemas
+            .insert("User".to_string(), RefOr::T(user_schema.into()));
+        components
+            .schemas
+            .insert("Order".to_string(), RefOr::T(order_schema.into()));
+
+        // PUT operation
+        let update_user = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/User"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        // DELETE operation
+        let delete_order = OperationBuilder::new()
+            .tags(Some(vec!["orders".to_string()]))
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/Order"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        let mut paths = utoipa::openapi::Paths::new();
+        paths.paths.insert(
+            "/users/{id}".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Put, update_user)
+                .build(),
+        );
+        paths.paths.insert(
+            "/orders/{id}".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Delete, delete_order)
+                .build(),
+        );
+
+        let spec = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build();
+
+        let splitter = SplitSchemasByTag::new("common.yaml");
+        let usage = splitter.analyze_schema_usage(&spec);
+
+        // Both schemas should be tracked from PUT and DELETE operations
+        assert!(
+            usage
+                .get("User")
+                .map(|t| t.contains("users"))
+                .unwrap_or(false)
+        );
+        assert!(
+            usage
+                .get("Order")
+                .map(|t| t.contains("orders"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn should_preserve_security_schemes_after_split() {
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+
+        let spec = create_test_spec();
+        let mut spec_with_security = spec;
+
+        // Add security schemes
+        let mut security_schemes = BTreeMap::new();
+        security_schemes.insert(
+            "bearer_auth".to_string(),
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .build(),
+            ),
+        );
+
+        if let Some(ref mut components) = spec_with_security.components {
+            components.security_schemes = security_schemes;
+        }
+
+        let splitter = SplitSchemasByTag::new("common.yaml");
+        let result = splitter.split(spec_with_security);
+
+        // Security schemes should be preserved in the main spec
+        let main_components = result
+            .main
+            .components
+            .as_ref()
+            .expect("should have components");
+        assert!(main_components.security_schemes.contains_key("bearer_auth"));
+    }
+
+    #[test]
+    fn should_skip_operations_without_tags() {
+        let user_schema = ObjectBuilder::new()
+            .property(
+                "id",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::Integer),
+            )
+            .build();
+
+        let untagged_schema = ObjectBuilder::new()
+            .property(
+                "data",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::String),
+            )
+            .build();
+
+        let mut components = Components::new();
+        components
+            .schemas
+            .insert("User".to_string(), RefOr::T(user_schema.into()));
+        components
+            .schemas
+            .insert("Untagged".to_string(), RefOr::T(untagged_schema.into()));
+
+        // Operation WITH tags
+        let get_user = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/User"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        // Operation WITHOUT tags
+        let get_health = OperationBuilder::new()
+            // No tags!
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/Untagged"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        let mut paths = utoipa::openapi::Paths::new();
+        paths.paths.insert(
+            "/users".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Get, get_user)
+                .build(),
+        );
+        paths.paths.insert(
+            "/health".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Get, get_health)
+                .build(),
+        );
+
+        let spec = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build();
+
+        let splitter = SplitSchemasByTag::new("common.yaml");
+        let usage = splitter.analyze_schema_usage(&spec);
+
+        // User should be tracked (has tags)
+        assert!(usage.contains_key("User"));
+
+        // Untagged should NOT be tracked (no tags on operation)
+        assert!(!usage.contains_key("Untagged"));
+    }
+
+    #[test]
+    fn should_handle_spec_without_components() {
+        // Spec with no components at all
+        let mut paths = utoipa::openapi::Paths::new();
+        paths.paths.insert(
+            "/health".to_string(),
+            PathItemBuilder::new()
+                .operation(
+                    utoipa::openapi::HttpMethod::Get,
+                    OperationBuilder::new()
+                        .tags(Some(vec!["health".to_string()]))
+                        .response("200", ResponseBuilder::new().description("OK").build())
+                        .build(),
+                )
+                .build(),
+        );
+
+        let spec = OpenApiBuilder::new().paths(paths).build();
+
+        let splitter = ExtractSchemasByPredicate::new("errors.yaml", |name| name.contains("Error"));
+        let result = splitter.split(spec);
+
+        // Should return unchanged (no components to split)
+        assert!(result.is_unsplit());
+    }
+
+    #[test]
+    fn should_collect_schemas_from_request_bodies() {
+        use utoipa::openapi::request_body::RequestBodyBuilder;
+
+        let create_user_schema = ObjectBuilder::new()
+            .property(
+                "name",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::String),
+            )
+            .build();
+
+        let user_schema = ObjectBuilder::new()
+            .property(
+                "id",
+                ObjectBuilder::new().schema_type(utoipa::openapi::Type::Integer),
+            )
+            .build();
+
+        let mut components = Components::new();
+        components.schemas.insert(
+            "CreateUser".to_string(),
+            RefOr::T(create_user_schema.into()),
+        );
+        components
+            .schemas
+            .insert("User".to_string(), RefOr::T(user_schema.into()));
+
+        // POST operation with request body referencing a schema
+        let create_user = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .request_body(Some(
+                RequestBodyBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new(
+                                "#/components/schemas/CreateUser",
+                            ))))
+                            .build(),
+                    )
+                    .build(),
+            ))
+            .response(
+                "201",
+                ResponseBuilder::new()
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::new("#/components/schemas/User"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+
+        let mut paths = utoipa::openapi::Paths::new();
+        paths.paths.insert(
+            "/users".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Post, create_user)
+                .build(),
+        );
+
+        let spec = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build();
+
+        let splitter = SplitSchemasByTag::new("common.yaml");
+        let usage = splitter.analyze_schema_usage(&spec);
+
+        // Both CreateUser (from request body) and User (from response) should be tracked
+        assert!(
+            usage
+                .get("CreateUser")
+                .map(|t| t.contains("users"))
+                .unwrap_or(false)
+        );
+        assert!(
+            usage
+                .get("User")
+                .map(|t| t.contains("users"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn should_place_files_in_schemas_dir() {
+        let spec = create_test_spec();
+
+        let splitter = SplitSchemasByTag::new("common.yaml").with_schemas_dir("schemas");
+        let result = splitter.split(spec);
+
+        // All fragment files should be in the schemas directory
+        for fragment in &result.fragments {
+            assert!(
+                fragment.path.starts_with("schemas"),
+                "Fragment path {:?} should start with 'schemas'",
+                fragment.path
+            );
+        }
+
+        // Check that common.yaml is also in the schemas directory
+        let common_fragment = result.fragments.iter().find(|f| {
+            f.path
+                .file_name()
+                .map(|n| n.to_string_lossy().contains("common"))
+                .unwrap_or(false)
+        });
+        if let Some(fragment) = common_fragment {
+            assert_eq!(
+                fragment.path,
+                PathBuf::from("schemas/common.yaml"),
+                "Common file should be in schemas directory"
+            );
+        }
+    }
 }
