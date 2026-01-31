@@ -206,7 +206,11 @@ impl CallBody {
 
         body_data.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
 
-        let content_type = ContentType::from(content_type.parse::<mime::Mime>().unwrap());
+        let content_type = ContentType::from(
+            content_type
+                .parse::<mime::Mime>()
+                .expect("multipart content type format is valid"),
+        );
         let entry = SchemaEntry::raw_binary();
 
         Self {

@@ -425,7 +425,11 @@ mod operation_metadata_tests {
     fn test_normalize_multipart_content_type() {
         // Create a multipart content type with boundary
         let content_type_str = "multipart/form-data; boundary=----formdata-clawspec-12345";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let content_type = ContentType::from(
+            content_type_str
+                .parse::<mime::Mime>()
+                .expect("MIME type is valid"),
+        );
         let normalized = normalize_content_type(&content_type);
         assert_eq!(normalized, "multipart/form-data");
     }
@@ -441,7 +445,11 @@ mod operation_metadata_tests {
     fn test_normalize_content_type_with_charset() {
         // Test content type with charset parameter
         let content_type_str = "application/json; charset=utf-8";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let content_type = ContentType::from(
+            content_type_str
+                .parse::<mime::Mime>()
+                .expect("MIME type is valid"),
+        );
         let normalized = normalize_content_type(&content_type);
         assert_eq!(normalized, "application/json");
     }
@@ -450,7 +458,11 @@ mod operation_metadata_tests {
     fn test_normalize_content_type_with_multiple_parameters() {
         // Test content type with multiple parameters
         let content_type_str = "text/html; charset=utf-8; boundary=something";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let content_type = ContentType::from(
+            content_type_str
+                .parse::<mime::Mime>()
+                .expect("MIME type is valid"),
+        );
         let normalized = normalize_content_type(&content_type);
         assert_eq!(normalized, "text/html");
     }
@@ -459,7 +471,11 @@ mod operation_metadata_tests {
     fn test_normalize_content_type_without_parameters() {
         // Test content type without parameters (should remain unchanged)
         let content_type_str = "application/xml";
-        let content_type = ContentType::from(content_type_str.parse::<mime::Mime>().unwrap());
+        let content_type = ContentType::from(
+            content_type_str
+                .parse::<mime::Mime>()
+                .expect("MIME type is valid"),
+        );
         let normalized = normalize_content_type(&content_type);
         assert_eq!(normalized, "application/xml");
     }
