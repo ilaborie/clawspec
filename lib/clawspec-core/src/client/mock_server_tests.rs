@@ -2033,4 +2033,61 @@ mod content_type_tests {
 
         assert!(text.contains("<html>"));
     }
+
+    #[tokio::test]
+    async fn should_infer_json_when_content_type_is_missing() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/json-no-content-type"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(
+                    br#"{"id":42,"name":"No Header","email":"no-header@test.com"}"#.to_vec(),
+                ),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = client_for_mock(&mock_server).await;
+
+        let mut response = client
+            .get("/json-no-content-type")
+            .expect("should create call")
+            .await
+            .expect("should succeed");
+
+        let raw = response.as_raw().await.expect("should get raw");
+        assert_eq!(raw.content_type(), None);
+
+        let user: User = response.as_json().await.expect("should infer JSON");
+        assert_eq!(user.id, 42);
+        assert_eq!(user.name, "No Header");
+    }
+
+    #[tokio::test]
+    async fn should_infer_text_when_content_type_is_missing() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/text-no-content-type"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"plain text body".to_vec()))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let client = client_for_mock(&mock_server).await;
+
+        let mut response = client
+            .get("/text-no-content-type")
+            .expect("should create call")
+            .await
+            .expect("should succeed");
+
+        let raw = response.as_raw().await.expect("should get raw");
+        assert_eq!(raw.content_type(), None);
+
+        let text = response.as_text().await.expect("should infer text");
+        assert_eq!(text, "plain text body");
+    }
 }

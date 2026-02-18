@@ -250,9 +250,9 @@ impl CallResult {
         content_type: &Option<ContentType>,
         status: StatusCode,
     ) -> Result<Output, ApiClientError> {
-        if let Some(content_type) = content_type
-            && status != StatusCode::NO_CONTENT
-        {
+        if status == StatusCode::NO_CONTENT {
+            Ok(Output::Empty)
+        } else if let Some(content_type) = content_type {
             if *content_type == ContentType::json() {
                 let json = response.text().await?;
                 Ok(Output::Json(json))
@@ -267,7 +267,22 @@ impl CallResult {
                 Ok(Output::Other { body })
             }
         } else {
-            Ok(Output::Empty)
+            // Fallback for missing Content-Type: infer output from body bytes.
+            let bytes = response.bytes().await?.to_vec();
+            if bytes.is_empty() {
+                return Ok(Output::Empty);
+            }
+
+            match String::from_utf8(bytes) {
+                Ok(text) => {
+                    if serde_json::from_str::<serde_json::Value>(&text).is_ok() {
+                        Ok(Output::Json(text))
+                    } else {
+                        Ok(Output::Text(text))
+                    }
+                }
+                Err(err) => Ok(Output::Bytes(err.into_bytes())),
+            }
         }
     }
 
