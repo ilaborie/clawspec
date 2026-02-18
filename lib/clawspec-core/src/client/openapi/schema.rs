@@ -144,6 +144,14 @@ impl Schemas {
         }
     }
 
+    #[cfg(test)]
+    pub(in crate::client) fn examples_for<T>(&self) -> Option<&IndexSet<serde_json::Value>>
+    where
+        T: 'static,
+    {
+        self.entries.get(&TypeId::of::<T>()).map(|entry| &entry.examples)
+    }
+
     /// Resolves the unique name for a given TypeId, handling conflicts
     fn resolve_name_for_type(&mut self, target_type_id: TypeId) -> String {
         // Check if we already resolved this type's name

@@ -691,7 +691,7 @@ impl CallResult {
             }
         })?;
 
-        if let Ok(example) = serde_json::to_value(json) {
+        if let Ok(example) = serde_json::from_str::<serde_json::Value>(json) {
             self.collector_sender
                 .send(CollectorMessage::AddExample {
                     type_id: TypeId::of::<T>(),
@@ -865,6 +865,11 @@ impl CallResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use headers::ContentType;
+    use serde::Deserialize;
+    use utoipa::ToSchema;
+
+    use crate::client::openapi::channel::CollectorHandle;
 
     #[test]
     fn test_raw_body_text_variant() {
@@ -1091,5 +1096,44 @@ mod tests {
         assert_eq!(cloned.status_code(), StatusCode::CREATED);
         assert_eq!(cloned.content_type(), Some("text/plain"));
         assert_eq!(cloned.text(), Some("Created"));
+    }
+
+    #[derive(Debug, Deserialize, ToSchema)]
+    struct ExampleResponse {
+        id: u32,
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn test_deserialize_and_record_stores_structured_json_example() {
+        let collector_handle = CollectorHandle::spawn();
+        let json = r#"{"id":1,"name":"Test User"}"#;
+
+        let call_result = CallResult {
+            operation_id: "get-example".to_string(),
+            status: StatusCode::OK,
+            content_type: Some(ContentType::json()),
+            output: Output::Json(json.to_string()),
+            collector_sender: collector_handle.sender(),
+        };
+        let _ = call_result.register_schema::<ExampleResponse>().await;
+
+        let parsed: ExampleResponse = call_result
+            .deserialize_and_record::<ExampleResponse>(json)
+            .await
+            .expect("should deserialize and record");
+        assert_eq!(parsed.id, 1);
+        assert_eq!(parsed.name, "Test User");
+
+        let collectors = collector_handle.get_collectors().await;
+        let examples = collectors
+            .schemas
+            .examples_for::<ExampleResponse>()
+            .expect("should have examples for ExampleResponse");
+
+        assert!(examples.contains(&serde_json::json!({
+            "id": 1,
+            "name": "Test User"
+        })));
     }
 }
