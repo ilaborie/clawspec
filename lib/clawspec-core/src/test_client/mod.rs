@@ -416,7 +416,13 @@ where
 
         // Build client with comprehensive OpenAPI metadata
         let client = api_client.unwrap_or_else(ApiClient::builder);
-        let client = client.with_port(local_addr.port()).build()?;
+        let client = match client.with_port(local_addr.port()).build() {
+            Ok(client) => client,
+            Err(error) => {
+                handle.abort();
+                return Err(error.into());
+            }
+        };
 
         // Wait until ready with exponential backoff
         let healthy = Self::wait_for_health(
@@ -431,6 +437,7 @@ where
         .await;
 
         if !healthy {
+            handle.abort();
             return Err(TestAppError::UnhealthyServer {
                 timeout: max_backoff_delay,
             });
@@ -1093,6 +1100,50 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct DropGuardUnhealthyServer {
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl DropGuardUnhealthyServer {
+        fn new(dropped: Arc<AtomicBool>) -> Self {
+            Self { dropped }
+        }
+    }
+
+    impl Drop for DropGuardUnhealthyServer {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl TestServer for DropGuardUnhealthyServer {
+        type Error = std::io::Error;
+
+        async fn launch(&self, listener: TcpListener) -> Result<(), Self::Error> {
+            listener.set_nonblocking(true)?;
+            let _tokio_listener = TokioTcpListener::from_std(listener)?;
+
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+
+        async fn is_healthy(&self, _client: &mut ApiClient) -> Result<HealthStatus, Self::Error> {
+            Ok(HealthStatus::Unhealthy)
+        }
+
+        fn config(&self) -> TestServerConfig {
+            TestServerConfig {
+                api_client: None,
+                min_backoff_delay: Duration::from_millis(1),
+                max_backoff_delay: Duration::from_millis(5),
+                backoff_jitter: false,
+                max_retry_attempts: 1,
+            }
+        }
+    }
+
     #[tokio::test]
     async fn test_test_client_start_health_timeout() {
         let server = ErrorTestServer::health_timeout();
@@ -1107,5 +1158,26 @@ mod tests {
             }
             other => panic!("Expected UnhealthyServer error, got: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_test_client_start_unhealthy_aborts_spawned_server_task() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let server = DropGuardUnhealthyServer::new(Arc::clone(&dropped));
+
+        let result = TestClient::start(server).await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(TestAppError::UnhealthyServer { .. })
+        ));
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !dropped.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("server should be dropped after startup failure");
     }
 }
