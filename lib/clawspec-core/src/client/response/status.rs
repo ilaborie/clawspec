@@ -25,15 +25,13 @@ impl ExpectedStatusCodes {
     }
 
     /// Adds a single status code as valid.
-    pub fn add_single(mut self, status: u16) -> Self {
-        self.ranges.push(StatusCodeRange::Single(status));
-        self
+    pub fn add_single(self, status: u16) -> Self {
+        self.add_expected_status(status)
     }
 
     /// Adds an inclusive range of status codes.
-    pub fn add_inclusive_range(mut self, range: RangeInclusive<u16>) -> Self {
-        self.ranges.push(StatusCodeRange::Inclusive(range));
-        self
+    pub fn add_inclusive_range(self, range: RangeInclusive<u16>) -> Self {
+        self.add_expected_range(range)
     }
 
     /// Adds an exclusive range of status codes.
@@ -388,5 +386,25 @@ mod status_code_tests {
     fn test_add_invalid_range() {
         // This should not panic because add_inclusive_range doesn't validate
         let _codes = ExpectedStatusCodes::default().add_inclusive_range(99..=600);
+    }
+
+    #[test]
+    fn test_add_single_matches_add_expected_status() {
+        let via_single = ExpectedStatusCodes::default().add_single(201);
+        let via_expected = ExpectedStatusCodes::default().add_expected_status(201);
+
+        for code in [99, 200, 201, 202, 500] {
+            assert_eq!(via_single.contains(code), via_expected.contains(code));
+        }
+    }
+
+    #[test]
+    fn test_add_inclusive_range_matches_add_expected_range() {
+        let via_inclusive = ExpectedStatusCodes::default().add_inclusive_range(300..=304);
+        let via_expected = ExpectedStatusCodes::default().add_expected_range(300..=304);
+
+        for code in [299, 300, 302, 304, 305] {
+            assert_eq!(via_inclusive.contains(code), via_expected.contains(code));
+        }
     }
 }
