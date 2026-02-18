@@ -1167,10 +1167,7 @@ mod tests {
 
         let result = TestClient::start(server).await;
         assert!(result.is_err());
-        assert!(matches!(
-            result,
-            Err(TestAppError::UnhealthyServer { .. })
-        ));
+        assert!(matches!(result, Err(TestAppError::UnhealthyServer { .. })));
 
         tokio::time::timeout(Duration::from_secs(1), async {
             while !dropped.load(Ordering::SeqCst) {

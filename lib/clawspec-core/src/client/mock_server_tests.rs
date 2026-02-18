@@ -2040,11 +2040,9 @@ mod content_type_tests {
 
         Mock::given(method("GET"))
             .and(path("/json-no-content-type"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_bytes(
-                    br#"{"id":42,"name":"No Header","email":"no-header@test.com"}"#.to_vec(),
-                ),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(
+                br#"{"id":42,"name":"No Header","email":"no-header@test.com"}"#.to_vec(),
+            ))
             .expect(1)
             .mount(&mock_server)
             .await;

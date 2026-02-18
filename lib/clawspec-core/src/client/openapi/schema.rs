@@ -149,7 +149,9 @@ impl Schemas {
     where
         T: 'static,
     {
-        self.entries.get(&TypeId::of::<T>()).map(|entry| &entry.examples)
+        self.entries
+            .get(&TypeId::of::<T>())
+            .map(|entry| &entry.examples)
     }
 
     /// Resolves the unique name for a given TypeId, handling conflicts
