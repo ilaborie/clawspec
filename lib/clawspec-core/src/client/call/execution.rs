@@ -145,7 +145,6 @@ impl ApiCall {
         let request = Self::build_request(method.clone(), url, &parameters, &body, &resolved_auth)?;
 
         // Create operation for OpenAPI documentation
-        let operation_id = metadata.operation_id.clone();
         #[cfg(feature = "redaction")]
         let mut operation = Self::build_operation(
             metadata,
@@ -193,8 +192,9 @@ impl ApiCall {
         let call_result = if skip_collection {
             CallResult::new_without_collection(response).await?
         } else {
+            let collector_key = operation.collector_key.clone();
             let call_result =
-                CallResult::new(operation_id, collector_sender.clone(), response).await?;
+                CallResult::new(collector_key, collector_sender.clone(), response).await?;
             operation.add_response(call_result.clone());
             Self::collect_schemas_and_operation(
                 &collector_sender,

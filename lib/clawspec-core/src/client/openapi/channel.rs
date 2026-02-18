@@ -32,7 +32,7 @@ pub(in crate::client) enum CollectorMessage {
 
     /// Register a response for an operation.
     RegisterResponse {
-        operation_id: String,
+        collector_key: String,
         status: StatusCode,
         content_type: Option<ContentType>,
         schema: Option<RefOr<Schema>>,
@@ -44,7 +44,7 @@ pub(in crate::client) enum CollectorMessage {
     /// Used by the redaction feature to register responses with redacted examples.
     #[cfg(feature = "redaction")]
     RegisterResponseWithExample {
-        operation_id: String,
+        collector_key: String,
         status: StatusCode,
         content_type: Option<ContentType>,
         schema: RefOr<Schema>,
@@ -133,14 +133,14 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
                 collectors.collect_operation(operation);
             }
             CollectorMessage::RegisterResponse {
-                operation_id,
+                collector_key,
                 status,
                 content_type,
                 schema,
                 description,
             } => {
                 collectors.register_response(
-                    &operation_id,
+                    &collector_key,
                     status,
                     content_type.as_ref(),
                     schema,
@@ -149,14 +149,14 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
             }
             #[cfg(feature = "redaction")]
             CollectorMessage::RegisterResponseWithExample {
-                operation_id,
+                collector_key,
                 status,
                 content_type,
                 schema,
                 example,
             } => {
                 collectors.register_response_with_example(
-                    &operation_id,
+                    &collector_key,
                     status,
                     content_type.as_ref(),
                     schema,

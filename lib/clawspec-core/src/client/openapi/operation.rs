@@ -20,7 +20,7 @@ use crate::client::{CallBody, CallPath};
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub(in crate::client) struct CalledOperation {
-    pub(in crate::client) operation_id: String,
+    pub(in crate::client) collector_key: String,
     pub(super) method: http::Method,
     pub(super) path: String,
     pub(super) operation: Operation,
@@ -98,7 +98,7 @@ impl CalledOperation {
 
         let operation = builder.build();
         Self {
-            operation_id: metadata.operation_id,
+            collector_key: format!("{method} {path_name}"),
             method,
             path: path_name.to_string(),
             operation,

@@ -83,7 +83,7 @@ use crate::client::response::output::Output;
 /// - The resulting OpenAPI spec will be missing crucial response documentation
 #[derive(Debug, Clone)]
 pub struct CallResult {
-    operation_id: String,
+    collector_key: String,
     status: StatusCode,
     content_type: Option<ContentType>,
     output: Output,
@@ -212,12 +212,12 @@ impl CallResult {
         self.content_type.as_ref()
     }
 
-    /// Returns the operation ID for this result.
+    /// Returns the collector key for this result.
     ///
     /// Used by the redaction feature to register response examples.
     #[cfg(feature = "redaction")]
-    pub(in crate::client) fn operation_id(&self) -> &str {
-        &self.operation_id
+    pub(in crate::client) fn collector_key(&self) -> &str {
+        &self.collector_key
     }
 
     /// Returns a reference to the output.
@@ -272,7 +272,7 @@ impl CallResult {
     }
 
     pub(in crate::client) async fn new(
-        operation_id: String,
+        collector_key: String,
         collector_sender: CollectorSender,
         response: Response,
     ) -> Result<Self, ApiClientError> {
@@ -281,7 +281,7 @@ impl CallResult {
         let output = Self::process_response_body(response, &content_type, status).await?;
 
         Ok(Self {
-            operation_id,
+            collector_key,
             status,
             content_type,
             output,
@@ -297,7 +297,7 @@ impl CallResult {
         let output = Self::process_response_body(response, &content_type, status).await?;
 
         Ok(Self {
-            operation_id: String::new(), // Empty operation_id since it won't be used
+            collector_key: String::new(), // Empty key since it won't be used
             status,
             content_type,
             output,
@@ -309,8 +309,8 @@ impl CallResult {
         &self,
         schema: Option<RefOr<Schema>>,
     ) -> Result<&Output, ApiClientError> {
-        // Skip if operation_id is empty (skip_collection case)
-        if self.operation_id.is_empty() {
+        // Skip if collector key is empty (skip_collection case)
+        if self.collector_key.is_empty() {
             return Ok(&self.output);
         }
 
@@ -320,7 +320,7 @@ impl CallResult {
 
         self.collector_sender
             .send(CollectorMessage::RegisterResponse {
-                operation_id: self.operation_id.clone(),
+                collector_key: self.collector_key.clone(),
                 status: self.status,
                 content_type: self.content_type.clone(),
                 schema,
@@ -1110,7 +1110,7 @@ mod tests {
         let json = r#"{"id":1,"name":"Test User"}"#;
 
         let call_result = CallResult {
-            operation_id: "get-example".to_string(),
+            collector_key: "GET /example".to_string(),
             status: StatusCode::OK,
             content_type: Some(ContentType::json()),
             output: Output::Json(json.to_string()),

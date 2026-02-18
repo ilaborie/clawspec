@@ -1160,6 +1160,65 @@ mod operation_tests {
     }
 
     #[tokio::test]
+    async fn should_keep_distinct_paths_with_duplicate_operation_ids() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/conflict/a"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/conflict/b"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let mut client = client_for_mock(&mock_server).await;
+
+        client
+            .get("/conflict/a")
+            .expect("should create call")
+            .with_operation_id("duplicate-operation-id")
+            .await
+            .expect("request should succeed")
+            .as_empty()
+            .await
+            .expect("should complete");
+
+        client
+            .get("/conflict/b")
+            .expect("should create call")
+            .with_operation_id("duplicate-operation-id")
+            .await
+            .expect("request should succeed")
+            .as_empty()
+            .await
+            .expect("should complete");
+
+        let openapi = client.collected_openapi().await;
+        assert!(openapi.paths.paths.contains_key("/conflict/a"));
+        assert!(openapi.paths.paths.contains_key("/conflict/b"));
+
+        let path_a = openapi
+            .paths
+            .paths
+            .get("/conflict/a")
+            .expect("should have /conflict/a");
+        let path_b = openapi
+            .paths
+            .paths
+            .get("/conflict/b")
+            .expect("should have /conflict/b");
+
+        assert!(path_a.get.is_some());
+        assert!(path_b.get.is_some());
+    }
+
+    #[tokio::test]
     async fn should_override_security_per_operation() {
         let mock_server = MockServer::start().await;
 

@@ -110,8 +110,8 @@ impl Collectors {
         &mut self,
         operation: CalledOperation,
     ) -> Option<&mut CalledOperation> {
-        let operation_id = operation.operation_id.clone();
-        let operations = self.operations.entry(operation_id).or_default();
+        let collector_key = operation.collector_key.clone();
+        let operations = self.operations.entry(collector_key).or_default();
 
         operations.push(operation);
         operations.last_mut()
@@ -134,14 +134,14 @@ impl Collectors {
     /// This method records a response with an optional schema and description.
     pub(in crate::client) fn register_response(
         &mut self,
-        operation_id: &str,
+        collector_key: &str,
         status: StatusCode,
         content_type: Option<&ContentType>,
         schema: Option<RefOr<Schema>>,
         description: String,
     ) {
-        let Some(operations) = self.operations.get_mut(operation_id) else {
-            tracing::warn!(%operation_id, "Operation not found for response registration");
+        let Some(operations) = self.operations.get_mut(collector_key) else {
+            tracing::warn!(%collector_key, "Operation not found for response registration");
             return;
         };
         let Some(operation) = operations.last_mut() else {
@@ -164,13 +164,13 @@ impl Collectors {
     #[cfg(feature = "redaction")]
     pub(in crate::client) fn register_response_with_example(
         &mut self,
-        operation_id: &str,
+        collector_key: &str,
         status: StatusCode,
         content_type: Option<&ContentType>,
         schema: RefOr<Schema>,
         example: serde_json::Value,
     ) {
-        let Some(operations) = self.operations.get_mut(operation_id) else {
+        let Some(operations) = self.operations.get_mut(collector_key) else {
             return;
         };
         let Some(operation) = operations.last_mut() else {
@@ -198,11 +198,12 @@ impl Collectors {
         }
 
         let mut result = IndexMap::<String, PathItem>::new();
-        for (operation_id, calls) in &self.operations {
+        for calls in self.operations.values() {
             debug_assert!(!calls.is_empty(), "having at least a call");
             let path = format!("{base_path}/{}", calls[0].path.trim_start_matches('/'));
             let item = result.entry(path.clone()).or_default();
             for call in calls {
+                let operation_id = call.operation.operation_id.as_deref().unwrap_or_default();
                 match &call.method {
                     &Method::GET => merge_into!(item, get, operation_id, call.operation.clone()),
                     &Method::PUT => merge_into!(item, put, operation_id, call.operation.clone()),

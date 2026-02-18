@@ -183,7 +183,7 @@ impl CallResult {
         let builder = super::redaction::create_redaction_builder::<T>(
             json,
             self.collector_sender.clone(),
-            self.operation_id().to_string(),
+            self.collector_key().to_string(),
             self.status(),
             self.content_type().cloned(),
             schema,
@@ -269,7 +269,7 @@ pub struct RedactionBuilder<T> {
     #[debug(skip)]
     collector_sender: CollectorSender,
     // Deferred response registration data
-    operation_id: String,
+    collector_key: String,
     status: StatusCode,
     content_type: Option<ContentType>,
     schema: RefOr<Schema>,
@@ -281,7 +281,7 @@ impl<T> RedactionBuilder<T> {
         value: T,
         json: serde_json::Value,
         collector_sender: CollectorSender,
-        operation_id: String,
+        collector_key: String,
         status: StatusCode,
         content_type: Option<ContentType>,
         schema: RefOr<Schema>,
@@ -290,7 +290,7 @@ impl<T> RedactionBuilder<T> {
             value,
             redacted: json,
             collector_sender,
-            operation_id,
+            collector_key,
             status,
             content_type,
             schema,
@@ -488,7 +488,7 @@ impl<T> RedactionBuilder<T> {
         // Register response with the redacted example via channel
         self.collector_sender
             .send(CollectorMessage::RegisterResponseWithExample {
-                operation_id: self.operation_id.clone(),
+                collector_key: self.collector_key.clone(),
                 status: self.status,
                 content_type: self.content_type.clone(),
                 schema: self.schema.clone(),
@@ -512,7 +512,7 @@ impl<T> RedactionBuilder<T> {
 ///
 /// * `json` - The JSON string to deserialize and prepare for redaction
 /// * `collector_sender` - The channel sender to record the redacted example to
-/// * `operation_id` - The operation ID for deferred response registration
+/// * `collector_key` - The collector routing key for deferred response registration
 /// * `status` - The HTTP status code of the response
 /// * `content_type` - The content type of the response
 /// * `schema` - The OpenAPI schema reference for the response type
@@ -530,7 +530,7 @@ impl<T> RedactionBuilder<T> {
 pub(crate) fn create_redaction_builder<T>(
     json: &str,
     collector_sender: CollectorSender,
-    operation_id: String,
+    collector_key: String,
     status: StatusCode,
     content_type: Option<ContentType>,
     schema: RefOr<Schema>,
@@ -561,7 +561,7 @@ where
         value,
         json_value,
         collector_sender,
-        operation_id,
+        collector_key,
         status,
         content_type,
         schema,
@@ -931,7 +931,7 @@ mod tests {
         let debug_str = format!("{builder:?}");
 
         assert!(debug_str.contains("RedactionBuilder"));
-        assert!(debug_str.contains("operation_id"));
+        assert!(debug_str.contains("collector_key"));
     }
 
     #[test]
