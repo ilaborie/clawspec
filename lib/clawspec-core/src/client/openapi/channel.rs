@@ -70,10 +70,9 @@ impl CollectorSender {
 
     /// Sends a message to the collector task.
     pub(in crate::client) async fn send(&self, msg: CollectorMessage) {
-        self.inner
-            .send(msg)
-            .await
-            .expect("Collector task should be running");
+        if let Err(error) = self.inner.send(msg).await {
+            tracing::warn!(%error, "Collector task is not running; dropping collection message");
+        }
     }
 }
 
@@ -167,5 +166,21 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
                 let _ = responder.send(collectors.clone());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_send_does_not_panic_when_receiver_is_dropped() {
+        let (sender, receiver) = mpsc::channel::<CollectorMessage>(1);
+        drop(receiver);
+
+        let sender = CollectorSender { inner: sender };
+        sender
+            .send(CollectorMessage::AddSchemas(Schemas::default()))
+            .await;
     }
 }
