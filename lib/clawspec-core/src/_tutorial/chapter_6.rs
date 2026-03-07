@@ -4,7 +4,7 @@
 //!
 //! > **Note:** This feature requires the `redaction` feature flag:
 //! > ```toml
-//! > clawspec-core = { version = "0.2", features = ["redaction"] }
+//! > clawspec-core = { version = "0.4", features = ["redaction"] }
 //! > ```
 //!
 //! ## The Problem with Dynamic Values
