@@ -115,6 +115,19 @@ impl TestApp {
         })
     }
 
+    pub async fn get_observation(&mut self, id: ObservationId) -> anyhow::Result<Observation> {
+        let path = CallPath::from("/observations/{observation_id}")
+            .add_param("observation_id", ParamValue::new(id));
+
+        let result = self
+            .get(path)?
+            .await
+            .context("get observation")?
+            .as_json()
+            .await?;
+        Ok(result)
+    }
+
     pub async fn create_observation(
         &mut self,
         new_observation: &PartialObservation,

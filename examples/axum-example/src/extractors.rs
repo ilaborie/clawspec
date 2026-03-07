@@ -413,99 +413,135 @@ mod tests {
     use super::*;
 
     use axum::{http::StatusCode, response::IntoResponse};
+    use insta::assert_json_snapshot;
 
-    #[tokio::test]
-    async fn test_extractor_error_into_response() {
+    #[test]
+    fn test_extractor_error_into_response() {
         let error = ExtractorError::json_error("Invalid JSON syntax");
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn test_extractor_error_unsupported_media_type() {
+    #[test]
+    fn test_extractor_error_unsupported_media_type() {
         let error = ExtractorError::unsupported_media_type("application/pdf");
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
 
-    #[tokio::test]
-    async fn test_extractor_error_multipart() {
+    #[test]
+    fn test_extractor_error_multipart() {
         let error = ExtractorError::multipart_error("Failed to read boundary");
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn test_extractor_error_encoding() {
+    #[test]
+    fn test_extractor_error_encoding() {
         let error = ExtractorError::encoding_error("Invalid UTF-8 sequence", "utf-8");
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn test_extractor_error_xml() {
+    #[test]
+    fn test_extractor_error_xml() {
         let error = ExtractorError::xml_error("Missing closing tag");
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn test_extractor_error_enum_serialization() -> anyhow::Result<()> {
-        // Test that our enum-based error properly serializes to JSON
-        // This demonstrates the structured error responses
-
-        let json_error = ExtractorError::json_error_with_location(
-            "Unexpected token at line 5, column 10",
-            "request_body",
+    #[test]
+    fn test_extractor_error_enum_serialization() {
+        assert_json_snapshot!(
+            ExtractorError::json_error_with_location(
+                "Unexpected token at line 5, column 10",
+                "request_body",
+            ),
+            @r#"
+            {
+              "type": "JsonError",
+              "details": {
+                "message": "Unexpected token at line 5, column 10",
+                "location": "request_body"
+              }
+            }
+            "#
         );
 
-        let xml_error =
-            ExtractorError::xml_error_with_element("Missing closing tag", "observation");
+        assert_json_snapshot!(
+            ExtractorError::xml_error_with_element("Missing closing tag", "observation"),
+            @r#"
+            {
+              "type": "XmlError",
+              "details": {
+                "message": "Missing closing tag",
+                "element": "observation"
+              }
+            }
+            "#
+        );
 
-        let form_error = ExtractorError::form_error_with_field("Required field missing", "name");
+        assert_json_snapshot!(
+            ExtractorError::form_error_with_field("Required field missing", "name"),
+            @r#"
+            {
+              "type": "FormError",
+              "details": {
+                "message": "Required field missing",
+                "field": "name"
+              }
+            }
+            "#
+        );
 
-        let multipart_error =
-            ExtractorError::multipart_error_with_part("Invalid boundary", "file_upload");
+        assert_json_snapshot!(
+            ExtractorError::multipart_error_with_part("Invalid boundary", "file_upload"),
+            @r#"
+            {
+              "type": "MultipartError",
+              "details": {
+                "message": "Invalid boundary",
+                "part": "file_upload"
+              }
+            }
+            "#
+        );
 
-        let encoding_error =
-            ExtractorError::encoding_error("Invalid UTF-8 sequence at byte 42", "utf-8");
+        assert_json_snapshot!(
+            ExtractorError::encoding_error("Invalid UTF-8 sequence at byte 42", "utf-8"),
+            @r#"
+            {
+              "type": "EncodingError",
+              "details": {
+                "message": "Invalid UTF-8 sequence at byte 42",
+                "encoding": "utf-8"
+              }
+            }
+            "#
+        );
 
-        let unsupported_error = ExtractorError::unsupported_media_type("application/yaml");
-
-        // Serialize each error to verify the JSON structure
-        let json_error_json = serde_json::to_string_pretty(&json_error)?;
-        let xml_error_json = serde_json::to_string_pretty(&xml_error)?;
-        let form_error_json = serde_json::to_string_pretty(&form_error)?;
-        let multipart_error_json = serde_json::to_string_pretty(&multipart_error)?;
-        let encoding_error_json = serde_json::to_string_pretty(&encoding_error)?;
-        let unsupported_error_json = serde_json::to_string_pretty(&unsupported_error)?;
-
-        // Verify the tagged union structure is correct
-        assert!(json_error_json.contains("\"type\": \"JsonError\""));
-        assert!(json_error_json.contains("\"details\""));
-        assert!(json_error_json.contains("\"location\": \"request_body\""));
-
-        assert!(xml_error_json.contains("\"type\": \"XmlError\""));
-        assert!(xml_error_json.contains("\"element\": \"observation\""));
-
-        assert!(form_error_json.contains("\"type\": \"FormError\""));
-        assert!(form_error_json.contains("\"field\": \"name\""));
-
-        assert!(multipart_error_json.contains("\"type\": \"MultipartError\""));
-        assert!(multipart_error_json.contains("\"part\": \"file_upload\""));
-
-        assert!(encoding_error_json.contains("\"type\": \"EncodingError\""));
-        assert!(encoding_error_json.contains("\"encoding\": \"utf-8\""));
-
-        assert!(unsupported_error_json.contains("\"type\": \"UnsupportedMediaType\""));
-        assert!(unsupported_error_json.contains("\"content_type\": \"application/yaml\""));
-        assert!(unsupported_error_json.contains("\"supported\""));
-
-        Ok(())
+        assert_json_snapshot!(
+            ExtractorError::unsupported_media_type("application/yaml"),
+            @r#"
+            {
+              "type": "UnsupportedMediaType",
+              "details": {
+                "content_type": "application/yaml",
+                "supported": [
+                  "application/json",
+                  "application/xml",
+                  "text/xml",
+                  "application/x-www-form-urlencoded",
+                  "multipart/form-data"
+                ]
+              }
+            }
+            "#
+        );
     }
 }

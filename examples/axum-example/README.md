@@ -8,7 +8,7 @@ This example demonstrates how to use Clawspec to generate OpenAPI documentation 
 # Start the server
 cargo run --bin axum-example
 
-# The API will be available at http://localhost:3000
+# The API will be available at http://localhost:8080
 ```
 
 ## REST API Overview

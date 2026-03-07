@@ -35,14 +35,13 @@ impl ObservationRepository {
         limit: usize,
     ) -> Result<Vec<Observation>, RepositoryError> {
         let data = self.data.read().await;
-        let data = data.clone();
 
         let mut result = data
-            .into_iter()
-            .map(|(id, (created_at, data))| Observation {
+            .iter()
+            .map(|(&id, (created_at, data))| Observation {
                 id,
-                created_at,
-                data,
+                created_at: *created_at,
+                data: data.clone(),
             })
             .collect::<Vec<_>>();
         // sort
@@ -53,12 +52,25 @@ impl ObservationRepository {
         Ok(result)
     }
 
+    pub(crate) async fn get(&self, id: ObservationId) -> Result<Observation, RepositoryError> {
+        let data = self.data.read().await;
+        let Some((created_at, partial)) = data.get(&id) else {
+            return Err(RepositoryError::ObservationNotFound { id });
+        };
+
+        Ok(Observation {
+            id,
+            created_at: *created_at,
+            data: partial.clone(),
+        })
+    }
+
     pub(crate) async fn create(
         &self,
         new_observation: PartialObservation,
     ) -> Result<Observation, RepositoryError> {
         let mut data = self.data.write().await;
-        let id = ObservationId::new();
+        let id = ObservationId::generate();
         let created_at = Timestamp::now();
         data.insert(id, (created_at, new_observation.clone()));
 
@@ -109,8 +121,12 @@ impl ObservationRepository {
         if let Some(position) = position {
             value.position = position;
         }
-        value.color = color;
-        value.notes = notes;
+        if let Some(color) = color {
+            value.color = Some(color);
+        }
+        if let Some(notes) = notes {
+            value.notes = Some(notes);
+        }
 
         Ok(Observation {
             id,

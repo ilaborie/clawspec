@@ -20,7 +20,7 @@ use self::routes::app_router;
 /// # Errors
 ///
 /// fail if the socket cannot be created (e.g. port already used)
-/// fail if the server cannot be launch
+/// fail if the server cannot be launched
 pub async fn run(addr: SocketAddr) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -34,7 +34,7 @@ pub async fn run(addr: SocketAddr) -> anyhow::Result<()> {
 ///
 /// # Errors
 ///
-/// fail if the server cannot be launch
+/// fail if the server cannot be launched
 pub async fn launch(listener: tokio::net::TcpListener) -> anyhow::Result<()> {
     let state = AppState::new().context("create state")?;
     let app = app_router()

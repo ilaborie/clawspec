@@ -21,9 +21,8 @@ use uuid::Uuid;
 pub struct ObservationId(Uuid);
 
 impl ObservationId {
-    #[allow(clippy::new_without_default)]
     #[must_use]
-    pub fn new() -> Self {
+    pub fn generate() -> Self {
         Self(Uuid::now_v7())
     }
 }

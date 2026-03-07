@@ -74,6 +74,12 @@ async fn basic_crud(app: &mut TestApp) -> anyhow::Result<()> {
         .context("should create observation")?;
     let created_id = created.id;
 
+    info!("Get single observation");
+    let _fetched = app
+        .get_observation(created_id)
+        .await
+        .context("should get single observation")?;
+
     info!("List observations with query parameters for examples");
     let _list_with_offset = app
         .list_observations(Some(ListOption {

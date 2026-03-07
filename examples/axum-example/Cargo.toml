@@ -32,7 +32,7 @@ utoipa = { workspace = true, features = ["uuid"] }
 clawspec-core = { path = "../../lib/clawspec-core", features = ["redaction"] }
 headers = { workspace = true}
 rstest = { workspace = true }
-insta = { workspace = true, features = ["yaml"] }
+insta = { workspace = true, features = ["json", "yaml"] }
 utoipa = { workspace = true, features = ["yaml", "uuid"]}
 
 [lints]
