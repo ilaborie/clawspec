@@ -394,7 +394,7 @@ pub(super) fn generate_description(method: &http::Method, path: &str) -> Option<
     } else if segments.len() >= start_index + 2 {
         // Path with potential ID parameter like "/users/{id}" or "/users/123"
         // Or nested resource like "/users/profile" or "/observations/import"
-        let last_segment = segments.last().unwrap();
+        let last_segment = segments.last().expect("segments length already checked");
         if last_segment.starts_with('{') && last_segment.ends_with('}') {
             // Last segment is a parameter, use the previous segment as resource
             segments[segments.len() - 2]
@@ -492,7 +492,7 @@ pub(super) fn generate_tags(path: &str) -> Option<Vec<String>> {
 
     // Add action-specific tags for nested resources
     if segments.len() > start_index + 1 {
-        let last_segment = segments.last().unwrap();
+        let last_segment = segments.last().expect("segments length already checked");
         // Only add as tag if it's not a parameter (doesn't contain braces)
         if !last_segment.starts_with('{') {
             match *last_segment {
