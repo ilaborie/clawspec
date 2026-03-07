@@ -205,6 +205,26 @@ paths:
       security:
       - bearerAuth: []
   /api/observations/{observation_id}:
+    get:
+      tags:
+      - observations
+      description: Retrieve observation by ID
+      operationId: get-observations-observation-id
+      parameters:
+      - name: observation_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ObservationId'
+      responses:
+        '200':
+          description: Status code 200
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
+      security:
+      - bearerAuth: []
     put:
       tags:
       - modification

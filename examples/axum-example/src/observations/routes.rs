@@ -1,7 +1,7 @@
 use axum::extract::{FromRequest, Path, Query, Request, State};
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,8 @@ pub(crate) fn observation_router() -> Router<AppState> {
         .route("/upload", post(upload_observations))
         .route(
             "/{observation_id}",
-            put(update_observation)
+            get(get_observation)
+                .put(update_observation)
                 .patch(patch_observation)
                 .delete(delete_observation),
         )
@@ -114,6 +115,13 @@ where
             _ => Err(ExtractorError::unsupported_media_type(content_type)),
         }
     }
+}
+
+async fn get_observation(
+    State(repo): State<ObservationRepository>,
+    Path(id): Path<ObservationId>,
+) -> impl IntoResponse {
+    repo.get(id).await.map(Json)
 }
 
 async fn list_observations(
