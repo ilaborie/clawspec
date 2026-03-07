@@ -27,7 +27,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-clawspec-core = "0.1.4"
+clawspec-core = "0.4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -63,11 +63,27 @@ async fn test_user_api() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate OpenAPI specification
     let spec = client.collected_openapi().await;
-    let yaml = serde_saphyr::to_string(&spec)?;
+    // Requires the `yaml` feature: clawspec-core = { version = "0.4", features = ["yaml"] }
+    use clawspec_core::ToYaml;
+    let yaml = spec.to_yaml()?;
     std::fs::write("openapi.yml", yaml)?;
 
     Ok(())
 }
+```
+
+### Features
+
+Clawspec provides optional feature flags:
+
+| Feature | Description |
+|---------|-------------|
+| `yaml` | YAML serialization via the `ToYaml` trait |
+| `redaction` | Redact dynamic values (UUIDs, timestamps) for stable OpenAPI examples |
+| `oauth2` | OAuth2 authentication support |
+
+```toml
+clawspec-core = { version = "0.4", features = ["yaml", "redaction"] }
 ```
 
 ### Test Server Example with TestClient
@@ -164,7 +180,6 @@ let response = client
     .with_query(query)
     .with_headers(headers)
     .with_cookies(cookies)
-    .exchange()
     .await?;
 ```
 
@@ -313,7 +328,7 @@ impl TestServer for AxumTestServer {
     }
 
     async fn is_healthy(&self, client: &mut ApiClient) -> Result<HealthStatus, Self::Error> {
-        match client.get("/health").unwrap().await {
+        match client.get("/health").expect("valid path").await {
             Ok(_) => Ok(HealthStatus::Healthy),
             Err(_) => Ok(HealthStatus::Unhealthy),
         }

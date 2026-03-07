@@ -228,6 +228,5 @@ When performance regressions are detected:
 ## References
 
 - [Issue #31: Optimize performance in path handling and schema operations](https://github.com/ilaborie/clawspec/issues/31)
-- [Performance Improvements Documentation](../PERFORMANCE_IMPROVEMENTS.md)
 - [Criterion.rs Benchmarking Guide](https://bheisler.github.io/criterion.rs/book/)
 - [Rust Performance Book](https://nnethercote.github.io/perf-book/)
