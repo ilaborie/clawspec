@@ -102,12 +102,12 @@ paths:
             schema:
               $ref: '#/components/schemas/PartialObservation'
             example:
-              name: Redaction Demo Bird
-              position:
-                lng: 0.0
-                lat: 0.0
               color: rainbow
+              name: Redaction Demo Bird
               notes: This observation demonstrates the redaction feature
+              position:
+                lat: 0.0
+                lng: 0.0
           application/pdf:
             schema:
               type: string
@@ -116,10 +116,10 @@ paths:
             schema:
               $ref: '#/components/schemas/FlatObservation'
             example:
-              name: Form Bird
-              lng: 2.5
-              lat: 3.5
               color: orange
+              lat: 3.5
+              lng: 2.5
+              name: Form Bird
               notes: Created via form encoding
           text/xml:
             schema:
@@ -133,14 +133,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/Observation'
               example:
-                id: 019aaaaa-0000-7000-8000-000000000000
-                created_at: 2024-01-01T00:00:00Z
-                name: Redaction Demo Bird
-                position:
-                  lng: 0.0
-                  lat: 0.0
                 color: rainbow
+                created_at: 2024-01-01T00:00:00Z
+                id: 019aaaaa-0000-7000-8000-000000000000
+                name: Redaction Demo Bird
                 notes: This observation demonstrates the redaction feature
+                position:
+                  lat: 0.0
+                  lng: 0.0
         '400':
           description: Status code 400
           content:
@@ -223,12 +223,12 @@ paths:
             schema:
               $ref: '#/components/schemas/PartialObservation'
             example:
-              name: Updated Metadata Demo
-              position:
-                lng: 45.0
-                lat: -90.0
               color: rainbow
+              name: Updated Metadata Demo
               notes: Used to demonstrate OpenAPI metadata features
+              position:
+                lat: -90.0
+                lng: 45.0
       responses:
         '200':
           description: Status code 200
@@ -269,10 +269,10 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchObservation'
             example:
-              name: Partially Updated Parrot
-              position: null
               color: red
+              name: Partially Updated Parrot
               notes: null
+              position: null
       responses:
         '200':
           description: Status code 200
