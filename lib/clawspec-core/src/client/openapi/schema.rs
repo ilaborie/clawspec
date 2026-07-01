@@ -40,6 +40,11 @@ where
 pub(in crate::client) struct Schemas {
     entries: IndexMap<TypeId, SchemaEntry>,
     resolved_names: std::collections::HashMap<TypeId, String>,
+    /// Schemas transitively reachable from a registered type's nested fields/variants,
+    /// discovered via utoipa's `ToSchema::schemas()` recursive walk. Keyed by name rather
+    /// than `TypeId` since utoipa's API only exposes the name for these. A `TypeId`-backed
+    /// entry with the same name always takes precedence (see `schema_vec`).
+    nested: IndexMap<String, RefOr<Schema>>,
 }
 
 impl Debug for Schemas {
@@ -54,8 +59,22 @@ impl Debug for Schemas {
 }
 
 impl Schemas {
-    pub(crate) fn add_entry(&mut self, entry: SchemaEntry) -> RefOr<Schema> {
+    /// Folds nested `(name, schema)` pairs discovered via `ToSchema::schemas()` into the
+    /// name-keyed side table. First-write-wins: a name already present (either from an
+    /// earlier nested walk, or destined to be shadowed by a directly registered type in
+    /// `schema_vec`) is left untouched.
+    fn absorb_nested(&mut self, nested: impl IntoIterator<Item = (String, RefOr<Schema>)>) {
+        for (name, schema) in nested {
+            self.nested.entry(name).or_insert(schema);
+        }
+    }
+
+    pub(crate) fn add_entry(&mut self, mut entry: SchemaEntry) -> RefOr<Schema> {
         let type_id = entry.id;
+
+        if !self.entries.contains_key(&type_id) {
+            self.absorb_nested(std::mem::take(&mut entry.nested));
+        }
 
         // First insert/update the entry
         let _ = self
@@ -80,7 +99,14 @@ impl Schemas {
         T: ToSchema + 'static,
     {
         let id = TypeId::of::<T>();
-        self.entries.entry(id).or_insert_with(SchemaEntry::of::<T>)
+        if !self.entries.contains_key(&id) {
+            let mut entry = SchemaEntry::of::<T>();
+            self.absorb_nested(std::mem::take(&mut entry.nested));
+            self.entries.insert(id, entry);
+        }
+        self.entries
+            .get_mut(&id)
+            .expect("entry inserted above if it was missing")
     }
 
     pub(in crate::client) fn add<T>(&mut self) -> RefOr<Schema>
@@ -265,6 +291,8 @@ impl Schemas {
                 }
             });
         }
+
+        self.absorb_nested(other.nested);
     }
 
     pub(in crate::client) fn schema_vec(&self) -> Vec<(String, RefOr<Schema>)> {
@@ -283,6 +311,18 @@ impl Schemas {
             *name_counts.entry(entry.name.clone()).or_insert(0) += 1;
         }
 
+        // Schemas already provided by a directly registered type; these take precedence
+        // over a same-named schema discovered only through a nested `schemas()` walk. The
+        // same Rust type commonly gets discovered both ways (e.g. it's nested in one
+        // response and also used directly as another endpoint's body) - that's expected
+        // and produces an identical schema body, so it's only worth a warning when the
+        // bodies actually differ (a genuine short-name collision between distinct types).
+        let registered_schemas: std::collections::HashMap<&str, &RefOr<Schema>> =
+            non_primitive_entries
+                .iter()
+                .map(|(_, entry)| (entry.name.as_str(), &entry.schema))
+                .collect();
+
         // Generate resolved names without cloning the entire structure
         for (type_id, entry) in non_primitive_entries {
             let resolved_name =
@@ -290,6 +330,24 @@ impl Schemas {
             let schema = entry.schema.clone();
             result.push((resolved_name, schema));
         }
+
+        // Append schemas transitively discovered via nested ToSchema::schemas() walks.
+        for (name, schema) in &self.nested {
+            match registered_schemas.get(name.as_str()) {
+                Some(registered_schema) if *registered_schema == schema => continue,
+                Some(_) => {
+                    tracing::warn!(
+                        schema_name = %name,
+                        "Nested schema name collides with a directly registered schema of \
+                         the same name but a different shape; keeping the directly \
+                         registered one."
+                    );
+                    continue;
+                }
+                None => result.push((name.clone(), schema.clone())),
+            }
+        }
+
         result
     }
 
@@ -362,6 +420,12 @@ pub(in crate::client) struct SchemaEntry {
     #[debug(ignore)]
     pub(in crate::client) schema: RefOr<Schema>,
     pub(in crate::client) examples: IndexSet<serde_json::Value>,
+    /// Schemas transitively reachable from this type's fields/variants, discovered via
+    /// utoipa's `ToSchema::schemas()` recursive walk. Only meaningful the first time this
+    /// entry is inserted into a `Schemas` collection; consumed there (see
+    /// `Schemas::absorb_nested`).
+    #[debug(ignore)]
+    pub(in crate::client) nested: Vec<(String, RefOr<Schema>)>,
 }
 
 impl SchemaEntry {
@@ -372,12 +436,15 @@ impl SchemaEntry {
         let id = TypeId::of::<T>();
         let name = T::name();
         let type_name = type_name::<T>();
+        let mut nested = Vec::new();
+        T::schemas(&mut nested);
         Self {
             id,
             type_name: type_name.to_string(),
             name: name.to_string(),
             schema: T::schema(),
             examples: IndexSet::default(),
+            nested,
         }
     }
 
@@ -407,6 +474,7 @@ impl SchemaEntry {
             name: name.to_string(),
             schema,
             examples: IndexSet::default(),
+            nested: Vec::new(),
         }
     }
 
@@ -452,6 +520,120 @@ mod tests {
         let schema_vec = schemas.schema_vec();
         assert_eq!(schema_vec.len(), 1);
         assert_eq!(schema_vec[0].0, "TestType");
+    }
+
+    #[test]
+    fn test_schemas_add_captures_nested_types_transitively() {
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Leaf {
+            value: i32,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Mid {
+            leaf: Leaf,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Root {
+            mid: Mid,
+        }
+
+        let mut schemas = Schemas::default();
+        // Only the root is registered directly; Mid and Leaf must be discovered via
+        // ToSchema::schemas()'s recursive walk.
+        schemas.add::<Root>();
+
+        let schema_vec = schemas.schema_vec();
+        let names: HashSet<&str> = schema_vec.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            HashSet::from(["Root", "Mid", "Leaf"]),
+            "expected root and all transitively nested types to be captured"
+        );
+    }
+
+    #[test]
+    fn test_schemas_add_captures_flattened_nested_type() {
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Inner {
+            value: i32,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Outer {
+            #[serde(flatten)]
+            inner: Inner,
+            extra: String,
+        }
+
+        let mut schemas = Schemas::default();
+        schemas.add::<Outer>();
+
+        let schema_vec = schemas.schema_vec();
+        let names: HashSet<&str> = schema_vec.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(
+            names.contains("Inner"),
+            "flattened nested type should still be captured, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn test_schemas_add_captures_enum_variant_payload_types() {
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Created {
+            id: u64,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Deleted {
+            id: u64,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        enum Event {
+            Created(Created),
+            Deleted(Deleted),
+        }
+
+        // Constructed so the variants aren't flagged as dead code.
+        let _ = Event::Created(Created { id: 1 });
+        let _ = Event::Deleted(Deleted { id: 2 });
+
+        let mut schemas = Schemas::default();
+        schemas.add::<Event>();
+
+        let schema_vec = schemas.schema_vec();
+        let names: HashSet<&str> = schema_vec.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(
+            names.contains("Created") && names.contains("Deleted"),
+            "enum variant payload types should be captured, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn test_schemas_add_terminates_on_recursive_type_with_no_recursion_attribute() {
+        // utoipa's own ToSchema::schemas() has no built-in cycle detection: a recursive
+        // field (directly or mutually recursive) *must* be annotated with
+        // `#[schema(no_recursion)]`, or utoipa itself stack-overflows while walking it -
+        // independent of clawspec-core, and identical to what `#[derive(OpenApi)]` +
+        // `components(schemas(...))` would do (see
+        // https://github.com/juhaku/utoipa/issues/1134). Document that requirement rather
+        // than working around it, since there's no way to intervene inside utoipa's opaque
+        // recursive call.
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Node {
+            value: i32,
+            #[schema(no_recursion)]
+            next: Option<Box<Node>>,
+        }
+
+        let mut schemas = Schemas::default();
+        schemas.add::<Node>();
+
+        let schema_vec = schemas.schema_vec();
+        let names: HashSet<&str> = schema_vec.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, HashSet::from(["Node"]));
     }
 
     #[test]
@@ -840,6 +1022,7 @@ mod tests {
             name: "SimpleType".to_string(),
             schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
             examples: IndexSet::default(),
+            nested: Vec::new(),
         };
 
         // Add the same name from another "type" to force conflict
@@ -849,6 +1032,7 @@ mod tests {
             name: "SimpleType".to_string(), // Same name as above!
             schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
             examples: IndexSet::default(),
+            nested: Vec::new(),
         };
 
         schemas.entries.insert(simple_entry.id, simple_entry);

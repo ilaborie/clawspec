@@ -422,8 +422,14 @@
 //!
 //! ## Schema Registration
 //!
-//! Schemas are **automatically captured** when using `.json()` and `.as_json()` methods.
-//! For nested schemas or error types, use `register_schemas!`:
+//! Schemas are **automatically captured** when using `.json()` and `.as_json()` methods,
+//! including types nested inside them (fields, `Vec<T>`, `Option<T>`, enum variants, etc.
+//! that also derive `ToSchema`) — clawspec walks that graph for you via utoipa's own
+//! recursive schema collection.
+//!
+//! For types that aren't *statically* reachable through a `ToSchema`-deriving field —
+//! e.g. an error type only ever constructed dynamically, or a type behind a
+//! `serde_json::Value` field — use `register_schemas!` to add them explicitly:
 //!
 //! ```rust
 //! use clawspec_core::{ApiClient, register_schemas};
@@ -439,8 +445,14 @@
 //! # }
 //! ```
 //!
-//! **Note**: Nested schemas may not be fully resolved automatically. Register them explicitly
-//! if they're missing from your OpenAPI output.
+//! **Recursive types**: if a `ToSchema` type is directly or mutually recursive (e.g. a tree
+//! node holding `Option<Box<Self>>`, or `Pet` -> `Owner` -> `Pet`), the recursive field
+//! *must* be annotated with utoipa's own `#[schema(no_recursion)]` attribute. This is a
+//! requirement of utoipa's `ToSchema::schemas()` itself (it has no built-in cycle
+//! detection — see [utoipa#1134](https://github.com/juhaku/utoipa/issues/1134)), not
+//! something clawspec adds: the same care is needed with `#[derive(OpenApi)]`'s
+//! `components(schemas(...))`. Skipping it causes a stack overflow the first time the
+//! type is captured.
 //!
 //! ## Error Handling
 //!
@@ -698,18 +710,17 @@ macro_rules! expected_status_codes {
 ///
 /// # When to Use
 ///
-/// - **Nested Schemas**: When your JSON types contain nested structures that need to be fully resolved
-/// - **Error Types**: To ensure error response schemas are included in the OpenAPI specification
-/// - **Complex Dependencies**: When automatic schema capture doesn't include all referenced types
+/// Most JSON request/response schemas are captured automatically when using `.json()` and
+/// `.as_json()` methods — including types nested inside them (fields, `Vec<T>`, `Option<T>`,
+/// enum variants, etc. that also derive [`utoipa::ToSchema`]), since clawspec walks that graph
+/// for you. Use this macro only for types that aren't *statically* reachable through a
+/// `ToSchema`-deriving field, such as:
 ///
-/// # Automatic vs Manual Registration
-///
-/// Most JSON request/response schemas are captured automatically when using `.json()` and `.as_json()` methods.
-/// Use this macro when you need to ensure complete schema coverage, especially for nested types.
+/// - **Error Types**: An error response type never returned by any exercised endpoint
+/// - **Dynamic Types**: A type reached only through a `serde_json::Value` field or similar
+///   type-erased boundary
 ///
 /// # Examples
-///
-/// ## Basic Usage
 ///
 /// ```rust
 /// use clawspec_core::{ApiClient, register_schemas};
@@ -722,47 +733,16 @@ macro_rules! expected_status_codes {
 ///     name: String,
 /// }
 ///
-/// #[derive(Serialize, Deserialize, ToSchema)]
-/// struct Post {
-///     id: u64,
-///     title: String,
-///     author_id: u64,
+/// #[derive(Deserialize, ToSchema)]
+/// struct ErrorResponse {
+///     code: String,
 /// }
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = ApiClient::builder().build()?;
 ///
 /// // Register multiple schemas at once
-/// register_schemas!(client, User, Post).await;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// ## Nested Schemas
-///
-/// ```rust
-/// use clawspec_core::{ApiClient, register_schemas};
-/// use serde::{Serialize, Deserialize};
-/// use utoipa::ToSchema;
-///
-/// #[derive(Serialize, Deserialize, ToSchema)]
-/// struct Address {
-///     street: String,
-///     city: String,
-/// }
-///
-/// #[derive(Serialize, Deserialize, ToSchema)]
-/// struct User {
-///     id: u64,
-///     name: String,
-///     address: Address,  // Nested schema
-/// }
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let mut client = ApiClient::builder().build()?;
-///
-/// // Register both main and nested schemas for complete OpenAPI generation
-/// register_schemas!(client, User, Address).await;
+/// register_schemas!(client, User, ErrorResponse).await;
 /// # Ok(())
 /// # }
 /// ```
