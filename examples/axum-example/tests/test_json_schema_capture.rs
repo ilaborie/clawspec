@@ -1,7 +1,6 @@
 #![allow(missing_docs)]
 
 use anyhow::Context;
-use clawspec_core::register_schemas;
 use rstest::rstest;
 use tracing::info;
 
@@ -17,8 +16,9 @@ async fn test_json_schema_capture_without_explicit_registration(
 ) -> anyhow::Result<()> {
     let mut app = app.await;
 
-    register_schemas!(app, LngLat).await;
-
+    // No explicit `register_schemas!(app, LngLat)` call: LngLat is only reachable as a
+    // nested field of PartialObservation, and must be captured automatically via
+    // utoipa's recursive ToSchema::schemas() walk.
     info!("Testing JSON schema capture with only create observation endpoint");
     let new_observation = PartialObservation {
         name: "Test Bird for Schema Capture".to_string(),
@@ -55,6 +55,10 @@ async fn test_json_schema_capture_without_explicit_registration(
     assert!(
         schemas.contains_key("PartialObservation"),
         "PartialObservation schema should be captured"
+    );
+    assert!(
+        schemas.contains_key("LngLat"),
+        "LngLat schema should be captured automatically as a nested type, with no explicit registration"
     );
 
     Ok(())
