@@ -291,8 +291,6 @@ paths:
             example:
               color: red
               name: Partially Updated Parrot
-              notes: null
-              position: null
       responses:
         '200':
           description: Status code 200

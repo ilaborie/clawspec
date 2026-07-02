@@ -33,6 +33,8 @@ tracing = "0.1.43"
 # annotate-snippets uses anstyle Display impl (added in 1.0.5)
 annotate-snippets = "0.12.5"
 anstyle = "1.0.5"
+# lazy_static 1.0.0 lacks the local_inner_macros export sharded-slab relies on
+lazy_static = "1.4.0"
 derive_more = { version = "2.1.0", default-features = false, features = ["error", "display", "from", "deref", "deref_mut", "debug"] }
 indexmap = "2.12.1"
 slug = "0.1.6"
