@@ -78,7 +78,7 @@ impl SplitSchemasByTag {
         let mut schema_to_tags: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
         // Iterate through all paths and operations
-        for (_path, path_item) in spec.paths.paths.iter() {
+        for path_item in spec.paths.paths.values() {
             for operation in iter_operations(path_item) {
                 let tags = operation.tags.clone().unwrap_or_default();
                 if tags.is_empty() {

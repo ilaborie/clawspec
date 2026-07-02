@@ -12,4 +12,4 @@ cargo = { binstall = true }
 "cargo:cargo-nextest" = "0.9"
 "cargo:git-cliff" = "latest"
 "cargo:release-plz" = "latest"
-"npm:@stoplight/spectral-cli" = "latest"
+"npm:@stoplight/spectral-cli" = "6.16.0"
