@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.3...clawspec-core-v0.4.4) - 2026-07-18
+
+### Added
+
+- *(clawspec-core)* auto-capture nested types via utoipa's ToSchema::schemas()
+
+### Fixed
+
+- *(clawspec-core)* harden nested-schema collision handling and docs
+- *(ci)* resolve minimal-versions build and spectral crash
+- *(ci)* pin spectral-cli version and fix beta clippy lint
+
+### Other
+
+- *(deps)* bump all dependencies and raise MSRV to 1.89
+
 ## [0.4.3](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.2...clawspec-core-v0.4.3) - 2026-03-07
 
 ### Other
