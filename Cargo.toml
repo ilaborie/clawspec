@@ -3,65 +3,69 @@ members = ["lib/clawspec-core", "lib/clawspec-macro", "examples/*"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.88"
+rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 authors = ["Igor Laborie <ilaborie@gmail.com>"]
 repository = "https://github.com/ilaborie/clawspec"
 homepage = "https://github.com/ilaborie/clawspec"
 
 [workspace.dependencies]
-serde = "1.0.219"
-serde_json = "1.0.140"
-serde_path_to_error = "0.1.17"
-serde-saphyr =  "0.0.21"
+serde = "1.0.228"
+serde_json = "1.0.150"
+serde_path_to_error = "0.1.20"
+serde-saphyr =  "0.0.29"
+# serde-saphyr under-constrains encoding_rs_io; bom_override() requires >=0.1.2 for minimal-versions CI
+encoding_rs_io = "0.1.2"
 serde_urlencoded = "0.7.1"
 
-utoipa = "5.3.1"
+utoipa = "5.5.0"
 
-tokio = "1.47.0"
-axum = "0.8.7"
+tokio = "1.53.0"
+axum = "0.8.9"
 
-reqwest = { version = "0.13.1", default-features = false }
-headers = "0.4.0"
-http = "1.4.0"
-url = "2.5.4"
-percent-encoding = "2.3.1"
+reqwest = { version = "0.13.4", default-features = false }
+headers = "0.4.1"
+http = "1.4.2"
+url = "2.5.8"
+percent-encoding = "2.3.2"
 
-regex = "1.11.1"
-tracing = "0.1.43"
+regex = "1.13.1"
+tracing = "0.1.44"
 # Transitive dependencies - minimum versions for compatibility
 # annotate-snippets uses anstyle Display impl (added in 1.0.5)
-annotate-snippets = "0.12.5"
-anstyle = "1.0.5"
+annotate-snippets = "0.12.16"
+anstyle = "1.0.14"
 # lazy_static 1.0.0 lacks the local_inner_macros export sharded-slab relies on
-lazy_static = "1.4.0"
-derive_more = { version = "2.1.0", default-features = false, features = ["error", "display", "from", "deref", "deref_mut", "debug"] }
-indexmap = "2.12.1"
+lazy_static = "1.5.0"
+derive_more = { version = "2.1.1", default-features = false, features = ["error", "display", "from", "deref", "deref_mut", "debug"] }
+indexmap = "2.14.0"
 slug = "0.1.6"
-anyhow = "1.0.98"
-uuid = "1.19.0"
+anyhow = "1.0.103"
+uuid = "1.24.0"
 mime = "0.3.17"
-cruet = "0.15.0"
-bytes = "1.11.0"
-chrono = "0.4.38"
+cruet = "1.0.0"
+bytes = "1.12.1"
+chrono = "0.4.45"
 pico-args = "0.5.0"
 serde-xml-rs = "0.8.2"
-tower-http = "0.6.6"
-backon = "1.3.0"
+tower-http = "0.7.0"
+backon = "1.6.0"
 base64 = "0.22.1"
-zeroize = "1.8.1"
+zeroize = "1.9.0"
 jsonptr = "0.7.1"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
-serde_json_path = "0.7.1"
-jiff = "0.2"
+# oauth2 under-constrains thiserror; its RequestTokenError From impl needs >=1.0.50 to compile on rustc 1.89 (minimal-versions CI)
+thiserror = "1.0.50"
+serde_json_path = "0.7.2"
+jiff = "0.2.32"
 
 ## Dev
 rstest = "0.26.1"
-insta = "1.44.3"
+insta = "1.48.0"
 assert2 = "0.4.0"
-tracing-subscriber = "0.3.22"
-criterion = "0.8.1"
-wiremock = "0.6"
+tracing-subscriber = "0.3.23"
+criterion = "0.8.2"
+wiremock = "0.6.5"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
