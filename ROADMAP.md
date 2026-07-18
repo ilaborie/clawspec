@@ -372,7 +372,7 @@ This roadmap is a living document that evolves with the project and community ne
 - **Patch Versions (0.0.x)**: Bug fixes, security updates, performance improvements
 
 ### Supported Rust Versions
-- **Current MSRV**: Rust 1.88 (latest stable at project start)
+- **Current MSRV**: Rust 1.89 (raised by cruet 1.0)
 - **MSRV Policy**: Support latest stable and previous 2 releases
 - **Update Cadence**: MSRV updates with minor releases, deprecated features with major releases
 
