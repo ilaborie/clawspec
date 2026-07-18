@@ -60,12 +60,30 @@ impl Debug for Schemas {
 
 impl Schemas {
     /// Folds nested `(name, schema)` pairs discovered via `ToSchema::schemas()` into the
-    /// name-keyed side table. First-write-wins: a name already present (either from an
+    /// name-keyed side table. First-write-wins: a name already present (for instance from an
     /// earlier nested walk, or destined to be shadowed by a directly registered type in
     /// `schema_vec`) is left untouched.
+    ///
+    /// When an already-present name maps to a *different* schema shape, the incoming one is a
+    /// genuine short-name collision between two distinct types (utoipa exposes only the name,
+    /// not a `TypeId`, for nested schemas, so they cannot be namespaced apart). The first is
+    /// kept and a warning is emitted, mirroring the nested-vs-registered path in `schema_vec`.
     fn absorb_nested(&mut self, nested: impl IntoIterator<Item = (String, RefOr<Schema>)>) {
         for (name, schema) in nested {
-            self.nested.entry(name).or_insert(schema);
+            match self.nested.entry(name) {
+                indexmap::map::Entry::Vacant(vacant) => {
+                    vacant.insert(schema);
+                }
+                indexmap::map::Entry::Occupied(occupied) if *occupied.get() != schema => {
+                    tracing::warn!(
+                        schema_name = %occupied.key(),
+                        "Two distinct nested types resolve to the same schema name with \
+                         different shapes; keeping the first. Disambiguate one of them with \
+                         #[schema(as = \"module::Type\")]."
+                    );
+                }
+                indexmap::map::Entry::Occupied(_) => {}
+            }
         }
     }
 
@@ -317,6 +335,11 @@ impl Schemas {
         // response and also used directly as another endpoint's body) - that's expected
         // and produces an identical schema body, so it's only worth a warning when the
         // bodies actually differ (a genuine short-name collision between distinct types).
+        //
+        // Keyed by the bare `name`, this map is only meaningful for names that occupy the
+        // bare slot in the output - i.e. `name_counts[name] == 1`. When several registered
+        // types share a short name they are emitted under namespaced names (`module_Foo`),
+        // so a same-named nested schema no longer collides and must be appended (see below).
         let registered_schemas: std::collections::HashMap<&str, &RefOr<Schema>> =
             non_primitive_entries
                 .iter()
@@ -333,9 +356,15 @@ impl Schemas {
 
         // Append schemas transitively discovered via nested ToSchema::schemas() walks.
         for (name, schema) in &self.nested {
+            // A directly-registered type only shadows this nested name when it actually
+            // occupies the bare slot in the output. If several registered types share the
+            // short name they are namespaced instead, leaving it free for the nested schema.
+            let shadows_bare_name = name_counts.get(name.as_str()).copied().unwrap_or(0) == 1;
             match registered_schemas.get(name.as_str()) {
-                Some(registered_schema) if *registered_schema == schema => continue,
-                Some(_) => {
+                Some(registered_schema) if shadows_bare_name && *registered_schema == schema => {
+                    continue;
+                }
+                Some(_) if shadows_bare_name => {
                     tracing::warn!(
                         schema_name = %name,
                         "Nested schema name collides with a directly registered schema of \
@@ -344,7 +373,7 @@ impl Schemas {
                     );
                     continue;
                 }
-                None => result.push((name.clone(), schema.clone())),
+                _ => result.push((name.clone(), schema.clone())),
             }
         }
 
@@ -634,6 +663,119 @@ mod tests {
         let schema_vec = schemas.schema_vec();
         let names: HashSet<&str> = schema_vec.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, HashSet::from(["Node"]));
+    }
+
+    #[test]
+    fn test_schema_vec_nested_collision_keeps_registered_shape() {
+        // A directly-registered type and a distinct nested-only type share the same short
+        // schema name ("Config"). utoipa exposes only the name (no TypeId) for nested schemas,
+        // so they cannot be namespaced apart; the registered shape must win and the nested one
+        // is dropped (with a warning). A name-set assertion could not catch a wrong *shape*
+        // sneaking in under the right name, so this checks the emitted body and the count.
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Config {
+            timeout_ms: u64,
+        }
+
+        // Different type, same default short name ("Config"), reachable only as a nested field.
+        mod nested_mod {
+            use super::*;
+
+            #[derive(Debug, ToSchema, Serialize)]
+            pub struct Config {
+                retries: String,
+            }
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Root {
+            config: nested_mod::Config,
+        }
+
+        let mut schemas = Schemas::default();
+        schemas.add::<Config>();
+        schemas.add::<Root>();
+
+        let schema_vec = schemas.schema_vec();
+        let config_entries: Vec<_> = schema_vec
+            .iter()
+            .filter(|(name, _)| name == "Config")
+            .collect();
+        assert_eq!(
+            config_entries.len(),
+            1,
+            "the colliding short name must appear exactly once, got {schema_vec:?}"
+        );
+        assert_eq!(
+            &config_entries[0].1,
+            &<Config as utoipa::PartialSchema>::schema(),
+            "the directly-registered Config shape must take precedence over the nested one"
+        );
+    }
+
+    #[test]
+    fn test_schemas_merge_absorbs_nested_schemas() {
+        // `merge` must carry over the name-keyed nested table, not just the TypeId entries.
+        // Every other merge test uses primitive-only types, so this is the only coverage of
+        // schemas discovered transitively arriving through the merge path (e.g. complex
+        // struct-valued parameters).
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Leaf {
+            value: i32,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Mid {
+            leaf: Leaf,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Root {
+            mid: Mid,
+        }
+
+        let mut source = Schemas::default();
+        source.add::<Root>();
+
+        let mut target = Schemas::default();
+        target.merge(source);
+
+        let schema_vec = target.schema_vec();
+        let names: HashSet<&str> = schema_vec.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(
+            names.is_superset(&HashSet::from(["Root", "Mid", "Leaf"])),
+            "merge must carry over transitively nested schemas, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn test_schema_vec_type_registered_and_nested_appears_once() {
+        // The common, benign case: the same Rust type is both registered directly and
+        // discovered as a nested field. It shares a TypeId, so both discoveries yield an
+        // identical shape; the nested duplicate must be dropped, leaving exactly one entry.
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Mid {
+            value: i32,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Root {
+            mid: Mid,
+        }
+
+        let mut schemas = Schemas::default();
+        schemas.add::<Root>();
+        schemas.add::<Mid>();
+
+        let mid_count = schemas
+            .schema_vec()
+            .iter()
+            .filter(|(name, _)| name == "Mid")
+            .count();
+        assert_eq!(
+            mid_count, 1,
+            "a type registered directly and discovered nested must appear exactly once"
+        );
     }
 
     #[test]
