@@ -6,10 +6,13 @@ GIT_CLIFF_OUTPUT = "CHANGELOG.md"
 experimental = true
 cargo = { binstall = true }
 
+# Pin exact versions: resolving "latest"/ranges forces a crates.io /versions
+# fetch (20s timeout) on every `mise install`, which intermittently times out
+# and fails the "Setup Rust environment" CI step.
 [tools]
-"cargo:cargo-audit" = "latest"
-"cargo:cargo-llvm-cov" = "latest"
-"cargo:cargo-nextest" = "0.9"
-"cargo:git-cliff" = "latest"
-"cargo:release-plz" = "latest"
+"cargo:cargo-audit" = "0.22.2"
+"cargo:cargo-llvm-cov" = "0.8.7"
+"cargo:cargo-nextest" = "0.9.140"
+"cargo:git-cliff" = "2.13.1"
+"cargo:release-plz" = "0.3.160"
 "npm:@stoplight/spectral-cli" = "6.16.0"
