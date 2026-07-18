@@ -55,7 +55,11 @@
 //! Document what responses mean:
 //!
 //! ```rust,no_run
+//! # // `with_response_description` requires the `redaction` feature; gate the example so
+//! # // `cargo test --doc` (default features) still compiles, and keep a no-op `main` for it.
+//! # #[cfg(feature = "redaction")]
 //! # use clawspec_core::ApiClient;
+//! # #[cfg(feature = "redaction")]
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let mut client = ApiClient::builder().build()?;
@@ -68,6 +72,8 @@
 //!     .await?;
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "redaction"))]
+//! # fn main() {}
 //! ```
 //!
 //! ## API Info Configuration
@@ -197,6 +203,9 @@
 //! #[derive(Deserialize, ToSchema)]
 //! struct ApiError { code: String, message: String }
 //!
+//! # // Uses `with_response_description` (redaction feature); gate so `cargo test --doc`
+//! # // with default features compiles, with a no-op `main` fallback for that case.
+//! # #[cfg(feature = "redaction")]
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Configure client with full metadata
@@ -239,6 +248,8 @@
 //! // println!("{}", spec.to_yaml()?);
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "redaction"))]
+//! # fn main() {}
 //! ```
 //!
 //! ## Key Points

@@ -16,9 +16,10 @@ async fn test_json_schema_capture_without_explicit_registration(
 ) -> anyhow::Result<()> {
     let mut app = app.await;
 
-    // No explicit `register_schemas!(app, LngLat)` call: LngLat is only reachable as a
-    // nested field of PartialObservation, and must be captured automatically via
-    // utoipa's recursive ToSchema::schemas() walk.
+    // No explicit `register_schemas!(app, LngLat)` call: LngLat is never registered directly
+    // and is never itself a top-level body/response type. It is only reached as a nested field
+    // (of PartialObservation, and transitively of the flattened Observation response), so it
+    // must be captured automatically via utoipa's recursive ToSchema::schemas() walk.
     info!("Testing JSON schema capture with only create observation endpoint");
     let new_observation = PartialObservation {
         name: "Test Bird for Schema Capture".to_string(),

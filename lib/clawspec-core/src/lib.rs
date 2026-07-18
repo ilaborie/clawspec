@@ -169,8 +169,13 @@
 //! Add descriptive text to your OpenAPI responses for better documentation:
 //!
 //! ```rust
+//! # // `with_response_description` requires the `redaction` feature; gate the example so
+//! # // `cargo test --doc` (default features) still compiles, while it is compile-checked
+//! # // under `--features redaction` / `--all-features`.
+//! # #[cfg(feature = "redaction")]
 //! use clawspec_core::ApiClient;
 //!
+//! # #[cfg(feature = "redaction")]
 //! # async fn example(client: &mut ApiClient) -> Result<(), Box<dyn std::error::Error>> {
 //! // Set a description for the actual returned status code
 //! client.get("/users/{id}")?
@@ -433,15 +438,16 @@
 //!
 //! ```rust
 //! use clawspec_core::{ApiClient, register_schemas};
-//! # use serde::{Serialize, Deserialize};
+//! # use serde::Deserialize;
 //! # use utoipa::ToSchema;
-//! # #[derive(Serialize, Deserialize, ToSchema)]
-//! # struct Address { street: String }
 //! # #[derive(Deserialize, ToSchema)]
-//! # struct ErrorResponse { code: String }
+//! # struct ApiError { code: String }
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct ValidationError { field: String }
 //!
 //! # async fn example(client: &mut ApiClient) {
-//! register_schemas!(client, Address, ErrorResponse).await;
+//! // Error types never returned by an exercised endpoint — not statically reachable.
+//! register_schemas!(client, ApiError, ValidationError).await;
 //! # }
 //! ```
 //!
@@ -453,6 +459,13 @@
 //! something clawspec adds: the same care is needed with `#[derive(OpenApi)]`'s
 //! `components(schemas(...))`. Skipping it causes a stack overflow the first time the
 //! type is captured.
+//!
+//! **Collision diagnostics**: when two distinct types resolve to the same schema name with
+//! different shapes, clawspec keeps the first and emits a `tracing` warning at `WARN` — it
+//! never fails the run. These warnings only surface when a subscriber is installed; note that a
+//! `tracing-subscriber` configured with `.with_test_writer()` buffers output and shows it *only
+//! on test failure*, so a passing test that generates a spec will not display them. Resolve a
+//! reported collision by disambiguating one type with utoipa's `#[schema(as = "module::Type")]`.
 //!
 //! ## Error Handling
 //!
@@ -724,25 +737,27 @@ macro_rules! expected_status_codes {
 ///
 /// ```rust
 /// use clawspec_core::{ApiClient, register_schemas};
-/// use serde::{Serialize, Deserialize};
+/// use serde::Deserialize;
 /// use utoipa::ToSchema;
 ///
-/// #[derive(Serialize, Deserialize, ToSchema)]
-/// struct User {
-///     id: u64,
-///     name: String,
+/// // An error type never returned by any exercised endpoint.
+/// #[derive(Deserialize, ToSchema)]
+/// struct ApiError {
+///     code: String,
+///     message: String,
 /// }
 ///
+/// // A type only ever reached behind a `serde_json::Value` boundary.
 /// #[derive(Deserialize, ToSchema)]
-/// struct ErrorResponse {
-///     code: String,
+/// struct WebhookPayload {
+///     event: String,
 /// }
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = ApiClient::builder().build()?;
 ///
-/// // Register multiple schemas at once
-/// register_schemas!(client, User, ErrorResponse).await;
+/// // Register multiple not-statically-reachable schemas at once.
+/// register_schemas!(client, ApiError, WebhookPayload).await;
 /// # Ok(())
 /// # }
 /// ```
