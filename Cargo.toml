@@ -55,7 +55,7 @@ zeroize = "1.9.0"
 jsonptr = "0.7.1"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
 # oauth2 under-constrains thiserror; its RequestTokenError From impl needs >=1.0.50 to compile on rustc 1.89 (minimal-versions CI)
-thiserror = "1.0.50"
+thiserror = "2.0.19"
 serde_json_path = "0.7.2"
 jiff = "0.2.32"
 
