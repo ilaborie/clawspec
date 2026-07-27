@@ -50,7 +50,7 @@ pico-args = "0.5.0"
 serde-xml-rs = "0.8.2"
 tower-http = "0.7.0"
 backon = "1.6.0"
-base64 = "0.22.1"
+base64 = "0.23.0"
 zeroize = "1.9.0"
 jsonptr = "0.7.1"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
