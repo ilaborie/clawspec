@@ -52,7 +52,7 @@ tower-http = "0.7.0"
 backon = "1.6.0"
 base64 = "0.22.1"
 zeroize = "1.9.0"
-jsonptr = "0.7.1"
+jsonptr = "0.8.2"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
 # oauth2 under-constrains thiserror; its RequestTokenError From impl needs >=1.0.50 to compile on rustc 1.89 (minimal-versions CI)
 thiserror = "1.0.50"
