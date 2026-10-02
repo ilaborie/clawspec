@@ -233,15 +233,14 @@ fn merge_call_operation(
     operation: Operation,
 ) {
     if let Some(slot) = fixed_operation_mut(item, method) {
-        *slot = merge_operation(operation_id, slot.take(), operation);
+        *slot = Some(merge_operation(operation_id, slot.take(), operation));
         return;
     }
 
     let key = method.as_str();
     let current = item.additional_operations.remove(key);
-    if let Some(merged) = merge_operation(operation_id, current, operation) {
-        item.additional_operations.insert(key.to_string(), merged);
-    }
+    let merged = merge_operation(operation_id, current, operation);
+    item.additional_operations.insert(key.to_string(), merged);
 }
 
 fn fixed_operation_mut<'a>(
@@ -603,5 +602,38 @@ mod method_mapping_tests {
 
         let keys = item.additional_operations.keys().collect::<Vec<_>>();
         assert_eq!(keys, ["PURGE"]);
+    }
+
+    #[test]
+    fn should_keep_first_operation_on_conflicting_operation_id() {
+        let mut item = PathItem::default();
+
+        merge_call_operation(
+            &mut item,
+            &Method::GET,
+            "list-items",
+            operation("list-items"),
+        );
+        merge_call_operation(&mut item, &Method::GET, "get-items", operation("get-items"));
+        merge_call_operation(
+            &mut item,
+            &method("PURGE"),
+            "purge-items",
+            operation("purge-items"),
+        );
+        merge_call_operation(
+            &mut item,
+            &method("PURGE"),
+            "drop-items",
+            operation("drop-items"),
+        );
+
+        let get_id = item.get.and_then(|operation| operation.operation_id);
+        assert_eq!(get_id.as_deref(), Some("list-items"));
+        let purge_id = item
+            .additional_operations
+            .get("PURGE")
+            .and_then(|operation| operation.operation_id.as_deref());
+        assert_eq!(purge_id, Some("purge-items"));
     }
 }
