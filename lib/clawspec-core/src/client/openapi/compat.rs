@@ -57,6 +57,7 @@ pub(in crate::client) fn downgrade_to_31(openapi: &mut OpenApi) {
 
 pub(in crate::client) fn downgrade_paths_to_31(paths: &mut Paths) {
     for (path, path_item) in &mut paths.paths {
+        drop_extra_operations(path_item, path);
         drop_server_names(
             path_item.servers.as_deref_mut(),
             &format!("paths.{path}.servers"),
@@ -79,6 +80,14 @@ pub(in crate::client) fn downgrade_paths_to_31(paths: &mut Paths) {
 fn drop_field<T>(value: &mut Option<T>, location: &str, field: &str) {
     if value.take().is_some() {
         warn!(%location, %field, "dropping field not supported by OpenAPI 3.1");
+    }
+}
+
+fn drop_extra_operations(path_item: &mut PathItem, path: &str) {
+    let location = format!("paths.{path}");
+    drop_field(&mut path_item.query, &location, "query");
+    for method in std::mem::take(&mut path_item.additional_operations).into_keys() {
+        warn!(%location, %method, "dropping additional operation not supported by OpenAPI 3.1");
     }
 }
 
@@ -273,6 +282,40 @@ mod tests {
           responses:
             NotFound:
               description: The resource
+        "#);
+    }
+
+    #[test]
+    fn should_drop_query_and_additional_operations() {
+        let mut mixed = PathItem::new(HttpMethod::Get, operation());
+        mixed.query = Some(operation());
+        let mut extra_only = PathItem::default();
+        extra_only.query = Some(operation());
+        extra_only
+            .additional_operations
+            .insert("PURGE".to_string(), operation());
+        let mut openapi = openapi(
+            PathsBuilder::new()
+                .path("/items", mixed)
+                .path("/search", extra_only)
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r#"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths:
+          /items:
+            get:
+              responses:
+                "200":
+                  description: The resource
+              servers:
+              - url: https://op.example.com
         "#);
     }
 

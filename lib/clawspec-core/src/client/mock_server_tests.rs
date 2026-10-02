@@ -1980,3 +1980,147 @@ mod content_type_tests {
         assert!(text.contains("<html>"));
     }
 }
+
+// =============================================================================
+// Tests for QUERY and custom HTTP methods
+// =============================================================================
+
+mod extra_method_tests {
+    use http::Method;
+    use insta::assert_snapshot;
+    use utoipa::openapi::OpenApiVersion;
+
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    struct UserSearch {
+        name: String,
+    }
+
+    async fn client_with_version(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
+        let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
+        ApiClient::builder()
+            .with_host(uri.host().expect("should have host"))
+            .with_port(uri.port_u16().expect("should have port"))
+            .with_openapi_version(version)
+            .build()
+            .expect("should build client")
+    }
+
+    async fn query_users(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
+        Mock::given(method("QUERY"))
+            .and(path("/users"))
+            .and(body_json(json!({ "name": "Alice" })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                { "id": 1, "name": "Alice", "email": "alice@example.com" }
+            ])))
+            .expect(1)
+            .mount(mock_server)
+            .await;
+
+        let client = client_with_version(mock_server, version).await;
+        let users = client
+            .query("/users")
+            .expect("should create QUERY call")
+            .json(&UserSearch {
+                name: "Alice".to_string(),
+            })
+            .expect("should set body")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+        assert_eq!(users.len(), 1);
+        client
+    }
+
+    #[tokio::test]
+    async fn should_document_query_operation() {
+        let mock_server = MockServer::start().await;
+        let mut client = query_users(&mock_server, OpenApiVersion::Version32).await;
+
+        let openapi = client.collected_openapi().await;
+
+        let path_item = openapi
+            .paths
+            .paths
+            .get("/users")
+            .expect("should have /users");
+        assert_snapshot!(
+            serde_saphyr::to_string(path_item).expect("should serialize to YAML"),
+            @r##"
+        query:
+          tags:
+          - users
+          description: Query users
+          operationId: query-users
+          parameters: []
+          requestBody:
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/UserSearch"
+                example:
+                  name: Alice
+          responses:
+            "200":
+              description: Status code 200
+              content:
+                application/json:
+                  schema:
+                    $ref: "#/components/schemas/Vec"
+        "##
+        );
+        let tags = openapi
+            .tags
+            .iter()
+            .flatten()
+            .map(|tag| tag.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(tags, ["users"]);
+    }
+
+    #[tokio::test]
+    async fn should_drop_query_operation_in_older_output() {
+        let mock_server = MockServer::start().await;
+        let mut client = query_users(&mock_server, OpenApiVersion::Version31).await;
+
+        let openapi = client.collected_openapi().await;
+
+        assert!(openapi.paths.paths.is_empty());
+        assert!(openapi.tags.iter().flatten().next().is_none());
+    }
+
+    #[tokio::test]
+    async fn should_document_custom_method_as_additional_operation() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("PURGE"))
+            .and(path("/cache"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+        let purge = Method::from_bytes(b"PURGE").expect("PURGE should be a valid method");
+
+        client
+            .call(purge, CallPath::from("/cache"))
+            .expect("should create PURGE call")
+            .with_expected_status_codes(ExpectedStatusCodes::from_single(204))
+            .await
+            .expect("should succeed")
+            .as_empty()
+            .await
+            .expect("should complete");
+
+        let openapi = client.collected_openapi().await;
+        let path_item = openapi
+            .paths
+            .paths
+            .get("/cache")
+            .expect("should have /cache");
+        let methods = path_item.additional_operations.keys().collect::<Vec<_>>();
+        assert_eq!(methods, ["PURGE"]);
+    }
+}

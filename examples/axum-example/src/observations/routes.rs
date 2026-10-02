@@ -1,6 +1,6 @@
 use axum::extract::{FromRequest, Path, Query, Request, State};
 use axum::http::{StatusCode, header};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
@@ -8,14 +8,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 
-use super::domain::{LngLat, ObservationId, PartialObservation, PatchObservation};
+use super::domain::{
+    LngLat, ObservationId, PartialObservation, PatchObservation, SearchObservations,
+};
 use super::repository::ObservationRepository;
 use crate::AppState;
 use crate::extractors::{ExtractorError, JsonStream, MultipartUpload};
 
 pub(crate) fn observation_router() -> Router<AppState> {
     Router::new()
-        .route("/", get(list_observations).post(create_observation))
+        .route(
+            "/",
+            get(list_observations)
+                .post(create_observation)
+                .fallback(search_observations),
+        )
         .route("/import", post(import_observations))
         .route("/upload", post(upload_observations))
         .route(
@@ -134,6 +141,29 @@ async fn list_observations(
             "observations": observations
         }))
     })
+}
+
+async fn search_observations(
+    State(repo): State<ObservationRepository>,
+    request: Request,
+) -> Response {
+    if request.method().as_str() != "QUERY" {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let criteria = match Json::<SearchObservations>::from_request(request, &()).await {
+        Ok(Json(criteria)) => criteria,
+        Err(rejection) => return rejection.into_response(),
+    };
+    repo.list(0, usize::MAX)
+        .await
+        .map(|observations| {
+            let observations = observations
+                .into_iter()
+                .filter(|observation| criteria.matches(&observation.data))
+                .collect::<Vec<_>>();
+            Json(json!({ "observations": observations }))
+        })
+        .into_response()
 }
 
 async fn create_observation(

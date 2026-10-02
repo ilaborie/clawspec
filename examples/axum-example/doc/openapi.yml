@@ -155,6 +155,28 @@ paths:
                 $ref: '#/components/schemas/TestClientError'
       security:
       - bearerAuth: []
+    query:
+      tags:
+      - observations
+      description: Query observations
+      operationId: query-observations
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchObservations'
+            example:
+              name: gull
+      responses:
+        '200':
+          description: Status code 200
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListObservations'
+      security:
+      - bearerAuth: []
   /api/observations/import:
     post:
       tags:
@@ -592,6 +614,17 @@ components:
           oneOf:
           - $ref: '#/components/schemas/LngLat'
           - type: 'null'
+    SearchObservations:
+      type: object
+      properties:
+        color:
+          type:
+          - string
+          - 'null'
+        name:
+          type:
+          - string
+          - 'null'
     TestClientError:
       type: object
       required:

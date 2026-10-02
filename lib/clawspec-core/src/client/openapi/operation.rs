@@ -451,6 +451,13 @@ pub(super) fn generate_description(method: &http::Method, path: &str) -> Option<
                 format!("Delete {resource}")
             }
         }
+        _ if method.as_str().eq_ignore_ascii_case("QUERY") => {
+            if has_id {
+                format!("Query {} by ID", singularize(resource))
+            } else {
+                format!("Query {resource}")
+            }
+        }
         _ => return None,
     };
 

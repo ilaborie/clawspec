@@ -63,6 +63,31 @@ pub struct PatchObservation {
     pub notes: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ToSchema)]
+pub struct SearchObservations {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+impl SearchObservations {
+    #[must_use]
+    pub fn matches(&self, observation: &PartialObservation) -> bool {
+        let name_matches = self.name.as_deref().is_none_or(|name| {
+            observation
+                .name
+                .to_lowercase()
+                .contains(&name.to_lowercase())
+        });
+        let color_matches = self
+            .color
+            .as_deref()
+            .is_none_or(|color| observation.color.as_deref() == Some(color));
+        name_matches && color_matches
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ImportResponse {
     pub imported: usize,

@@ -68,7 +68,7 @@
 //! By the end of this tutorial, you'll know how to:
 //!
 //! - Create and configure an API client
-//! - Make GET, POST, PUT, PATCH, and DELETE requests
+//! - Make GET, POST, PUT, PATCH, DELETE, and QUERY requests
 //! - Use path, query, header, and cookie parameters
 //! - Handle different response types and errors
 //! - Customize OpenAPI output with tags and descriptions
