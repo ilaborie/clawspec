@@ -237,10 +237,11 @@ fn merge_call_operation(
         return;
     }
 
-    let key = method.as_str();
-    let current = item.additional_operations.remove(key);
+    warn_non_canonical_case(method);
+    let key = method.as_str().to_ascii_uppercase();
+    let current = item.additional_operations.remove(&key);
     let merged = merge_operation(operation_id, current, operation);
-    item.additional_operations.insert(key.to_string(), merged);
+    item.additional_operations.insert(key, merged);
 }
 
 fn fixed_operation_mut<'a>(
@@ -260,10 +261,15 @@ fn fixed_operation_mut<'a>(
         "query" => &mut item.query,
         _ => return None,
     };
+    warn_non_canonical_case(method);
+    Some(slot)
+}
+
+fn warn_non_canonical_case(method: &Method) {
+    let name = method.as_str();
     if name.bytes().any(|byte| byte.is_ascii_lowercase()) {
         warn!(method = %name, "non-canonical HTTP method case, use the uppercase method name");
     }
-    Some(slot)
 }
 
 #[cfg(test)]
@@ -590,6 +596,27 @@ mod method_mapping_tests {
         merge_call_operation(
             &mut item,
             &method("PURGE"),
+            "purge-items",
+            operation("purge-items"),
+        );
+        merge_call_operation(
+            &mut item,
+            &method("PURGE"),
+            "purge-items",
+            operation("purge-items"),
+        );
+
+        let keys = item.additional_operations.keys().collect::<Vec<_>>();
+        assert_eq!(keys, ["PURGE"]);
+    }
+
+    #[test]
+    fn should_normalize_custom_method_case() {
+        let mut item = PathItem::default();
+
+        merge_call_operation(
+            &mut item,
+            &method("purge"),
             "purge-items",
             operation("purge-items"),
         );
