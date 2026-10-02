@@ -63,7 +63,8 @@
 //! ```
 //!
 //! Clawspec sends all cookies in one `Cookie` header, as `name=value` pairs joined by `; `,
-//! without percent-encoding, and with array values joined by commas. Each cookie parameter
+//! without percent-encoding, and with array values joined by commas (the style of a
+//! `ParamValue` is ignored for cookies). Each cookie parameter
 //! is documented with `style: cookie` and `explode: false` to describe this serialization.
 //! For an older OpenAPI output, the style and explode are removed.
 //!

@@ -1,6 +1,6 @@
 /// A collection of all HTTP parameters (query, querystring, headers, cookies) for an API call.
 ///
-/// This struct groups together query parameters, headers, and cookies to reduce
+/// This struct groups together the query, querystring, header and cookie parameters to reduce
 /// the number of arguments passed between functions and improve code organization.
 #[derive(Debug, Clone, Default)]
 pub struct CallParameters {

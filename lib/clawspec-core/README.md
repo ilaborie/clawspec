@@ -302,7 +302,7 @@ let response = client
     .await?;
 ```
 
-Cookies are sent in one `Cookie` header and documented with `style: cookie` and `explode: false`.
+Cookies are sent in one `Cookie` header, with array values comma-joined whatever the `ParamValue` style, and documented with `style: cookie` and `explode: false`.
 
 ### Whole Query String
 

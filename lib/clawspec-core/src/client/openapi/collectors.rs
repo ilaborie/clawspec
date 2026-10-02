@@ -21,7 +21,7 @@ pub(in crate::client) struct StreamContent {
 
 /// Builds an OpenAPI response with optional schema and example.
 ///
-/// This helper is used by both `get_output()` and `register_response_with_example()`
+/// This helper is used by both `register_response()` and `register_response_with_example()`
 /// to avoid code duplication.
 pub(in crate::client) fn build_response(
     description: String,

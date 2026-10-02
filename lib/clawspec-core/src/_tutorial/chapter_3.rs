@@ -254,9 +254,9 @@
 //! `T` as content schema for server-sent events. The older OpenAPI output cannot
 //! describe sequential media types, so the item schema is dropped there.
 //!
-//! The first 3 items or events are recorded as a `first-items` example, with their
-//! text exactly as received in `serializedValue`. The older OpenAPI output carries the
-//! same text as a string `value`. No example is recorded when an item fails to parse.
+//! The raw text of the first 3 items or events (all of them when fewer, no example for
+//! an empty body) is recorded as a `first-items` example in `serializedValue`. The older
+//! OpenAPI output carries the same text as a string `value`. No example is recorded when an item fails to parse.
 //!
 //! The body is read in full before parsing: the server must end the stream, or the
 //! call never returns. Test a finite stream, for example a replay of past events.

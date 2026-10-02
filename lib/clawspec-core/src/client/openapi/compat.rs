@@ -71,7 +71,7 @@ pub(in crate::client) fn downgrade_to_31(openapi: &mut OpenApi) {
             warn!(
                 location = "components",
                 field = "mediaTypes",
-                "dropping field not supported by OpenAPI 3.1"
+                "dropping field not supported by the selected OpenAPI version"
             );
         }
         for (name, scheme) in &mut components.security_schemes {
@@ -172,7 +172,7 @@ pub(in crate::client) fn downgrade_paths_to_31(paths: &mut Paths) {
 
 fn drop_field<T>(value: &mut Option<T>, location: &str, field: &str) {
     if value.take().is_some() {
-        warn!(%location, %field, "dropping field not supported by OpenAPI 3.1");
+        warn!(%location, %field, "dropping field not supported by the selected OpenAPI version");
     }
 }
 
@@ -180,7 +180,7 @@ fn drop_extra_operations(path_item: &mut PathItem, path: &str) {
     let location = format!("paths.{path}");
     drop_field(&mut path_item.query, &location, "query");
     for method in std::mem::take(&mut path_item.additional_operations).into_keys() {
-        warn!(%location, %method, "dropping additional operation not supported by OpenAPI 3.1");
+        warn!(%location, %method, "dropping additional operation not supported by the selected OpenAPI version");
     }
 }
 
@@ -222,7 +222,7 @@ fn downgrade_security_scheme(scheme: &mut SecurityScheme, location: &str) {
                 warn!(
                     %location,
                     field = "flows.deviceAuthorization",
-                    "dropping field not supported by OpenAPI 3.1"
+                    "dropping field not supported by the selected OpenAPI version"
                 );
             }
         }
@@ -355,7 +355,7 @@ fn drop_content_item_fields<'a>(
             drop_field(&mut content.item_schema, &location, "itemSchema");
             drop_field(&mut content.item_encoding, &location, "itemEncoding");
             if !std::mem::take(&mut content.prefix_encoding).is_empty() {
-                warn!(%location, field = "prefixEncoding", "dropping field not supported by OpenAPI 3.1");
+                warn!(%location, field = "prefixEncoding", "dropping field not supported by the selected OpenAPI version");
             }
             downgrade_examples(&mut content.examples, &format!("{location}.examples"));
         }

@@ -413,8 +413,9 @@ impl CallResult {
     /// When the older OpenAPI output is selected, the item schema is dropped because that
     /// version cannot describe sequential media types.
     ///
-    /// The first 3 items are also recorded as a `first-items` example of the media type,
-    /// with their original text as `serializedValue` (fewer items are recorded as is).
+    /// The raw text of the first 3 items (all items when fewer, no example for an empty
+    /// body) is also recorded as a `first-items` example of the media type, as
+    /// `serializedValue`.
     /// The older OpenAPI output carries this text as a string `value` instead. No example
     /// is recorded when an item fails to parse. When several calls document the same
     /// response status, the last call wins, example included.

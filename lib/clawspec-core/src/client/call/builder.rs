@@ -321,7 +321,8 @@ impl ApiCall {
     ///
     /// # Errors
     ///
-    /// Returns [`ApiClientError::QuerySerializationError`] if the value cannot be encoded.
+    /// Returns [`ApiClientError::QuerySerializationError`] if the value cannot be encoded,
+    /// or [`ApiClientError::JsonValueError`] if it cannot be converted to the JSON example.
     /// The request fails with [`ApiClientError::ConflictingQueryParameters`] if the call
     /// also has query parameters set with [`with_query`](Self::with_query).
     ///
