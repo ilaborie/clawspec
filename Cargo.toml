@@ -10,22 +10,22 @@ repository = "https://github.com/ilaborie/clawspec"
 homepage = "https://github.com/ilaborie/clawspec"
 
 [workspace.dependencies]
-serde = "1.0.228"
-serde_json = "1.0.150"
+serde = "1.0.229"
+serde_json = "1.0.151"
 serde_path_to_error = "0.1.20"
-serde-saphyr =  "0.0.29"
+serde-saphyr =  "1.0.1"
 # serde-saphyr under-constrains encoding_rs_io; bom_override() requires >=0.1.2 for minimal-versions CI
 encoding_rs_io = "0.1.2"
 serde_urlencoded = "0.7.1"
 
 utoipa = "5.5.0"
 
-tokio = "1.53.0"
+tokio = "1.53.1"
 axum = "0.8.9"
 
 reqwest = { version = "0.13.4", default-features = false }
 headers = "0.4.1"
-http = "1.4.2"
+http = "1.5.0"
 url = "2.5.8"
 percent-encoding = "2.3.2"
 
@@ -40,7 +40,7 @@ lazy_static = "1.5.0"
 derive_more = { version = "2.1.1", default-features = false, features = ["error", "display", "from", "deref", "deref_mut", "debug"] }
 indexmap = "2.14.0"
 slug = "0.1.6"
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 uuid = "1.24.0"
 mime = "0.3.17"
 cruet = "1.0.0"
@@ -50,14 +50,15 @@ pico-args = "0.5.0"
 serde-xml-rs = "0.8.2"
 tower-http = "0.7.0"
 backon = "1.6.0"
-base64 = "0.22.1"
+# base64 0.23 enables SIMD engines (unsafe code) by default; keep them off
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 zeroize = "1.9.0"
-jsonptr = "0.7.1"
+jsonptr = "0.8.1"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
 # oauth2 under-constrains thiserror; its RequestTokenError From impl needs >=1.0.50 to compile on rustc 1.89 (minimal-versions CI)
 thiserror = "1.0.50"
 serde_json_path = "0.7.2"
-jiff = "0.2.32"
+jiff = "0.2.35"
 
 ## Dev
 rstest = "0.26.1"
