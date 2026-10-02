@@ -256,6 +256,30 @@ paths:
                 $ref: '#/components/schemas/ImportResponse'
       security:
       - bearerAuth: []
+  /api/observations/names:
+    get:
+      tags:
+      - observations
+      summary: List observation names
+      description: Retrieve names
+      operationId: get-observations-names
+      parameters:
+      - name: ListOption
+        in: querystring
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ListOption'
+      responses:
+        '200':
+          description: Status code 200
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationNames'
+      security:
+      - bearerAuth: []
   /api/observations/upload:
     post:
       tags:
@@ -605,6 +629,17 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Observation'
+    ListOption:
+      type: object
+      properties:
+        limit:
+          type: integer
+          default: 10
+          minimum: 0
+        offset:
+          type: integer
+          default: 0
+          minimum: 0
     LngLat:
       type: object
       required:
@@ -644,6 +679,15 @@ components:
     ObservationId:
       type: string
       format: uuid
+    ObservationNames:
+      type: object
+      required:
+      - names
+      properties:
+        names:
+          type: array
+          items:
+            type: string
     PartialObservation:
       type: object
       required:

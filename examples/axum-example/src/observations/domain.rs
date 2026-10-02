@@ -96,6 +96,11 @@ pub struct ObservationEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ObservationNames {
+    pub names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ImportResponse {
     pub imported: usize,
     pub error_count: usize,

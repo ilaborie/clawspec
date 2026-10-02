@@ -62,6 +62,11 @@
 //! # }
 //! ```
 //!
+//! Clawspec sends all cookies in one `Cookie` header, as `name=value` pairs joined by `; `,
+//! without percent-encoding, and with array values joined by commas. Each cookie parameter
+//! is documented with `style: cookie` and `explode: false` to describe this serialization.
+//! For an older OpenAPI output, the style and explode are removed.
+//!
 //! ## Authentication
 //!
 //! Clawspec supports several authentication methods:
@@ -180,6 +185,52 @@
 //!     .add_param("filter", ParamValue::with_style(filter, ParamStyle::DeepObject));
 //! ```
 //!
+//! ### Whole Query String
+//!
+//! Use [`with_querystring`][crate::ApiCall::with_querystring] when one type describes
+//! the whole query string. The value is form-encoded: `None` fields are skipped and
+//! nested objects are rejected.
+//!
+//! ```rust,no_run
+//! use clawspec_core::ApiClient;
+//! # use serde::{Deserialize, Serialize};
+//! # use utoipa::ToSchema;
+//! # #[derive(Deserialize, ToSchema)]
+//! # struct UserList { users: Vec<String> }
+//!
+//! #[derive(Serialize, ToSchema)]
+//! struct ListOptions {
+//!     search: Option<String>,
+//!     limit: Option<u32>,
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! // Sends ?search=alice&limit=10
+//! let users: UserList = client
+//!     .get("/users")?
+//!     .with_querystring(&ListOptions {
+//!         search: Some("alice".to_string()),
+//!         limit: Some(10),
+//!     })?
+//!     .await?
+//!     .as_json()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The operation gets a single `querystring` parameter whose
+//! `application/x-www-form-urlencoded` content references the `ListOptions` schema.
+//! For an older OpenAPI output, it becomes a `query` parameter with `style: form` and
+//! `explode: true`, which describes the same query string.
+//!
+//! A call cannot combine [`with_query`][crate::ApiCall::with_query] and `with_querystring`:
+//! the request fails with [`ApiClientError::ConflictingQueryParameters`][crate::ApiClientError::ConflictingQueryParameters].
+//! When calls to the same operation use both, the `querystring` parameter is kept and the
+//! `query` parameters are dropped from the specification, with a warning.
+//!
 //! ## Alternative Content Types
 //!
 //! Besides JSON, you can send other content types:
@@ -228,6 +279,7 @@
 //!   documented parameters
 //! - Authentication can be set at client or request level
 //! - Parameter styles control OpenAPI serialization documentation
+//! - `with_querystring` describes the whole query string with one type
 //! - Multiple content types are supported (JSON, form, XML, multipart)
 //!
 //! Next: [Chapter 5: OpenAPI Customization][super::chapter_5] - Tags, descriptions,

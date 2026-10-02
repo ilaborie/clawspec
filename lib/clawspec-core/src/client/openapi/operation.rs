@@ -1,7 +1,7 @@
 use headers::ContentType;
 use indexmap::IndexMap;
-use tracing::error;
-use utoipa::openapi::path::{Operation, Parameter};
+use tracing::{error, warn};
+use utoipa::openapi::path::{Operation, Parameter, ParameterIn};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::security::SecurityRequirement as UtoipaSecurityRequirement;
 use utoipa::openapi::{Content, RefOr};
@@ -272,10 +272,11 @@ fn merge_security(
 ///
 /// # Merge Strategy
 ///
-/// - **Parameter Identity**: Parameters are identified by name, `$ref` parameters by location
+/// - **Parameter Identity**: Parameters are identified by location and name, `$ref` parameters by reference
 /// - **New Parameters**: Added to the result if not already present
 /// - **Existing Parameters**: Preserved (current parameter wins over new)
 /// - **Parameter Order**: Determined by insertion order in IndexMap
+/// - **Querystring**: At most one `querystring` parameter is kept, and it replaces every `query` parameter
 ///
 /// # Performance Optimization
 ///
@@ -304,23 +305,61 @@ fn merge_parameters(
 ) -> Option<Vec<RefOr<Parameter>>> {
     let mut result = IndexMap::new();
     for param in new.unwrap_or_default() {
-        result.insert(parameter_key(&param).to_owned(), param);
+        result.insert(parameter_key(&param), param);
     }
     for param in current.unwrap_or_default() {
-        result
-            .entry(parameter_key(&param).to_owned())
-            .or_insert(param);
+        result.entry(parameter_key(&param)).or_insert(param);
     }
 
-    let result = result.into_values().collect();
+    let mut result = result.into_values().collect::<Vec<_>>();
+    keep_querystring_over_query(&mut result);
     Some(result)
 }
 
-fn parameter_key(param: &RefOr<Parameter>) -> &str {
+fn parameter_key(param: &RefOr<Parameter>) -> (&'static str, String) {
     match param {
-        RefOr::T(param) => &param.name,
-        RefOr::Ref(reference) => &reference.ref_location,
+        RefOr::T(param) => (parameter_location(&param.parameter_in), param.name.clone()),
+        RefOr::Ref(reference) => ("$ref", reference.ref_location.clone()),
     }
+}
+
+fn parameter_location(parameter_in: &ParameterIn) -> &'static str {
+    match parameter_in {
+        ParameterIn::Query => "query",
+        ParameterIn::Path => "path",
+        ParameterIn::Header => "header",
+        ParameterIn::Cookie => "cookie",
+        ParameterIn::QueryString => "querystring",
+    }
+}
+
+fn keep_querystring_over_query(parameters: &mut Vec<RefOr<Parameter>>) {
+    let is_querystring = |param: &RefOr<Parameter>| matches!(param, RefOr::T(param) if param.parameter_in == ParameterIn::QueryString);
+    if !parameters.iter().any(is_querystring) {
+        return;
+    }
+
+    let mut querystring_kept = false;
+    parameters.retain(|param| {
+        let RefOr::T(param) = param else {
+            return true;
+        };
+        match param.parameter_in {
+            ParameterIn::QueryString if querystring_kept => {
+                warn!(name = %param.name, "dropping extra querystring parameter, an operation has at most one");
+                false
+            }
+            ParameterIn::QueryString => {
+                querystring_kept = true;
+                true
+            }
+            ParameterIn::Query => {
+                warn!(name = %param.name, "dropping query parameter, the operation uses a querystring parameter");
+                false
+            }
+            ParameterIn::Path | ParameterIn::Header | ParameterIn::Cookie => true,
+        }
+    });
 }
 
 fn merge_responses(
@@ -582,6 +621,59 @@ mod tests {
         assert_eq!(
             merged.external_docs.map(|docs| docs.url),
             Some("https://docs.example.com/users".to_string())
+        );
+    }
+
+    fn parameter(name: &str, parameter_in: ParameterIn) -> RefOr<Parameter> {
+        RefOr::T(
+            Parameter::builder()
+                .name(name)
+                .parameter_in(parameter_in)
+                .build(),
+        )
+    }
+
+    fn parameter_names(parameters: Option<Vec<RefOr<Parameter>>>) -> Vec<String> {
+        parameters
+            .unwrap_or_default()
+            .into_iter()
+            .map(|param| match param {
+                RefOr::T(param) => {
+                    format!("{}:{}", parameter_location(&param.parameter_in), param.name)
+                }
+                RefOr::Ref(reference) => reference.ref_location,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn should_keep_same_name_parameters_in_different_locations() {
+        let merged = merge_parameters(
+            Some(vec![parameter("page", ParameterIn::Query)]),
+            Some(vec![parameter("page", ParameterIn::Header)]),
+        );
+
+        assert_eq!(parameter_names(merged), ["header:page", "query:page"]);
+    }
+
+    #[test]
+    fn should_replace_query_parameters_with_querystring_when_merging() {
+        let merged = merge_parameters(
+            Some(vec![
+                parameter("limit", ParameterIn::Query),
+                parameter("X-Trace", ParameterIn::Header),
+                parameter("Filter", ParameterIn::QueryString),
+            ]),
+            Some(vec![
+                parameter("offset", ParameterIn::Query),
+                parameter("Other", ParameterIn::QueryString),
+                parameter("session", ParameterIn::Cookie),
+            ]),
+        );
+
+        assert_eq!(
+            parameter_names(merged),
+            ["querystring:Other", "cookie:session", "header:X-Trace"]
         );
     }
 }

@@ -15,6 +15,7 @@ mod call;
 pub use self::call::ApiCall;
 
 mod parameters;
+use self::parameters::CallQueryString;
 pub use self::parameters::{
     CallBody, CallCookies, CallHeaders, CallPath, CallQuery, ParamStyle, ParamValue, ParameterValue,
 };

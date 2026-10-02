@@ -27,7 +27,7 @@ The foundation release establishes core functionality and project infrastructure
 #### ✅ **Completed Features**
 - ✅ Core `clawspec-core` library with HTTP client
 - ✅ OpenAPI specification generation from tests
-- ✅ Comprehensive parameter support (path, query, headers)
+- ✅ Comprehensive parameter support (path, query, whole query string, headers, cookies)
 - ✅ Request body handling (JSON, form, multipart, binary)
 - ✅ Response extraction and schema collection
 - ✅ Axum framework example with real-world scenarios

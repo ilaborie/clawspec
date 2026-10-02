@@ -302,6 +302,27 @@ let response = client
     .await?;
 ```
 
+Cookies are sent in one `Cookie` header and documented with `style: cookie` and `explode: false`.
+
+### Whole Query String
+
+Describe the whole query string with one type. It is form-encoded and documented as a single `querystring` parameter:
+
+```rust
+#[derive(Serialize, ToSchema)]
+struct ListOptions {
+    search: Option<String>,
+    limit: Option<u32>,
+}
+
+let response = client
+    .get("/users")?
+    .with_querystring(&ListOptions { search: Some("alice".into()), limit: Some(10) })?
+    .await?;
+```
+
+A call cannot combine `with_query` and `with_querystring`.
+
 ## Integration Examples
 
 ### With Axum

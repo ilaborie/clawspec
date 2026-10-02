@@ -11,8 +11,8 @@ use serde_json::json;
 use utoipa::ToSchema;
 
 use super::domain::{
-    LngLat, ObservationEvent, ObservationId, PartialObservation, PatchObservation,
-    SearchObservations,
+    LngLat, ObservationEvent, ObservationId, ObservationNames, PartialObservation,
+    PatchObservation, SearchObservations,
 };
 use super::repository::ObservationRepository;
 use crate::AppState;
@@ -27,6 +27,7 @@ pub(crate) fn observation_router() -> Router<AppState> {
                 .post(create_observation)
                 .fallback(search_observations),
         )
+        .route("/names", get(list_observation_names))
         .route("/export", get(export_observations))
         .route("/events", get(observation_events))
         .route("/import", post(import_observations))
@@ -40,7 +41,7 @@ pub(crate) fn observation_router() -> Router<AppState> {
         )
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct ListOption {
     pub offset: usize,
@@ -146,6 +147,21 @@ async fn list_observations(
         Json(json!({
             "observations": observations
         }))
+    })
+}
+
+async fn list_observation_names(
+    State(repo): State<ObservationRepository>,
+    Query(ListOption { offset, limit }): Query<ListOption>,
+) -> impl IntoResponse {
+    let limit = limit.min(100);
+    repo.list(offset, limit).await.map(|observations| {
+        Json(ObservationNames {
+            names: observations
+                .into_iter()
+                .map(|observation| observation.data.name)
+                .collect(),
+        })
     })
 }
 

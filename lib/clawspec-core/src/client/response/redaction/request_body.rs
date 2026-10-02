@@ -438,6 +438,7 @@ mod tests {
             method: http::Method::POST,
             path,
             query,
+            querystring: None,
             headers: None,
             body: None,
             authentication: None,

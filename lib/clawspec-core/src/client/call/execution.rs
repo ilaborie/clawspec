@@ -35,6 +35,7 @@ impl ApiCall {
             method,
             path,
             query: CallQuery::default(),
+            querystring: None,
             headers: None,
             body: None,
             authentication,
@@ -125,6 +126,7 @@ impl ApiCall {
             method,
             path,
             query,
+            querystring,
             headers,
             body,
             authentication,
@@ -141,8 +143,9 @@ impl ApiCall {
         let resolved_auth = Self::resolve_authentication(authentication).await?;
 
         // Build URL and request
-        let url = Self::build_url(&base_uri, &path, &query)?;
-        let parameters = CallParameters::with_all(query.clone(), headers.clone(), cookies.clone());
+        let parameters =
+            CallParameters::with_all(query, headers, cookies).with_querystring(querystring);
+        let url = Self::build_url(&base_uri, &path, &parameters)?;
         let request = Self::build_request(method.clone(), url, &parameters, &body, &resolved_auth)?;
 
         // Create operation for OpenAPI documentation
@@ -214,7 +217,7 @@ impl ApiCall {
     pub(super) fn build_url(
         base_uri: &Uri,
         path: &CallPath,
-        query: &CallQuery,
+        parameters: &CallParameters,
     ) -> Result<Url, ApiClientError> {
         let path_resolved = PathResolved::try_from(path.clone())?;
         let base_uri = base_uri.to_string();
@@ -225,8 +228,9 @@ impl ApiCall {
         );
         let mut url = url.parse::<Url>()?;
 
-        if !query.is_empty() {
-            let query_string = query.to_query_string()?;
+        if let Some(query_string) = parameters.to_query_string()?
+            && !query_string.is_empty()
+        {
             url.set_query(Some(&query_string));
         }
 

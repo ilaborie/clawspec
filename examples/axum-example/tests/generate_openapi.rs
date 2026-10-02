@@ -8,7 +8,8 @@ use tracing::info;
 
 use axum_example::extractors::ExtractorError;
 use axum_example::observations::domain::{
-    LngLat, Observation, ObservationEvent, PartialObservation, PatchObservation, SearchObservations,
+    LngLat, Observation, ObservationEvent, ObservationNames, PartialObservation, PatchObservation,
+    SearchObservations,
 };
 use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 
@@ -39,6 +40,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     Box::pin(demonstrate_tags_and_metadata(&mut app)).await?;
     demonstrate_security(&mut app).await?;
     demonstrate_query_search(&mut app).await?;
+    demonstrate_querystring(&mut app).await?;
     demonstrate_streaming(&mut app).await?;
     // Call redaction demo LAST so its example appears in the generated OpenAPI
     demonstrate_redaction(&mut app).await?;
@@ -325,6 +327,26 @@ async fn demonstrate_query_search(app: &mut TestApp) -> anyhow::Result<()> {
         !found.observations.is_empty(),
         "should find observations matching the criteria"
     );
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(app))]
+async fn demonstrate_querystring(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating a whole query string described by one type");
+    let names = app
+        .get("/observations/names")?
+        .with_tags(["observations"])
+        .with_summary("List observation names")
+        .with_querystring(&ListOption {
+            offset: 0,
+            limit: 2,
+        })?
+        .await
+        .context("should list observation names")?
+        .as_json::<ObservationNames>()
+        .await?;
+    anyhow::ensure!(names.names.len() <= 2, "should honour the limit");
 
     Ok(())
 }

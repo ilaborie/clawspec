@@ -4,7 +4,7 @@ use super::call_parameters::OperationMetadata;
 use super::openapi::channel::CollectorSender;
 use super::response::ExpectedStatusCodes;
 use super::security::SecurityRequirement;
-use super::{CallBody, CallCookies, CallHeaders, CallPath, CallQuery};
+use super::{CallBody, CallCookies, CallHeaders, CallPath, CallQuery, CallQueryString};
 
 pub(in crate::client) const BODY_MAX_LENGTH: usize = 1024;
 
@@ -29,6 +29,7 @@ mod tests;
 ///
 /// ## Parameter Methods
 /// - [`with_query(query)`](Self::with_query) - Set query parameters
+/// - [`with_querystring(value)`](Self::with_querystring) - Set the whole query string from one type
 /// - [`with_headers(headers)`](Self::with_headers) - Set request headers
 /// - [`with_header(name, value)`](Self::with_header) - Add single header
 ///
@@ -106,6 +107,7 @@ pub struct ApiCall {
     pub(super) method: Method,
     pub(super) path: CallPath,
     pub(super) query: CallQuery,
+    pub(super) querystring: Option<CallQueryString>,
     pub(super) headers: Option<CallHeaders>,
 
     #[debug(ignore)]

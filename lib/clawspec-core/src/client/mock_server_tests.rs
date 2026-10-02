@@ -6,12 +6,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
+use utoipa::openapi::OpenApiVersion;
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::client::{
-    ApiClient, ApiClientError, ApiKeyLocation, CallPath, ExpectedStatusCodes, SecurityRequirement,
-    SecurityScheme,
+    ApiClient, ApiClientError, ApiKeyLocation, CallPath, CallQuery, ExpectedStatusCodes,
+    SecurityRequirement, SecurityScheme,
 };
 
 /// Test user type for JSON responses.
@@ -42,6 +43,17 @@ async fn client_for_mock(mock_server: &MockServer) -> ApiClient {
     ApiClient::builder()
         .with_host(uri.host().expect("should have host"))
         .with_port(uri.port_u16().expect("should have port"))
+        .build()
+        .expect("should build client")
+}
+
+/// Helper to create an ApiClient generating the given OpenAPI version.
+async fn client_with_version(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
+    let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
+    ApiClient::builder()
+        .with_host(uri.host().expect("should have host"))
+        .with_port(uri.port_u16().expect("should have port"))
+        .with_openapi_version(version)
         .build()
         .expect("should build client")
 }
@@ -1990,23 +2002,12 @@ mod content_type_tests {
 mod extra_method_tests {
     use http::Method;
     use insta::assert_snapshot;
-    use utoipa::openapi::OpenApiVersion;
 
     use super::*;
 
     #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
     struct UserSearch {
         name: String,
-    }
-
-    async fn client_with_version(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
-        let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
-        ApiClient::builder()
-            .with_host(uri.host().expect("should have host"))
-            .with_port(uri.port_u16().expect("should have port"))
-            .with_openapi_version(version)
-            .build()
-            .expect("should build client")
     }
 
     async fn query_users(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
@@ -2243,7 +2244,6 @@ mod metadata_tests {
 
 mod sequential_response_tests {
     use insta::assert_snapshot;
-    use utoipa::openapi::OpenApiVersion;
 
     use super::*;
     use crate::client::SseEvent;
@@ -2270,16 +2270,6 @@ mod sequential_response_tests {
         "data: {\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n",
         "\n",
     );
-
-    async fn client_with_version(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
-        let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
-        ApiClient::builder()
-            .with_host(uri.host().expect("should have host"))
-            .with_port(uri.port_u16().expect("should have port"))
-            .with_openapi_version(version)
-            .build()
-            .expect("should build client")
-    }
 
     async fn mount_stream(mock_server: &MockServer, route: &str, content_type: &str, body: &str) {
         Mock::given(method("GET"))
@@ -2497,5 +2487,232 @@ mod sequential_response_tests {
         Expected output type 'application/jsonl, application/x-ndjson or application/json-seq' but got 'application/json'
         Expected output type 'text/event-stream' but got 'application/json'
         ");
+    }
+}
+
+// =============================================================================
+// Tests for querystring and cookie parameters
+// =============================================================================
+
+mod querystring_tests {
+    use insta::assert_snapshot;
+
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    struct UserFilter {
+        search: String,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    }
+
+    async fn list_users_with_querystring(version: OpenApiVersion) -> String {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .and(|request: &wiremock::Request| {
+                request.url.query() == Some("search=alice+smith%26co&limit=10")
+            })
+            .and(query_param("search", "alice smith&co"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&UserFilter {
+                search: "alice smith&co".to_string(),
+                limit: Some(10),
+                offset: None,
+            })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        parameters_yaml(&mut client, "/users").await
+    }
+
+    async fn parameters_yaml(client: &mut ApiClient, route: &str) -> String {
+        let openapi = client.collected_openapi().await;
+        let parameters = openapi
+            .paths
+            .paths
+            .get(route)
+            .and_then(|path_item| path_item.get.as_ref())
+            .and_then(|operation| operation.parameters.as_ref())
+            .expect("should have parameters");
+        serde_saphyr::to_string(parameters).expect("should serialize to YAML")
+    }
+
+    #[tokio::test]
+    async fn should_send_and_document_querystring() {
+        let parameters = list_users_with_querystring(OpenApiVersion::Version32).await;
+
+        assert_snapshot!(parameters, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_convert_querystring_in_older_output() {
+        let parameters = list_users_with_querystring(OpenApiVersion::Version31).await;
+
+        assert_snapshot!(parameters, @r##"
+        - name: UserFilter
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/UserFilter"
+          style: form
+          explode: true
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_reject_query_parameters_combined_with_querystring() {
+        let mock_server = MockServer::start().await;
+        let client = client_for_mock(&mock_server).await;
+
+        let error = client
+            .get("/users")
+            .expect("should create call")
+            .with_query(CallQuery::new().add_param("page", 1))
+            .with_querystring(&UserFilter {
+                search: "alice".to_string(),
+                limit: None,
+                offset: None,
+            })
+            .expect("should encode querystring")
+            .await
+            .expect_err("query and querystring should conflict");
+
+        assert!(matches!(error, ApiClientError::ConflictingQueryParameters));
+    }
+
+    #[tokio::test]
+    async fn should_keep_querystring_over_query_parameters_across_calls() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_query(CallQuery::new().add_param("page", 1))
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&UserFilter {
+                search: "alice".to_string(),
+                limit: None,
+                offset: Some(5),
+            })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        assert_snapshot!(parameters_yaml(&mut client, "/users").await, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
+    async fn get_with_cookies(version: OpenApiVersion) -> String {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .and(|request: &wiremock::Request| {
+                request
+                    .headers
+                    .get("cookie")
+                    .is_some_and(|cookie| cookie == "session=abc123; ids=1,2,3")
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_cookie("session", "abc123")
+            .with_cookie("ids", vec![1, 2, 3])
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        parameters_yaml(&mut client, "/users").await
+    }
+
+    #[tokio::test]
+    async fn should_document_cookie_style() {
+        let parameters = get_with_cookies(OpenApiVersion::Version32).await;
+
+        assert_snapshot!(parameters, @r##"
+        - name: session
+          in: cookie
+          required: false
+          schema:
+            type: string
+          style: cookie
+          explode: false
+        - name: ids
+          in: cookie
+          required: false
+          schema:
+            $ref: "#/components/schemas/Vec"
+          style: cookie
+          explode: false
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_drop_cookie_style_in_older_output() {
+        let parameters = get_with_cookies(OpenApiVersion::Version31).await;
+
+        assert_snapshot!(parameters, @r##"
+        - name: session
+          in: cookie
+          required: false
+          schema:
+            type: string
+        - name: ids
+          in: cookie
+          required: false
+          schema:
+            $ref: "#/components/schemas/Vec"
+        "##);
     }
 }
