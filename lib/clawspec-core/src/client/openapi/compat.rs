@@ -7,7 +7,7 @@ use utoipa::openapi::example::Example;
 use utoipa::openapi::path::{Operation, Parameter, ParameterIn, ParameterStyle, PathItem};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::response::Response;
-use utoipa::openapi::security::{ApiKey, Flow, SecurityScheme};
+use utoipa::openapi::security::{ApiKey, Flow, SecurityRequirement, SecurityScheme};
 use utoipa::openapi::{Content, Header, OpenApi, Paths, RefOr, Server, Tag};
 
 pub(crate) fn iter_operations(path_item: &PathItem) -> impl Iterator<Item = &Operation> {
@@ -79,6 +79,67 @@ pub(in crate::client) fn downgrade_to_31(openapi: &mut OpenApi) {
                 downgrade_security_scheme(scheme, &format!("components.securitySchemes.{name}"));
             }
         }
+        let dropped_schemes = drop_oauth2_schemes_without_flow(&mut components.security_schemes);
+        if !dropped_schemes.is_empty() {
+            drop_security_requirements(&mut openapi.security, &dropped_schemes, "security");
+            for (path, path_item) in &mut openapi.paths.paths {
+                for (method, operation) in iter_operations_mut(path_item) {
+                    drop_security_requirements(
+                        &mut operation.security,
+                        &dropped_schemes,
+                        &format!("paths.{path}.{method}.security"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn drop_oauth2_schemes_without_flow(
+    security_schemes: &mut BTreeMap<String, RefOr<SecurityScheme>>,
+) -> Vec<String> {
+    let mut dropped = Vec::new();
+    security_schemes.retain(|name, scheme| {
+        let without_flow =
+            matches!(scheme, RefOr::T(SecurityScheme::OAuth2(oauth2)) if oauth2.flows.is_empty());
+        if without_flow {
+            warn!(
+                location = %format!("components.securitySchemes.{name}"),
+                "dropping OAuth2 security scheme without a flow supported by the selected OpenAPI version"
+            );
+            dropped.push(name.clone());
+        }
+        !without_flow
+    });
+    dropped
+}
+
+fn drop_security_requirements(
+    requirements: &mut Option<Vec<SecurityRequirement>>,
+    dropped_schemes: &[String],
+    location: &str,
+) {
+    let Some(list) = requirements.as_mut() else {
+        return;
+    };
+    list.retain(|requirement| {
+        let references_dropped = requirement_scheme_names(requirement)
+            .iter()
+            .any(|name| dropped_schemes.contains(name));
+        if references_dropped {
+            warn!(%location, "dropping security requirement referencing a dropped security scheme");
+        }
+        !references_dropped
+    });
+    if list.is_empty() {
+        *requirements = None;
+    }
+}
+
+fn requirement_scheme_names(requirement: &SecurityRequirement) -> Vec<String> {
+    match serde_json::to_value(requirement) {
+        Ok(serde_json::Value::Object(map)) => map.into_iter().map(|(name, _)| name).collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -163,9 +224,6 @@ fn downgrade_security_scheme(scheme: &mut SecurityScheme, location: &str) {
                     field = "flows.deviceAuthorization",
                     "dropping field not supported by OpenAPI 3.1"
                 );
-                if oauth2.flows.is_empty() {
-                    warn!(%location, "OAuth2 security scheme has no flow left");
-                }
             }
         }
         SecurityScheme::ApiKey(
@@ -519,7 +577,40 @@ mod tests {
             "https://auth.example.com/token",
             Scopes::new(),
         ))]);
-        let mut openapi = openapi(Paths::new());
+        let secured = |requirements: Vec<SecurityRequirement>| {
+            let mut operation = operation();
+            operation.servers = None;
+            operation.responses = Default::default();
+            operation.security = Some(requirements);
+            operation
+        };
+        let mut openapi = openapi(
+            PathsBuilder::new()
+                .path(
+                    "/device",
+                    PathItem::new(
+                        HttpMethod::Get,
+                        secured(vec![
+                            SecurityRequirement::new("device", ["read"]).add("oauth2", ["read"]),
+                        ]),
+                    ),
+                )
+                .path(
+                    "/mixed",
+                    PathItem::new(
+                        HttpMethod::Get,
+                        secured(vec![
+                            SecurityRequirement::new("device", ["read"]),
+                            SecurityRequirement::new("bearer", Vec::<String>::new()),
+                        ]),
+                    ),
+                )
+                .build(),
+        );
+        openapi.security = Some(vec![
+            SecurityRequirement::new("device", ["read"]),
+            SecurityRequirement::default(),
+        ]);
         openapi.components = Some(
             ComponentsBuilder::new()
                 .security_scheme(
@@ -548,7 +639,15 @@ mod tests {
         info:
           title: test
           version: "1.0.0"
-        paths: {}
+        paths:
+          /device:
+            get:
+              responses: {}
+          /mixed:
+            get:
+              responses: {}
+              security:
+              - bearer: []
         components:
           securitySchemes:
             apiKey:
@@ -558,9 +657,6 @@ mod tests {
             bearer:
               type: http
               scheme: bearer
-            device:
-              type: oauth2
-              flows: {}
             mtls:
               type: mutualTLS
             oauth2:
@@ -572,6 +668,8 @@ mod tests {
             oidc:
               type: openIdConnect
               openIdConnectUrl: https://auth.example.com/.well-known/openid
+        security:
+        - {}
         "#);
     }
 

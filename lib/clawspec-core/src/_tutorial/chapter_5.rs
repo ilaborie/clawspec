@@ -197,7 +197,8 @@
 //!     .with_security_scheme("bearerAuth", SecurityScheme::bearer_with_format("JWT"))
 //!     .with_security_scheme(
 //!         "oauth2",
-//!         SecurityScheme::oauth2(flows).with_oauth2_metadata_url(
+//!         SecurityScheme::oauth2_with_metadata_url(
+//!             flows,
 //!             "https://auth.example.com/.well-known/oauth-authorization-server",
 //!         ),
 //!     )

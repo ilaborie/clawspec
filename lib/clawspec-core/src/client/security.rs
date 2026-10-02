@@ -44,7 +44,6 @@
 //! ```
 
 use indexmap::IndexMap;
-use tracing::warn;
 use utoipa::openapi::Deprecated;
 use utoipa::openapi::security::{
     ApiKey as UtoipaApiKey, ApiKeyValue, AuthorizationCode, ClientCredentials, DeviceAuthorization,
@@ -88,6 +87,7 @@ pub enum SecurityScheme {
     ///
     /// Used for token-based authentication where the client sends
     /// an `Authorization: Bearer <token>` header.
+    #[non_exhaustive]
     Bearer {
         /// Optional format hint (e.g., "JWT" for JSON Web Tokens)
         format: Option<String>,
@@ -100,6 +100,7 @@ pub enum SecurityScheme {
     /// HTTP Basic authentication (RFC 7617).
     ///
     /// Uses `Authorization: Basic <base64(username:password)>` header.
+    #[non_exhaustive]
     Basic {
         /// Description for documentation
         description: Option<String>,
@@ -110,6 +111,7 @@ pub enum SecurityScheme {
     /// API Key authentication.
     ///
     /// The API key can be passed in a header, query parameter, or cookie.
+    #[non_exhaustive]
     ApiKey {
         /// Name of the header, query parameter, or cookie
         name: String,
@@ -125,6 +127,7 @@ pub enum SecurityScheme {
     ///
     /// Supports multiple OAuth2 flows: authorization code, client credentials,
     /// implicit, password, and device authorization.
+    #[non_exhaustive]
     OAuth2 {
         /// OAuth2 flows configuration (boxed to reduce enum size)
         flows: Box<OAuth2Flows>,
@@ -140,6 +143,7 @@ pub enum SecurityScheme {
     ///
     /// Uses OpenID Connect for authentication with automatic discovery
     /// of the provider's configuration.
+    #[non_exhaustive]
     OpenIdConnect {
         /// OpenID Connect discovery URL
         open_id_connect_url: String,
@@ -242,13 +246,42 @@ impl SecurityScheme {
     /// let scheme = SecurityScheme::oauth2(OAuth2Flows::client_credentials(
     ///     "https://auth.example.com/token",
     ///     [("read:users", "Read user data")],
-    /// ))
-    /// .with_oauth2_metadata_url("https://auth.example.com/.well-known/oauth-authorization-server");
+    /// ));
     /// ```
     pub fn oauth2(flows: OAuth2Flows) -> Self {
         Self::OAuth2 {
             flows: Box::new(flows),
             metadata_url: None,
+            description: None,
+            deprecated: false,
+        }
+    }
+
+    /// Creates an OAuth2 authentication scheme with the URL of the OAuth2
+    /// authorization server metadata (RFC 8414).
+    ///
+    /// # Arguments
+    ///
+    /// * `flows` - The supported OAuth2 flows
+    /// * `metadata_url` - URL of the authorization server metadata
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{OAuth2Flows, SecurityScheme};
+    ///
+    /// let scheme = SecurityScheme::oauth2_with_metadata_url(
+    ///     OAuth2Flows::client_credentials(
+    ///         "https://auth.example.com/token",
+    ///         [("read:users", "Read user data")],
+    ///     ),
+    ///     "https://auth.example.com/.well-known/oauth-authorization-server",
+    /// );
+    /// ```
+    pub fn oauth2_with_metadata_url(flows: OAuth2Flows, metadata_url: impl Into<String>) -> Self {
+        Self::OAuth2 {
+            flows: Box::new(flows),
+            metadata_url: Some(metadata_url.into()),
             description: None,
             deprecated: false,
         }
@@ -337,28 +370,6 @@ impl SecurityScheme {
         self
     }
 
-    /// Sets the URL of the OAuth2 authorization server metadata (RFC 8414).
-    ///
-    /// Only OAuth2 schemes carry this URL: on any other scheme, the URL is ignored
-    /// and a warning is logged.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use clawspec_core::{OAuth2Flows, SecurityScheme};
-    ///
-    /// let scheme = SecurityScheme::oauth2(OAuth2Flows::default())
-    ///     .with_oauth2_metadata_url("https://auth.example.com/.well-known/oauth-authorization-server");
-    /// ```
-    pub fn with_oauth2_metadata_url(mut self, url: impl Into<String>) -> Self {
-        if let Self::OAuth2 { metadata_url, .. } = &mut self {
-            *metadata_url = Some(url.into());
-        } else {
-            warn!(scheme = ?self, "ignoring OAuth2 metadata URL on a non-OAuth2 security scheme");
-        }
-        self
-    }
-
     /// Converts this security scheme to a utoipa SecurityScheme.
     pub(crate) fn to_utoipa(&self) -> UtoipaSecurityScheme {
         match self {
@@ -366,6 +377,7 @@ impl SecurityScheme {
                 format,
                 description,
                 deprecated,
+                ..
             } => {
                 let mut http = Http::new(HttpAuthScheme::Bearer);
                 http.bearer_format = format.clone();
@@ -376,6 +388,7 @@ impl SecurityScheme {
             Self::Basic {
                 description,
                 deprecated,
+                ..
             } => {
                 let mut http = Http::new(HttpAuthScheme::Basic);
                 http.description = description.clone();
@@ -387,6 +400,7 @@ impl SecurityScheme {
                 location,
                 description,
                 deprecated,
+                ..
             } => {
                 let mut api_key_value = ApiKeyValue::new(name);
                 api_key_value.description = description.clone();
@@ -403,6 +417,7 @@ impl SecurityScheme {
                 metadata_url,
                 description,
                 deprecated,
+                ..
             } => {
                 let mut oauth2 = flows.to_utoipa();
                 oauth2.oauth2_metadata_url = metadata_url.clone();
@@ -414,6 +429,7 @@ impl SecurityScheme {
                 open_id_connect_url,
                 description,
                 deprecated,
+                ..
             } => {
                 let mut oidc = UtoipaOpenIdConnect::new(open_id_connect_url);
                 oidc.description = description.clone();
@@ -492,15 +508,9 @@ impl OAuth2Flows {
         token_url: impl Into<String>,
         scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
-        Self {
-            authorization_code: Some(OAuth2Flow {
-                authorization_url: Some(authorization_url.into()),
-                token_url: token_url.into(),
-                refresh_url: None,
-                scopes: collect_scopes(scopes),
-            }),
-            ..Default::default()
-        }
+        Self::default().with_authorization_code(
+            OAuth2Flow::new(token_url, scopes).with_authorization_url(authorization_url),
+        )
     }
 
     /// Creates a new OAuth2Flows with client credentials flow.
@@ -508,15 +518,7 @@ impl OAuth2Flows {
         token_url: impl Into<String>,
         scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
-        Self {
-            client_credentials: Some(OAuth2Flow {
-                authorization_url: None,
-                token_url: token_url.into(),
-                refresh_url: None,
-                scopes: collect_scopes(scopes),
-            }),
-            ..Default::default()
-        }
+        Self::default().with_client_credentials(OAuth2Flow::new(token_url, scopes))
     }
 
     /// Creates a new OAuth2Flows with device authorization flow.
@@ -533,6 +535,30 @@ impl OAuth2Flows {
             token_url,
             scopes,
         ))
+    }
+
+    /// Sets the authorization code flow.
+    pub fn with_authorization_code(mut self, flow: OAuth2Flow) -> Self {
+        self.authorization_code = Some(flow);
+        self
+    }
+
+    /// Sets the client credentials flow.
+    pub fn with_client_credentials(mut self, flow: OAuth2Flow) -> Self {
+        self.client_credentials = Some(flow);
+        self
+    }
+
+    /// Sets the implicit flow.
+    pub fn with_implicit(mut self, flow: OAuth2ImplicitFlow) -> Self {
+        self.implicit = Some(flow);
+        self
+    }
+
+    /// Sets the password flow.
+    pub fn with_password(mut self, flow: OAuth2Flow) -> Self {
+        self.password = Some(flow);
+        self
     }
 
     /// Sets the device authorization flow.
@@ -613,7 +639,20 @@ impl OAuth2Flows {
 }
 
 /// OAuth2 flow configuration (for flows with token URL).
+///
+/// Used for the authorization code, client credentials and password flows.
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::OAuth2Flow;
+///
+/// let flow = OAuth2Flow::new("https://auth.example.com/token", [("read:users", "Read user data")])
+///     .with_authorization_url("https://auth.example.com/authorize")
+///     .with_refresh_url("https://auth.example.com/refresh");
+/// ```
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct OAuth2Flow {
     /// Authorization URL (required for authorization_code, not for client_credentials)
     pub authorization_url: Option<String>,
@@ -625,8 +664,47 @@ pub struct OAuth2Flow {
     pub scopes: IndexMap<String, String>,
 }
 
+impl OAuth2Flow {
+    /// Creates a new flow without authorization URL.
+    pub fn new(
+        token_url: impl Into<String>,
+        scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        Self {
+            authorization_url: None,
+            token_url: token_url.into(),
+            refresh_url: None,
+            scopes: collect_scopes(scopes),
+        }
+    }
+
+    /// Sets the authorization URL (required for the authorization code flow).
+    pub fn with_authorization_url(mut self, authorization_url: impl Into<String>) -> Self {
+        self.authorization_url = Some(authorization_url.into());
+        self
+    }
+
+    /// Sets the refresh URL.
+    pub fn with_refresh_url(mut self, refresh_url: impl Into<String>) -> Self {
+        self.refresh_url = Some(refresh_url.into());
+        self
+    }
+}
+
 /// OAuth2 implicit flow configuration.
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::OAuth2ImplicitFlow;
+///
+/// let flow = OAuth2ImplicitFlow::new(
+///     "https://auth.example.com/authorize",
+///     [("read:users", "Read user data")],
+/// );
+/// ```
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct OAuth2ImplicitFlow {
     /// Authorization URL
     pub authorization_url: String,
@@ -634,6 +712,26 @@ pub struct OAuth2ImplicitFlow {
     pub refresh_url: Option<String>,
     /// Available scopes
     pub scopes: IndexMap<String, String>,
+}
+
+impl OAuth2ImplicitFlow {
+    /// Creates a new implicit flow.
+    pub fn new(
+        authorization_url: impl Into<String>,
+        scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        Self {
+            authorization_url: authorization_url.into(),
+            refresh_url: None,
+            scopes: collect_scopes(scopes),
+        }
+    }
+
+    /// Sets the refresh URL.
+    pub fn with_refresh_url(mut self, refresh_url: impl Into<String>) -> Self {
+        self.refresh_url = Some(refresh_url.into());
+        self
+    }
 }
 
 /// OAuth2 device authorization flow configuration (RFC 8628).
@@ -818,12 +916,12 @@ mod tests {
             )
             .with_refresh_url("https://auth.example.com/refresh"),
         );
-        let scheme = SecurityScheme::oauth2(flows)
-            .with_oauth2_metadata_url(
-                "https://auth.example.com/.well-known/oauth-authorization-server",
-            )
-            .with_description("OAuth2")
-            .with_deprecated(true);
+        let scheme = SecurityScheme::oauth2_with_metadata_url(
+            flows,
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+        )
+        .with_description("OAuth2")
+        .with_deprecated(true);
 
         assert_snapshot!(to_yaml(&scheme), @r#"
         type: oauth2
@@ -845,29 +943,81 @@ mod tests {
     }
 
     #[test]
-    fn should_ignore_oauth2_metadata_url_on_other_schemes() {
-        let scheme = SecurityScheme::bearer()
-            .with_oauth2_metadata_url("https://auth.example.com/.well-known/metadata");
+    fn should_convert_all_oauth2_flows() {
+        let flows = OAuth2Flows::default()
+            .with_authorization_code(
+                OAuth2Flow::new("https://auth.example.com/token", [("read", "Read access")])
+                    .with_authorization_url("https://auth.example.com/authorize")
+                    .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_client_credentials(OAuth2Flow::new(
+                "https://auth.example.com/token",
+                [("api", "API access")],
+            ))
+            .with_implicit(
+                OAuth2ImplicitFlow::new(
+                    "https://auth.example.com/authorize",
+                    [("implicit", "Implicit access")],
+                )
+                .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_password(OAuth2Flow::new(
+                "https://auth.example.com/token",
+                [("password", "Password access")],
+            ))
+            .with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
+                "https://auth.example.com/device",
+                "https://auth.example.com/token",
+                [("device", "Device access")],
+            ));
 
-        assert_eq!(scheme, SecurityScheme::bearer());
+        assert_snapshot!(to_yaml(&SecurityScheme::oauth2(flows)), @"
+        type: oauth2
+        flows:
+          authorizationCode:
+            authorizationUrl: https://auth.example.com/authorize
+            tokenUrl: https://auth.example.com/token
+            refreshUrl: https://auth.example.com/refresh
+            scopes:
+              read: Read access
+          clientCredentials:
+            tokenUrl: https://auth.example.com/token
+            scopes:
+              api: API access
+          deviceAuthorization:
+            deviceAuthorizationUrl: https://auth.example.com/device
+            tokenUrl: https://auth.example.com/token
+            scopes:
+              device: Device access
+          implicit:
+            authorizationUrl: https://auth.example.com/authorize
+            refreshUrl: https://auth.example.com/refresh
+            scopes:
+              implicit: Implicit access
+          password:
+            tokenUrl: https://auth.example.com/token
+            scopes:
+              password: Password access
+        ");
     }
 
     #[test]
-    fn should_create_device_authorization_flows() {
+    fn should_convert_device_authorization_flows() {
         let flows = OAuth2Flows::device_authorization(
             "https://auth.example.com/device",
             "https://auth.example.com/token",
             [("read:users", "Read user data")],
         );
 
-        assert_eq!(
-            flows,
-            OAuth2Flows::default().with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
-                "https://auth.example.com/device",
-                "https://auth.example.com/token",
-                [("read:users", "Read user data")],
-            ))
-        );
+        assert_snapshot!(to_yaml(&SecurityScheme::oauth2(flows)), @r#"
+        type: oauth2
+        flows:
+          deviceAuthorization:
+            deviceAuthorizationUrl: https://auth.example.com/device
+            tokenUrl: https://auth.example.com/token
+            scopes:
+              "read:users": Read user data
+        "#);
     }
 
     #[test]
@@ -879,6 +1029,7 @@ mod tests {
                 format: None,
                 description: None,
                 deprecated: false,
+                ..
             }
         ));
     }
@@ -892,6 +1043,7 @@ mod tests {
                 format: Some(ref f),
                 description: None,
                 deprecated: false,
+                ..
             } if f == "JWT"
         ));
     }
@@ -904,6 +1056,7 @@ mod tests {
             SecurityScheme::Basic {
                 description: None,
                 deprecated: false,
+                ..
             }
         ));
     }
@@ -918,6 +1071,7 @@ mod tests {
                 location: ApiKeyLocation::Header,
                 description: None,
                 deprecated: false,
+                ..
             } if name == "X-API-Key"
         ));
     }
@@ -931,6 +1085,7 @@ mod tests {
                 format: None,
                 description: Some(ref d),
                 deprecated: false,
+                ..
             } if d == "JWT Bearer token"
         ));
     }

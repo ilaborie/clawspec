@@ -32,6 +32,47 @@ pub struct SseEvent<T> {
     pub retry: Option<u64>,
 }
 
+impl<T> SseEvent<T> {
+    /// Creates an event with only a `data` field.
+    ///
+    /// Use it with the `with_*` methods to build the expected events of a test.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::SseEvent;
+    ///
+    /// let event = SseEvent::new("hello").with_event("greeting").with_id("1").with_retry(3000);
+    /// assert_eq!(event.event.as_deref(), Some("greeting"));
+    /// ```
+    pub fn new(data: T) -> Self {
+        Self {
+            event: None,
+            data,
+            id: None,
+            retry: None,
+        }
+    }
+
+    /// Sets the event type.
+    pub fn with_event(mut self, event: impl Into<String>) -> Self {
+        self.event = Some(event.into());
+        self
+    }
+
+    /// Sets the event ID.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Sets the reconnection time in milliseconds.
+    pub fn with_retry(mut self, retry: u64) -> Self {
+        self.retry = Some(retry);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::client) enum SequentialKind {
     JsonLines,
@@ -312,7 +353,7 @@ mod tests {
 
     use super::*;
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, PartialEq, Deserialize)]
     #[allow(dead_code)]
     struct Item {
         id: u32,
@@ -428,25 +469,16 @@ mod tests {
             .expect("should parse event stream")
             .items;
 
-        assert_debug_snapshot!(events, @r#"
-        [
-            SseEvent {
-                event: Some(
-                    "created",
-                ),
-                data: Item {
-                    id: 1,
-                    name: "a",
-                },
-                id: Some(
-                    "42",
-                ),
-                retry: Some(
-                    3000,
-                ),
-            },
-        ]
-        "#);
+        assert_eq!(
+            events,
+            [SseEvent::new(Item {
+                id: 1,
+                name: "a".to_string(),
+            })
+            .with_event("created")
+            .with_id("42")
+            .with_retry(3000)]
+        );
     }
 
     #[test]
