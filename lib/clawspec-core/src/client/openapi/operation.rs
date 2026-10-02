@@ -111,11 +111,6 @@ impl CalledOperation {
     pub(in crate::client) fn add_response(&mut self, call_result: CallResult) {
         self.result = Some(call_result);
     }
-
-    /// Gets the tags associated with this operation.
-    pub(in crate::client) fn tags(&self) -> Option<&Vec<String>> {
-        self.operation.tags.as_ref()
-    }
 }
 
 /// Merges two OpenAPI operations for the same endpoint, combining their metadata.

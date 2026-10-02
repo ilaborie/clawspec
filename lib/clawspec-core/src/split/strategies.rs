@@ -3,26 +3,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use utoipa::openapi::path::{Operation, Parameter, PathItem};
+use utoipa::openapi::path::Parameter;
 use utoipa::openapi::{Components, Content, OpenApi, Ref, RefOr};
 
 use super::{Fragment, OpenApiSplitter, SplitResult};
-
-/// Helper to iterate over all operations in a PathItem.
-fn iter_operations(path_item: &PathItem) -> impl Iterator<Item = &Operation> {
-    [
-        path_item.get.as_ref(),
-        path_item.put.as_ref(),
-        path_item.post.as_ref(),
-        path_item.delete.as_ref(),
-        path_item.options.as_ref(),
-        path_item.head.as_ref(),
-        path_item.patch.as_ref(),
-        path_item.trace.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-}
+use crate::client::iter_operations;
 
 /// Splits schemas based on which tags use them.
 ///

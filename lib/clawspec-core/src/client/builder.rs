@@ -196,6 +196,8 @@ impl ApiClientBuilder {
     ///
     /// Defaults to [`OpenApiVersion::Version32`]. Use [`OpenApiVersion::Version31`]
     /// when the consumers of the specification do not support the latest version yet.
+    /// With [`OpenApiVersion::Version31`], the data that this version cannot carry
+    /// (for example a server `name` or a tag `kind`) is dropped with a warning.
     pub fn with_openapi_version(mut self, openapi_version: OpenApiVersion) -> Self {
         self.openapi_version = openapi_version;
         self
@@ -780,5 +782,40 @@ mod tests {
         let openapi = client.collected_openapi().await;
 
         assert_eq!(openapi.openapi, OpenApiVersion::Version31);
+    }
+
+    fn named_server() -> Server {
+        ServerBuilder::new()
+            .url("https://api.example.com")
+            .name(Some("prod"))
+            .build()
+    }
+
+    #[tokio::test]
+    async fn should_keep_server_name_by_default() {
+        let mut client = ApiClientBuilder::default()
+            .add_server(named_server())
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        let servers = openapi.servers.expect("should have servers");
+        assert_eq!(servers[0].name.as_deref(), Some("prod"));
+    }
+
+    #[tokio::test]
+    async fn should_drop_server_name_with_openapi_31() {
+        let mut client = ApiClientBuilder::default()
+            .with_openapi_version(OpenApiVersion::Version31)
+            .add_server(named_server())
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        let servers = openapi.servers.expect("should have servers");
+        assert_eq!(servers[0].url, "https://api.example.com");
+        assert_eq!(servers[0].name, None);
     }
 }
