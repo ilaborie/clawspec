@@ -2074,7 +2074,23 @@ mod extra_method_tests {
               content:
                 application/json:
                   schema:
-                    $ref: "#/components/schemas/Vec"
+                    type: array
+                    items:
+                      type: object
+                      description: Test user type for JSON responses.
+                      required:
+                      - id
+                      - name
+                      - email
+                      properties:
+                        email:
+                          type: string
+                        id:
+                          type: integer
+                          format: int32
+                          minimum: 0
+                        name:
+                          type: string
         "##
         );
         let tags = openapi
@@ -2173,7 +2189,7 @@ mod metadata_tests {
             .expect("should have GET /users");
         assert_snapshot!(
             serde_saphyr::to_string(operation).expect("should serialize to YAML"),
-            @r##"
+            @r#"
         tags:
         - users
         summary: List users
@@ -2186,8 +2202,24 @@ mod metadata_tests {
             content:
               application/json:
                 schema:
-                  $ref: "#/components/schemas/Vec"
-        "##
+                  type: array
+                  items:
+                    type: object
+                    description: Test user type for JSON responses.
+                    required:
+                    - id
+                    - name
+                    - email
+                    properties:
+                      email:
+                        type: string
+                      id:
+                        type: integer
+                        format: int32
+                        minimum: 0
+                      name:
+                        type: string
+        "#
         );
     }
 
@@ -2682,7 +2714,7 @@ mod querystring_tests {
     async fn should_document_cookie_style() {
         let parameters = get_with_cookies(OpenApiVersion::Version32).await;
 
-        assert_snapshot!(parameters, @r##"
+        assert_snapshot!(parameters, @"
         - name: session
           in: cookie
           required: false
@@ -2694,17 +2726,20 @@ mod querystring_tests {
           in: cookie
           required: false
           schema:
-            $ref: "#/components/schemas/Vec"
+            type: array
+            items:
+              type: integer
+              format: int32
           style: cookie
           explode: false
-        "##);
+        ");
     }
 
     #[tokio::test]
     async fn should_drop_cookie_style_in_older_output() {
         let parameters = get_with_cookies(OpenApiVersion::Version31).await;
 
-        assert_snapshot!(parameters, @r##"
+        assert_snapshot!(parameters, @"
         - name: session
           in: cookie
           required: false
@@ -2714,7 +2749,10 @@ mod querystring_tests {
           in: cookie
           required: false
           schema:
-            $ref: "#/components/schemas/Vec"
-        "##);
+            type: array
+            items:
+              type: integer
+              format: int32
+        ");
     }
 }
