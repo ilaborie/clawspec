@@ -1,7 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 
 use http::{Method, Uri};
+use tracing::warn;
 use utoipa::openapi::{Components, Info, OpenApi, OpenApiVersion, Paths, Server, Tag};
 
 mod builder;
@@ -36,8 +37,8 @@ pub use self::oauth2::{OAuth2Config, OAuth2ConfigBuilder, OAuth2Error, OAuth2Tok
 
 mod security;
 pub use self::security::{
-    ApiKeyLocation, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow, SecurityRequirement,
-    SecurityScheme,
+    ApiKeyLocation, OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow,
+    SecurityRequirement, SecurityScheme,
 };
 
 mod call_parameters;
@@ -101,6 +102,7 @@ pub struct ApiClient {
     openapi_version: OpenApiVersion,
     info: Option<Info>,
     servers: Vec<Server>,
+    tags: Vec<Tag>,
     collector_handle: CollectorHandle,
     authentication: Option<Authentication>,
     security_schemes: IndexMap<String, SecurityScheme>,
@@ -193,13 +195,16 @@ impl ApiClient {
     /// - **Servers**: Server URLs and descriptions if configured
     /// - **Paths**: All documented endpoints with operations
     /// - **Components**: Reusable schema definitions
-    /// - **Tags**: Automatically computed from operation tags
+    /// - **Tags**: Computed from operation tags, plus the declared tags
     ///
     /// # Tag Generation
     ///
     /// Tags are automatically computed from all operations and include:
     /// - Explicit tags set on operations
     /// - Auto-generated tags based on path patterns
+    /// - Tags declared with [`ApiClientBuilder::add_tag`], which replace the
+    ///   automatic tag with the same name and are kept even when unused
+    /// - Missing `parent` tags, added as plain tags
     /// - Deduplicated and sorted alphabetically
     ///
     /// # Performance Notes
@@ -221,7 +226,7 @@ impl ApiClient {
         }
 
         let paths = self.collected_paths().await;
-        let tags = compute_tags(&paths, &[]);
+        let tags = compute_tags(&paths, &self.tags);
         builder = builder.paths(paths);
 
         // Add components with schemas and security schemes
@@ -397,6 +402,16 @@ fn compute_tags(paths: &Paths, declared: &[Tag]) -> Vec<Tag> {
         .map(|name| (name.clone(), Tag::new(name)))
         .collect::<BTreeMap<_, _>>();
     tags.extend(declared.iter().map(|tag| (tag.name.clone(), tag.clone())));
+    let missing_parents = tags
+        .values()
+        .filter_map(|tag| tag.parent.as_deref())
+        .filter(|parent| !tags.contains_key(*parent))
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
+    for parent in missing_parents {
+        warn!(%parent, "adding missing parent tag");
+        tags.insert(parent.clone(), Tag::new(parent));
+    }
     tags.into_values().collect()
 }
 
@@ -443,5 +458,39 @@ mod tests {
         let tags = compute_tags(&paths, std::slice::from_ref(&declared));
 
         assert_eq!(tags, [declared]);
+    }
+
+    #[test]
+    fn should_keep_unused_declared_tags() {
+        let paths = Paths::builder()
+            .path("/users", tagged_path_item("users"))
+            .build();
+        let declared = TagBuilder::new()
+            .name("admin")
+            .summary(Some("Administration"))
+            .build();
+
+        let tags = compute_tags(&paths, std::slice::from_ref(&declared));
+
+        assert_eq!(tags, [declared, Tag::new("users")]);
+    }
+
+    #[test]
+    fn should_add_missing_parent_tags() {
+        let paths = Paths::builder()
+            .path("/users", tagged_path_item("users"))
+            .build();
+        let declared = TagBuilder::new()
+            .name("users")
+            .parent(Some("accounts"))
+            .build();
+        let child = TagBuilder::new()
+            .name("roles")
+            .parent(Some("users"))
+            .build();
+
+        let tags = compute_tags(&paths, &[declared.clone(), child.clone()]);
+
+        assert_eq!(tags, [Tag::new("accounts"), child, declared]);
     }
 }

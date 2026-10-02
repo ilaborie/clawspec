@@ -71,7 +71,7 @@
 //! - Make GET, POST, PUT, PATCH, DELETE, and QUERY requests
 //! - Use path, query, header, and cookie parameters
 //! - Handle different response types and errors
-//! - Customize OpenAPI output with tags and descriptions
+//! - Customize OpenAPI output with tags, summaries, descriptions, and security schemes
 //! - Use redaction for stable documentation examples
 //! - Integrate with test frameworks using `TestClient`
 //!

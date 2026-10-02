@@ -4,7 +4,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use http::Uri;
 use http::uri::{PathAndQuery, Scheme};
 use indexmap::IndexMap;
-use utoipa::openapi::{Info, OpenApiVersion, Server};
+use utoipa::openapi::{Info, OpenApiVersion, Server, Tag};
 
 use super::openapi::channel::CollectorHandle;
 use super::security::{SecurityRequirement, SecurityScheme};
@@ -71,6 +71,7 @@ pub struct ApiClientBuilder {
     openapi_version: OpenApiVersion,
     info: Option<Info>,
     servers: Vec<Server>,
+    tags: Vec<Tag>,
     authentication: Option<super::Authentication>,
     security_schemes: IndexMap<String, SecurityScheme>,
     default_security: Vec<SecurityRequirement>,
@@ -119,6 +120,7 @@ impl ApiClientBuilder {
             openapi_version,
             info,
             servers,
+            tags,
             authentication,
             security_schemes,
             default_security,
@@ -148,6 +150,7 @@ impl ApiClientBuilder {
             openapi_version,
             info,
             servers,
+            tags,
             collector_handle,
             authentication,
             security_schemes,
@@ -218,8 +221,68 @@ impl ApiClientBuilder {
     }
 
     /// Adds a server to the OpenAPI specification. Use [`add_server_simple()`](Self::add_server_simple) for convenience.
+    ///
+    /// Use [`ServerBuilder`](crate::ServerBuilder) to set every server field, including its `name`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, ServerBuilder};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .add_server(
+    ///         ServerBuilder::new()
+    ///             .url("https://api.example.com")
+    ///             .name(Some("production"))
+    ///             .description(Some("Production server"))
+    ///             .build(),
+    ///     )
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn add_server(mut self, server: Server) -> Self {
         self.servers.push(server);
+        self
+    }
+
+    /// Declares a tag with its metadata (summary, description, parent, kind, ...).
+    ///
+    /// Tags used by the operations are added automatically. A declared tag replaces
+    /// the automatic tag with the same name, and a declared tag that no operation
+    /// uses is still written in the specification. Tags are sorted by name.
+    ///
+    /// When a tag names a `parent` that is neither declared nor used, a plain tag
+    /// with that name is added and a warning is logged.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, TagBuilder};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .add_tag(
+    ///         TagBuilder::new()
+    ///             .name("users")
+    ///             .summary(Some("Users"))
+    ///             .description(Some("User management"))
+    ///             .kind(Some("nav"))
+    ///             .build(),
+    ///     )
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_tag(mut self, tag: Tag) -> Self {
+        self.tags.push(tag);
+        self
+    }
+
+    /// Declares several tags. See [`add_tag()`](Self::add_tag).
+    pub fn with_tags(mut self, tags: impl IntoIterator<Item = Tag>) -> Self {
+        self.tags.extend(tags);
         self
     }
 
@@ -444,6 +507,7 @@ impl Default for ApiClientBuilder {
             openapi_version: OpenApiVersion::Version32,
             info: None,
             servers: Vec::new(),
+            tags: Vec::new(),
             authentication: None,
             security_schemes: IndexMap::new(),
             default_security: Vec::new(),
@@ -729,12 +793,16 @@ mod tests {
             .build()
             .expect("should build client");
 
-        let scheme = client.security_schemes.get("bearerAuth").unwrap();
+        let scheme = client
+            .security_schemes
+            .get("bearerAuth")
+            .expect("should have bearerAuth scheme");
         assert!(matches!(
             scheme,
             SecurityScheme::Bearer {
                 format: Some(f),
-                description: Some(d)
+                description: Some(d),
+                deprecated: false,
             } if f == "JWT" && d == "JWT token from /auth/login"
         ));
     }

@@ -43,6 +43,7 @@ impl ApiCall {
             metadata: OperationMetadata {
                 operation_id,
                 tags: None,
+                summary: None,
                 description: None,
                 #[cfg(feature = "redaction")]
                 response_description: None,
@@ -285,13 +286,6 @@ impl ApiCall {
         response_description: Option<String>,
         security: Option<Vec<crate::client::security::SecurityRequirement>>,
     ) -> CalledOperation {
-        let OperationMetadata {
-            operation_id,
-            tags,
-            description,
-            response_description: _,
-        } = metadata;
-
         CalledOperation::build(
             method.clone(),
             &path.path,
@@ -299,10 +293,8 @@ impl ApiCall {
             parameters,
             body.as_ref(),
             OperationMetadata {
-                operation_id: operation_id.to_string(),
-                tags,
-                description,
                 response_description,
+                ..metadata
             },
             security,
         )

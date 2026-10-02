@@ -44,10 +44,12 @@
 //! ```
 
 use indexmap::IndexMap;
+use tracing::warn;
+use utoipa::openapi::Deprecated;
 use utoipa::openapi::security::{
-    ApiKey as UtoipaApiKey, ApiKeyValue, AuthorizationCode, ClientCredentials, Flow, Http,
-    HttpAuthScheme, Implicit, OAuth2 as UtoipaOAuth2, OpenIdConnect as UtoipaOpenIdConnect,
-    Password, Scopes, SecurityScheme as UtoipaSecurityScheme,
+    ApiKey as UtoipaApiKey, ApiKeyValue, AuthorizationCode, ClientCredentials, DeviceAuthorization,
+    Flow, Http, HttpAuthScheme, Implicit, OAuth2 as UtoipaOAuth2,
+    OpenIdConnect as UtoipaOpenIdConnect, Password, Scopes, SecurityScheme as UtoipaSecurityScheme,
 };
 
 /// OpenAPI security scheme configuration.
@@ -91,6 +93,8 @@ pub enum SecurityScheme {
         format: Option<String>,
         /// Description for documentation
         description: Option<String>,
+        /// Whether the scheme is deprecated
+        deprecated: bool,
     },
 
     /// HTTP Basic authentication (RFC 7617).
@@ -99,6 +103,8 @@ pub enum SecurityScheme {
     Basic {
         /// Description for documentation
         description: Option<String>,
+        /// Whether the scheme is deprecated
+        deprecated: bool,
     },
 
     /// API Key authentication.
@@ -111,17 +117,23 @@ pub enum SecurityScheme {
         location: ApiKeyLocation,
         /// Description for documentation
         description: Option<String>,
+        /// Whether the scheme is deprecated
+        deprecated: bool,
     },
 
     /// OAuth 2.0 authentication.
     ///
     /// Supports multiple OAuth2 flows: authorization code, client credentials,
-    /// implicit, and password.
+    /// implicit, password, and device authorization.
     OAuth2 {
         /// OAuth2 flows configuration (boxed to reduce enum size)
         flows: Box<OAuth2Flows>,
+        /// URL of the OAuth2 authorization server metadata (RFC 8414)
+        metadata_url: Option<String>,
         /// Description for documentation
         description: Option<String>,
+        /// Whether the scheme is deprecated
+        deprecated: bool,
     },
 
     /// OpenID Connect Discovery.
@@ -133,6 +145,8 @@ pub enum SecurityScheme {
         open_id_connect_url: String,
         /// Description for documentation
         description: Option<String>,
+        /// Whether the scheme is deprecated
+        deprecated: bool,
     },
 }
 
@@ -150,6 +164,7 @@ impl SecurityScheme {
         Self::Bearer {
             format: None,
             description: None,
+            deprecated: false,
         }
     }
 
@@ -170,6 +185,7 @@ impl SecurityScheme {
         Self::Bearer {
             format: Some(format.into()),
             description: None,
+            deprecated: false,
         }
     }
 
@@ -183,7 +199,10 @@ impl SecurityScheme {
     /// let scheme = SecurityScheme::basic();
     /// ```
     pub fn basic() -> Self {
-        Self::Basic { description: None }
+        Self::Basic {
+            description: None,
+            deprecated: false,
+        }
     }
 
     /// Creates an API Key authentication scheme.
@@ -205,6 +224,33 @@ impl SecurityScheme {
             name: name.into(),
             location,
             description: None,
+            deprecated: false,
+        }
+    }
+
+    /// Creates an OAuth2 authentication scheme.
+    ///
+    /// # Arguments
+    ///
+    /// * `flows` - The supported OAuth2 flows
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{OAuth2Flows, SecurityScheme};
+    ///
+    /// let scheme = SecurityScheme::oauth2(OAuth2Flows::client_credentials(
+    ///     "https://auth.example.com/token",
+    ///     [("read:users", "Read user data")],
+    /// ))
+    /// .with_oauth2_metadata_url("https://auth.example.com/.well-known/oauth-authorization-server");
+    /// ```
+    pub fn oauth2(flows: OAuth2Flows) -> Self {
+        Self::OAuth2 {
+            flows: Box::new(flows),
+            metadata_url: None,
+            description: None,
+            deprecated: false,
         }
     }
 
@@ -225,6 +271,7 @@ impl SecurityScheme {
         Self::OpenIdConnect {
             open_id_connect_url: url.into(),
             description: None,
+            deprecated: false,
         }
     }
 
@@ -240,19 +287,74 @@ impl SecurityScheme {
     /// ```
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         match &mut self {
-            SecurityScheme::Bearer {
+            Self::Bearer {
+                description: desc, ..
+            }
+            | Self::Basic {
+                description: desc, ..
+            }
+            | Self::ApiKey {
+                description: desc, ..
+            }
+            | Self::OAuth2 {
+                description: desc, ..
+            }
+            | Self::OpenIdConnect {
                 description: desc, ..
             } => *desc = Some(description.into()),
-            SecurityScheme::Basic { description: desc } => *desc = Some(description.into()),
-            SecurityScheme::ApiKey {
-                description: desc, ..
-            } => *desc = Some(description.into()),
-            SecurityScheme::OAuth2 {
-                description: desc, ..
-            } => *desc = Some(description.into()),
-            SecurityScheme::OpenIdConnect {
-                description: desc, ..
-            } => *desc = Some(description.into()),
+        }
+        self
+    }
+
+    /// Marks the security scheme as deprecated, or not.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiKeyLocation, SecurityScheme};
+    ///
+    /// let scheme = SecurityScheme::api_key("X-Legacy-Key", ApiKeyLocation::Header)
+    ///     .with_deprecated(true);
+    /// ```
+    pub fn with_deprecated(mut self, deprecated: bool) -> Self {
+        match &mut self {
+            Self::Bearer {
+                deprecated: flag, ..
+            }
+            | Self::Basic {
+                deprecated: flag, ..
+            }
+            | Self::ApiKey {
+                deprecated: flag, ..
+            }
+            | Self::OAuth2 {
+                deprecated: flag, ..
+            }
+            | Self::OpenIdConnect {
+                deprecated: flag, ..
+            } => *flag = deprecated,
+        }
+        self
+    }
+
+    /// Sets the URL of the OAuth2 authorization server metadata (RFC 8414).
+    ///
+    /// Only OAuth2 schemes carry this URL: on any other scheme, the URL is ignored
+    /// and a warning is logged.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{OAuth2Flows, SecurityScheme};
+    ///
+    /// let scheme = SecurityScheme::oauth2(OAuth2Flows::default())
+    ///     .with_oauth2_metadata_url("https://auth.example.com/.well-known/oauth-authorization-server");
+    /// ```
+    pub fn with_oauth2_metadata_url(mut self, url: impl Into<String>) -> Self {
+        if let Self::OAuth2 { metadata_url, .. } = &mut self {
+            *metadata_url = Some(url.into());
+        } else {
+            warn!(scheme = ?self, "ignoring OAuth2 metadata URL on a non-OAuth2 security scheme");
         }
         self
     }
@@ -260,36 +362,35 @@ impl SecurityScheme {
     /// Converts this security scheme to a utoipa SecurityScheme.
     pub(crate) fn to_utoipa(&self) -> UtoipaSecurityScheme {
         match self {
-            SecurityScheme::Bearer {
+            Self::Bearer {
                 format,
                 description,
+                deprecated,
             } => {
                 let mut http = Http::new(HttpAuthScheme::Bearer);
-                if let Some(fmt) = format {
-                    http.bearer_format = Some(fmt.clone());
-                }
-                if let Some(desc) = description {
-                    http.description = Some(desc.clone());
-                }
+                http.bearer_format = format.clone();
+                http.description = description.clone();
+                http.deprecated = to_deprecated(*deprecated);
                 UtoipaSecurityScheme::Http(http)
             }
-            SecurityScheme::Basic { description } => {
+            Self::Basic {
+                description,
+                deprecated,
+            } => {
                 let mut http = Http::new(HttpAuthScheme::Basic);
-                if let Some(desc) = description {
-                    http.description = Some(desc.clone());
-                }
+                http.description = description.clone();
+                http.deprecated = to_deprecated(*deprecated);
                 UtoipaSecurityScheme::Http(http)
             }
-            SecurityScheme::ApiKey {
+            Self::ApiKey {
                 name,
                 location,
                 description,
+                deprecated,
             } => {
-                let api_key_value = if let Some(desc) = description {
-                    ApiKeyValue::with_description(name, desc)
-                } else {
-                    ApiKeyValue::new(name)
-                };
+                let mut api_key_value = ApiKeyValue::new(name);
+                api_key_value.description = description.clone();
+                api_key_value.deprecated = to_deprecated(*deprecated);
                 let api_key = match location {
                     ApiKeyLocation::Header => UtoipaApiKey::Header(api_key_value),
                     ApiKeyLocation::Query => UtoipaApiKey::Query(api_key_value),
@@ -297,25 +398,43 @@ impl SecurityScheme {
                 };
                 UtoipaSecurityScheme::ApiKey(api_key)
             }
-            SecurityScheme::OAuth2 { flows, description } => {
+            Self::OAuth2 {
+                flows,
+                metadata_url,
+                description,
+                deprecated,
+            } => {
                 let mut oauth2 = flows.to_utoipa();
-                if let Some(desc) = description {
-                    oauth2.description = Some(desc.clone());
-                }
+                oauth2.oauth2_metadata_url = metadata_url.clone();
+                oauth2.description = description.clone();
+                oauth2.deprecated = to_deprecated(*deprecated);
                 UtoipaSecurityScheme::OAuth2(oauth2)
             }
-            SecurityScheme::OpenIdConnect {
+            Self::OpenIdConnect {
                 open_id_connect_url,
                 description,
+                deprecated,
             } => {
                 let mut oidc = UtoipaOpenIdConnect::new(open_id_connect_url);
-                if let Some(desc) = description {
-                    oidc.description = Some(desc.clone());
-                }
+                oidc.description = description.clone();
+                oidc.deprecated = to_deprecated(*deprecated);
                 UtoipaSecurityScheme::OpenIdConnect(oidc)
             }
         }
     }
+}
+
+fn to_deprecated(deprecated: bool) -> Option<Deprecated> {
+    deprecated.then_some(Deprecated::True)
+}
+
+fn collect_scopes(
+    scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+) -> IndexMap<String, String> {
+    scopes
+        .into_iter()
+        .map(|(name, description)| (name.into(), description.into()))
+        .collect()
 }
 
 /// Location where an API key is passed.
@@ -332,7 +451,24 @@ pub enum ApiKeyLocation {
 /// OAuth2 flow configurations.
 ///
 /// Represents the different OAuth2 flows supported by OpenAPI.
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::{OAuth2DeviceAuthorizationFlow, OAuth2Flows};
+///
+/// let flows = OAuth2Flows::client_credentials(
+///     "https://auth.example.com/token",
+///     [("api:access", "API access")],
+/// )
+/// .with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
+///     "https://auth.example.com/device",
+///     "https://auth.example.com/token",
+///     [("api:access", "API access")],
+/// ));
+/// ```
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct OAuth2Flows {
     /// Authorization Code flow
     pub authorization_code: Option<OAuth2Flow>,
@@ -342,6 +478,11 @@ pub struct OAuth2Flows {
     pub implicit: Option<OAuth2ImplicitFlow>,
     /// Password flow (deprecated in OAuth 2.1)
     pub password: Option<OAuth2Flow>,
+    /// Device Authorization flow (RFC 8628)
+    ///
+    /// This flow is only written in the specification: the `oauth2` feature
+    /// cannot acquire tokens with it.
+    pub device_authorization: Option<OAuth2DeviceAuthorizationFlow>,
 }
 
 impl OAuth2Flows {
@@ -356,10 +497,7 @@ impl OAuth2Flows {
                 authorization_url: Some(authorization_url.into()),
                 token_url: token_url.into(),
                 refresh_url: None,
-                scopes: scopes
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), v.into()))
-                    .collect(),
+                scopes: collect_scopes(scopes),
             }),
             ..Default::default()
         }
@@ -375,13 +513,32 @@ impl OAuth2Flows {
                 authorization_url: None,
                 token_url: token_url.into(),
                 refresh_url: None,
-                scopes: scopes
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), v.into()))
-                    .collect(),
+                scopes: collect_scopes(scopes),
             }),
             ..Default::default()
         }
+    }
+
+    /// Creates a new OAuth2Flows with device authorization flow.
+    ///
+    /// This flow is only written in the specification: the `oauth2` feature
+    /// cannot acquire tokens with it.
+    pub fn device_authorization(
+        device_authorization_url: impl Into<String>,
+        token_url: impl Into<String>,
+        scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        Self::default().with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
+            device_authorization_url,
+            token_url,
+            scopes,
+        ))
+    }
+
+    /// Sets the device authorization flow.
+    pub fn with_device_authorization(mut self, flow: OAuth2DeviceAuthorizationFlow) -> Self {
+        self.device_authorization = Some(flow);
+        self
     }
 
     fn to_utoipa(&self) -> UtoipaOAuth2 {
@@ -436,6 +593,21 @@ impl OAuth2Flows {
             flows.push(Flow::Password(password));
         }
 
+        if let Some(flow) = &self.device_authorization {
+            let scopes = Scopes::from_iter(flow.scopes.clone());
+            let device_authorization = if let Some(ref refresh) = flow.refresh_url {
+                DeviceAuthorization::with_refresh_url(
+                    &flow.device_authorization_url,
+                    &flow.token_url,
+                    scopes,
+                    refresh,
+                )
+            } else {
+                DeviceAuthorization::new(&flow.device_authorization_url, &flow.token_url, scopes)
+            };
+            flows.push(Flow::DeviceAuthorization(device_authorization));
+        }
+
         UtoipaOAuth2::new(flows)
     }
 }
@@ -462,6 +634,58 @@ pub struct OAuth2ImplicitFlow {
     pub refresh_url: Option<String>,
     /// Available scopes
     pub scopes: IndexMap<String, String>,
+}
+
+/// OAuth2 device authorization flow configuration (RFC 8628).
+///
+/// This flow is only written in the specification: the `oauth2` feature
+/// cannot acquire tokens with it.
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::OAuth2DeviceAuthorizationFlow;
+///
+/// let flow = OAuth2DeviceAuthorizationFlow::new(
+///     "https://auth.example.com/device",
+///     "https://auth.example.com/token",
+///     [("read:users", "Read user data")],
+/// )
+/// .with_refresh_url("https://auth.example.com/refresh");
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct OAuth2DeviceAuthorizationFlow {
+    /// Device authorization URL
+    pub device_authorization_url: String,
+    /// Token URL
+    pub token_url: String,
+    /// Refresh URL (optional)
+    pub refresh_url: Option<String>,
+    /// Available scopes
+    pub scopes: IndexMap<String, String>,
+}
+
+impl OAuth2DeviceAuthorizationFlow {
+    /// Creates a new device authorization flow.
+    pub fn new(
+        device_authorization_url: impl Into<String>,
+        token_url: impl Into<String>,
+        scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        Self {
+            device_authorization_url: device_authorization_url.into(),
+            token_url: token_url.into(),
+            refresh_url: None,
+            scopes: collect_scopes(scopes),
+        }
+    }
+
+    /// Sets the refresh URL.
+    pub fn with_refresh_url(mut self, refresh_url: impl Into<String>) -> Self {
+        self.refresh_url = Some(refresh_url.into());
+        self
+    }
 }
 
 /// Security requirement specifying which scheme and scopes are needed.
@@ -544,7 +768,107 @@ impl SecurityRequirement {
 
 #[cfg(test)]
 mod tests {
+    use insta::assert_snapshot;
+
     use super::*;
+
+    fn to_yaml(scheme: &SecurityScheme) -> String {
+        serde_saphyr::to_string(&scheme.to_utoipa()).expect("should serialize to YAML")
+    }
+
+    #[test]
+    fn should_convert_deprecated_api_key() {
+        let scheme = SecurityScheme::api_key("X-Legacy-Key", ApiKeyLocation::Header)
+            .with_description("Legacy key")
+            .with_deprecated(true);
+
+        assert_snapshot!(to_yaml(&scheme), @r"
+        type: apiKey
+        in: header
+        name: X-Legacy-Key
+        description: Legacy key
+        deprecated: true
+        ");
+    }
+
+    #[test]
+    fn should_not_write_deprecated_when_false() {
+        let scheme = SecurityScheme::bearer_with_format("JWT")
+            .with_deprecated(true)
+            .with_deprecated(false);
+
+        assert_snapshot!(to_yaml(&scheme), @r"
+        type: http
+        scheme: bearer
+        bearerFormat: JWT
+        ");
+    }
+
+    #[test]
+    fn should_convert_oauth2_with_metadata_url_and_device_flow() {
+        let flows = OAuth2Flows::client_credentials(
+            "https://auth.example.com/token",
+            [("api:access", "API access")],
+        )
+        .with_device_authorization(
+            OAuth2DeviceAuthorizationFlow::new(
+                "https://auth.example.com/device",
+                "https://auth.example.com/token",
+                [("read:users", "Read user data")],
+            )
+            .with_refresh_url("https://auth.example.com/refresh"),
+        );
+        let scheme = SecurityScheme::oauth2(flows)
+            .with_oauth2_metadata_url(
+                "https://auth.example.com/.well-known/oauth-authorization-server",
+            )
+            .with_description("OAuth2")
+            .with_deprecated(true);
+
+        assert_snapshot!(to_yaml(&scheme), @r#"
+        type: oauth2
+        flows:
+          clientCredentials:
+            tokenUrl: https://auth.example.com/token
+            scopes:
+              "api:access": API access
+          deviceAuthorization:
+            deviceAuthorizationUrl: https://auth.example.com/device
+            tokenUrl: https://auth.example.com/token
+            refreshUrl: https://auth.example.com/refresh
+            scopes:
+              "read:users": Read user data
+        oauth2MetadataUrl: https://auth.example.com/.well-known/oauth-authorization-server
+        description: OAuth2
+        deprecated: true
+        "#);
+    }
+
+    #[test]
+    fn should_ignore_oauth2_metadata_url_on_other_schemes() {
+        let scheme = SecurityScheme::bearer()
+            .with_oauth2_metadata_url("https://auth.example.com/.well-known/metadata");
+
+        assert_eq!(scheme, SecurityScheme::bearer());
+    }
+
+    #[test]
+    fn should_create_device_authorization_flows() {
+        let flows = OAuth2Flows::device_authorization(
+            "https://auth.example.com/device",
+            "https://auth.example.com/token",
+            [("read:users", "Read user data")],
+        );
+
+        assert_eq!(
+            flows,
+            OAuth2Flows::default().with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
+                "https://auth.example.com/device",
+                "https://auth.example.com/token",
+                [("read:users", "Read user data")],
+            ))
+        );
+    }
 
     #[test]
     fn test_bearer_scheme_creation() {
@@ -553,7 +877,8 @@ mod tests {
             scheme,
             SecurityScheme::Bearer {
                 format: None,
-                description: None
+                description: None,
+                deprecated: false,
             }
         ));
     }
@@ -565,7 +890,8 @@ mod tests {
             scheme,
             SecurityScheme::Bearer {
                 format: Some(ref f),
-                description: None
+                description: None,
+                deprecated: false,
             } if f == "JWT"
         ));
     }
@@ -575,7 +901,10 @@ mod tests {
         let scheme = SecurityScheme::basic();
         assert!(matches!(
             scheme,
-            SecurityScheme::Basic { description: None }
+            SecurityScheme::Basic {
+                description: None,
+                deprecated: false,
+            }
         ));
     }
 
@@ -587,7 +916,8 @@ mod tests {
             SecurityScheme::ApiKey {
                 ref name,
                 location: ApiKeyLocation::Header,
-                description: None
+                description: None,
+                deprecated: false,
             } if name == "X-API-Key"
         ));
     }
@@ -599,7 +929,8 @@ mod tests {
             scheme,
             SecurityScheme::Bearer {
                 format: None,
-                description: Some(ref d)
+                description: Some(ref d),
+                deprecated: false,
             } if d == "JWT Bearer token"
         ));
     }

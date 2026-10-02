@@ -52,6 +52,7 @@ fn test_operation_metadata_creation() {
     let metadata = OperationMetadata {
         operation_id: "test-operation".to_string(),
         tags: Some(vec!["users".to_string(), "admin".to_string()]),
+        summary: Some("Test operation".to_string()),
         description: Some("Test operation description".to_string()),
         #[cfg(feature = "redaction")]
         response_description: Some("Test response description".to_string()),

@@ -1468,14 +1468,12 @@ mod client_tests {
             .with_port(uri.port_u16().expect("should have port"))
             .with_security_scheme(
                 "oauth2",
-                SecurityScheme::OAuth2 {
-                    flows: Box::new(OAuth2Flows::authorization_code(
-                        "https://auth.example.com/authorize",
-                        "https://auth.example.com/token",
-                        [("read:users", "Read user data")],
-                    )),
-                    description: Some("OAuth2 authentication".to_string()),
-                },
+                SecurityScheme::oauth2(OAuth2Flows::authorization_code(
+                    "https://auth.example.com/authorize",
+                    "https://auth.example.com/token",
+                    [("read:users", "Read user data")],
+                ))
+                .with_description("OAuth2 authentication"),
             )
             .build()
             .expect("should build client");
@@ -1501,7 +1499,9 @@ mod client_tests {
 
 mod security_tests {
     use super::*;
-    use crate::client::security::{OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow};
+    use crate::client::security::{
+        OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow,
+    };
 
     #[tokio::test]
     async fn should_convert_all_api_key_locations() {
@@ -1636,6 +1636,14 @@ mod security_tests {
                     .into_iter()
                     .collect(),
             }),
+            device_authorization: Some(
+                OAuth2DeviceAuthorizationFlow::new(
+                    "https://auth.example.com/device",
+                    "https://auth.example.com/token",
+                    [("device", "Device access")],
+                )
+                .with_refresh_url("https://auth.example.com/refresh"),
+            ),
         };
 
         let mut client = ApiClient::builder()
@@ -1643,10 +1651,7 @@ mod security_tests {
             .with_port(uri.port_u16().expect("should have port"))
             .with_security_scheme(
                 "oauth2",
-                SecurityScheme::OAuth2 {
-                    flows: Box::new(flows),
-                    description: Some("OAuth2 with all flows".to_string()),
-                },
+                SecurityScheme::oauth2(flows).with_description("OAuth2 with all flows"),
             )
             .build()
             .expect("should build client");
@@ -1681,7 +1686,8 @@ mod security_tests {
         assert!(matches!(
             basic,
             SecurityScheme::Basic {
-                description: Some(ref d)
+                description: Some(ref d),
+                ..
             } if d == "Basic auth"
         ));
 
@@ -1705,11 +1711,7 @@ mod security_tests {
             } if d == "OIDC auth"
         ));
 
-        let oauth2 = SecurityScheme::OAuth2 {
-            flows: Box::default(),
-            description: None,
-        }
-        .with_description("OAuth2 auth");
+        let oauth2 = SecurityScheme::oauth2(OAuth2Flows::default()).with_description("OAuth2 auth");
         assert!(matches!(
             oauth2,
             SecurityScheme::OAuth2 {
@@ -2122,5 +2124,115 @@ mod extra_method_tests {
             .expect("should have /cache");
         let methods = path_item.additional_operations.keys().collect::<Vec<_>>();
         assert_eq!(methods, ["PURGE"]);
+    }
+}
+
+// =============================================================================
+// Tests for operation summary and declared tags
+// =============================================================================
+
+mod metadata_tests {
+    use insta::assert_snapshot;
+    use utoipa::openapi::Tag;
+    use utoipa::openapi::tag::TagBuilder;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn should_keep_first_summary_across_calls() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(2)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        for summary in ["List users", "Search users"] {
+            client
+                .get("/users")
+                .expect("should create call")
+                .with_summary(summary)
+                .await
+                .expect("should succeed")
+                .as_json::<Vec<User>>()
+                .await
+                .expect("should deserialize");
+        }
+
+        let openapi = client.collected_openapi().await;
+        let operation = openapi
+            .paths
+            .paths
+            .get("/users")
+            .and_then(|path_item| path_item.get.as_ref())
+            .expect("should have GET /users");
+        assert_snapshot!(
+            serde_saphyr::to_string(operation).expect("should serialize to YAML"),
+            @r##"
+        tags:
+        - users
+        summary: List users
+        description: Retrieve users
+        operationId: get-users
+        parameters: []
+        responses:
+          "200":
+            description: Status code 200
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Vec"
+        "##
+        );
+    }
+
+    #[tokio::test]
+    async fn should_write_declared_tags() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
+        let mut client = ApiClient::builder()
+            .with_host(uri.host().expect("should have host"))
+            .with_port(uri.port_u16().expect("should have port"))
+            .add_tag(
+                TagBuilder::new()
+                    .name("users")
+                    .summary(Some("Users"))
+                    .parent(Some("accounts"))
+                    .kind(Some("nav"))
+                    .build(),
+            )
+            .with_tags([Tag::new("admin")])
+            .build()
+            .expect("should build client");
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        let openapi = client.collected_openapi().await;
+        assert_snapshot!(
+            serde_saphyr::to_string(&openapi.tags).expect("should serialize to YAML"),
+            @"
+        - name: accounts
+        - name: admin
+        - name: users
+          summary: Users
+          parent: accounts
+          kind: nav
+        "
+        );
     }
 }
