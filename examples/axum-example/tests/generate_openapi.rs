@@ -385,6 +385,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .post("/observations")?
         .json(&test_observation)?
         .with_tag("observations")
+        .with_summary("Create an observation")
         .with_description("Create a new bird observation with comprehensive metadata")
         .await
         .context("should create observation with tag")?
@@ -396,6 +397,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     let _list_result = app
         .get("/observations")?
         .with_tags(["observations", "listing"])
+        .with_summary("List observations")
         .with_description("Retrieve observations")
         .await
         .context("should list observations with multiple tags")?
@@ -436,6 +438,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     app.put(path)?
         .json(&updated_observation)?
         .with_tags(["observations", "modification"])
+        .with_summary("Update an observation")
         .with_description("Update an existing observation with new data")
         .await
         .context("should update with modification tags")?
@@ -448,6 +451,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .add_param("observation_id", ParamValue::new(created_id));
     app.delete(path)?
         .with_tag("observations")
+        .with_summary("Delete an observation")
         .with_description("Remove observation from the system")
         .await
         .context("should delete demonstration observation")?

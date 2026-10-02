@@ -10,6 +10,7 @@ info:
 servers:
 - url: https://api.birdwatch.example.com/api
   description: Production server
+  name: production
 paths:
   /api/health:
     get:
@@ -29,6 +30,7 @@ paths:
       tags:
       - listing
       - observations
+      summary: List observations
       description: Retrieve observations
       operationId: get-observations
       parameters:
@@ -83,6 +85,7 @@ paths:
     post:
       tags:
       - observations
+      summary: Create an observation
       description: Create observation
       operationId: post-observations
       parameters:
@@ -251,6 +254,7 @@ paths:
       tags:
       - modification
       - observations
+      summary: Update an observation
       description: Update observation by ID
       operationId: put-observations-observation-id
       parameters:
@@ -279,6 +283,7 @@ paths:
     delete:
       tags:
       - observations
+      summary: Delete an observation
       description: Delete observation by ID
       operationId: delete-observations-observation-id
       parameters:
@@ -674,6 +679,12 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: JWT token obtained from /auth/login endpoint
+    legacyApiKey:
+      type: apiKey
+      in: header
+      name: X-Legacy-Key
+      description: Legacy API key, use apiKey instead
+      deprecated: true
 security:
 - bearerAuth: []
 tags:
@@ -685,4 +696,7 @@ tags:
 - name: listing
 - name: modification
 - name: observations
+  summary: Observations
+  description: Create, read, update and delete bird observations
+  kind: nav
 - name: upload

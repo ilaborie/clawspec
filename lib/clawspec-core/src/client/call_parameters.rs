@@ -17,6 +17,7 @@ pub struct CallParameters {
 pub(super) struct OperationMetadata {
     pub(super) operation_id: String,
     pub(super) tags: Option<Vec<String>>,
+    pub(super) summary: Option<String>,
     pub(super) description: Option<String>,
     #[cfg(feature = "redaction")]
     pub(super) response_description: Option<String>,

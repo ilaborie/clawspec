@@ -59,6 +59,7 @@ impl CalledOperation {
         let builder = Operation::builder()
             .operation_id(Some(&metadata.operation_id))
             .parameters(Some(all_parameters))
+            .summary(metadata.summary)
             .description(final_description)
             .tags(final_tags);
 
@@ -125,7 +126,7 @@ impl CalledOperation {
 ///
 /// - **Operation ID**: Must match between operations (validated)
 /// - **Tags**: Combined, sorted, and deduplicated
-/// - **Description**: First non-empty description wins
+/// - **Summary**, **Description** and **External docs**: first non-empty value wins
 /// - **Parameters**: Merged by name (new parameters added, existing preserved)
 /// - **Request Body**: Content types merged (new content types added)
 /// - **Responses**: Status codes merged (new status codes added)
@@ -162,15 +163,16 @@ pub(super) fn merge_operation(
 
     let mut operation = Operation::builder()
         .tags(merge_tags(current.tags, new.tags))
+        .summary(current.summary.or(new.summary))
         .description(current.description.or(new.description))
         .operation_id(Some(id))
-        // external_docs
         .deprecated(current.deprecated.or(new.deprecated))
         .securities(merge_security(current.security, new.security))
         // TODO servers - https://github.com/ilaborie/clawspec/issues/23
         // extension
         .responses(merge_responses(current.responses, new.responses))
         .build();
+    operation.external_docs = current.external_docs.or(new.external_docs);
     operation.parameters = merge_parameters(current.parameters, new.parameters);
     operation.request_body = merge_request_body(current.request_body, new.request_body);
     Some(operation)
@@ -567,6 +569,7 @@ pub(super) fn singularize(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use utoipa::openapi::external_docs::ExternalDocs;
     use utoipa::openapi::path::ParameterBuilder;
     use utoipa::openapi::request_body::RequestBodyBuilder;
     use utoipa::openapi::{ContentBuilder, Ref, Required};
@@ -766,6 +769,43 @@ mod tests {
         assert_eq!(
             parameter_identities(&merged),
             ["#/components/parameters/Limit", r#""query":Limit"#]
+        );
+    }
+
+    fn operation(summary: Option<&str>, external_docs: Option<&str>) -> Operation {
+        let mut operation = Operation::builder()
+            .operation_id(Some("list-users"))
+            .summary(summary)
+            .build();
+        operation.external_docs = external_docs.map(ExternalDocs::new);
+        operation
+    }
+
+    #[test]
+    fn should_keep_first_summary_and_external_docs_when_merging() {
+        let current = operation(Some("List users"), Some("https://docs.example.com/users"));
+        let new = operation(Some("Other"), Some("https://docs.example.com/other"));
+
+        let merged = merge_operation("list-users", Some(current), new).expect("should merge");
+
+        assert_eq!(merged.summary.as_deref(), Some("List users"));
+        assert_eq!(
+            merged.external_docs.map(|docs| docs.url),
+            Some("https://docs.example.com/users".to_string())
+        );
+    }
+
+    #[test]
+    fn should_take_new_summary_and_external_docs_when_missing() {
+        let current = operation(None, None);
+        let new = operation(Some("List users"), Some("https://docs.example.com/users"));
+
+        let merged = merge_operation("list-users", Some(current), new).expect("should merge");
+
+        assert_eq!(merged.summary.as_deref(), Some("List users"));
+        assert_eq!(
+            merged.external_docs.map(|docs| docs.url),
+            Some("https://docs.example.com/users".to_string())
         );
     }
 }

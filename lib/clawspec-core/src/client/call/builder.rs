@@ -20,6 +20,28 @@ impl ApiCall {
         self
     }
 
+    /// Sets the operation summary, a short one-line title for OpenAPI documentation.
+    ///
+    /// When several calls are merged into the same operation, the first summary is kept.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    /// let call = client
+    ///     .get("/users")?
+    ///     .with_summary("List users")
+    ///     .with_description("Retrieve all users, sorted by name");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
+        self.metadata.summary = Some(summary.into());
+        self
+    }
+
     /// Sets the operation description for OpenAPI documentation.
     ///
     /// # Examples

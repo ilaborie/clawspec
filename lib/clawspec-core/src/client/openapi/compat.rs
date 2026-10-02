@@ -1,8 +1,9 @@
 //! Compatibility pass that strips data the older OpenAPI output cannot carry.
 
-use tracing::warn;
+use tracing::{debug, warn};
 use utoipa::openapi::path::{Operation, PathItem};
 use utoipa::openapi::response::Response;
+use utoipa::openapi::security::{ApiKey, Flow, SecurityScheme};
 use utoipa::openapi::{OpenApi, Paths, RefOr, Server, Tag};
 
 pub(crate) fn iter_operations(path_item: &PathItem) -> impl Iterator<Item = &Operation> {
@@ -52,6 +53,11 @@ pub(in crate::client) fn downgrade_to_31(openapi: &mut OpenApi) {
     }
     if let Some(components) = openapi.components.as_mut() {
         drop_response_summaries(&mut components.responses, "components.responses");
+        for (name, scheme) in &mut components.security_schemes {
+            if let RefOr::T(scheme) = scheme {
+                downgrade_security_scheme(scheme, &format!("components.securitySchemes.{name}"));
+            }
+        }
     }
 }
 
@@ -100,9 +106,54 @@ fn drop_server_names(servers: Option<&mut [Server]>, location: &str) {
 fn drop_tag_metadata(tags: &mut [Tag]) {
     for tag in tags {
         let location = format!("tags.{}", tag.name);
+        if tag.description.as_deref().is_none_or(str::is_empty)
+            && let Some(summary) = tag.summary.take()
+        {
+            debug!(%location, "folding tag summary into description");
+            tag.description = Some(summary);
+        }
         drop_field(&mut tag.summary, &location, "summary");
         drop_field(&mut tag.parent, &location, "parent");
         drop_field(&mut tag.kind, &location, "kind");
+    }
+}
+
+fn downgrade_security_scheme(scheme: &mut SecurityScheme, location: &str) {
+    match scheme {
+        SecurityScheme::OAuth2(oauth2) => {
+            drop_field(&mut oauth2.deprecated, location, "deprecated");
+            drop_field(
+                &mut oauth2.oauth2_metadata_url,
+                location,
+                "oauth2MetadataUrl",
+            );
+            let flow_count = oauth2.flows.len();
+            oauth2
+                .flows
+                .retain(|_, flow| !matches!(flow, Flow::DeviceAuthorization(_)));
+            if oauth2.flows.len() != flow_count {
+                warn!(
+                    %location,
+                    field = "flows.deviceAuthorization",
+                    "dropping field not supported by OpenAPI 3.1"
+                );
+                if oauth2.flows.is_empty() {
+                    warn!(%location, "OAuth2 security scheme has no flow left");
+                }
+            }
+        }
+        SecurityScheme::ApiKey(
+            ApiKey::Header(value) | ApiKey::Query(value) | ApiKey::Cookie(value),
+        ) => {
+            drop_field(&mut value.deprecated, location, "deprecated");
+        }
+        SecurityScheme::Http(http) => drop_field(&mut http.deprecated, location, "deprecated"),
+        SecurityScheme::OpenIdConnect(oidc) => {
+            drop_field(&mut oidc.deprecated, location, "deprecated");
+        }
+        SecurityScheme::MutualTls { deprecated, .. } => {
+            drop_field(deprecated, location, "deprecated");
+        }
     }
 }
 
@@ -136,9 +187,14 @@ mod tests {
     use insta::assert_snapshot;
     use utoipa::openapi::path::{HttpMethod, OperationBuilder, PathItemBuilder};
     use utoipa::openapi::response::{ResponseBuilder, ResponsesBuilder};
+    use utoipa::openapi::security::{
+        ApiKeyValue, ClientCredentials, DeviceAuthorization, Http, HttpAuthScheme, OAuth2,
+        OpenIdConnect, Scopes,
+    };
     use utoipa::openapi::tag::TagBuilder;
     use utoipa::openapi::{
-        ComponentsBuilder, InfoBuilder, OpenApiBuilder, OpenApiVersion, PathsBuilder, ServerBuilder,
+        ComponentsBuilder, Deprecated, InfoBuilder, OpenApiBuilder, OpenApiVersion, PathsBuilder,
+        ServerBuilder,
     };
 
     use super::*;
@@ -247,6 +303,116 @@ mod tests {
         tags:
         - name: pets
           description: Everything about pets
+        "#);
+    }
+
+    #[test]
+    fn should_fold_tag_summary_into_missing_description() {
+        let mut openapi = openapi(Paths::new());
+        openapi.tags = Some(vec![
+            TagBuilder::new().name("pets").summary(Some("Pets")).build(),
+            TagBuilder::new()
+                .name("stores")
+                .summary(Some("Stores"))
+                .description(Some(""))
+                .build(),
+        ]);
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r#"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths: {}
+        tags:
+        - name: pets
+          description: Pets
+        - name: stores
+          description: Stores
+        "#);
+    }
+
+    #[test]
+    fn should_drop_security_scheme_metadata() {
+        let mut deprecated_key = ApiKeyValue::new("X-Legacy-Key");
+        deprecated_key.deprecated = Some(Deprecated::True);
+        let mut bearer = Http::new(HttpAuthScheme::Bearer);
+        bearer.deprecated = Some(Deprecated::True);
+        let mut oidc = OpenIdConnect::new("https://auth.example.com/.well-known/openid");
+        oidc.deprecated = Some(Deprecated::True);
+        let mut oauth2 = OAuth2::new([
+            Flow::ClientCredentials(ClientCredentials::new(
+                "https://auth.example.com/token",
+                Scopes::new(),
+            )),
+            Flow::DeviceAuthorization(DeviceAuthorization::new(
+                "https://auth.example.com/device",
+                "https://auth.example.com/token",
+                Scopes::new(),
+            )),
+        ])
+        .with_metadata_url("https://auth.example.com/.well-known/oauth-authorization-server");
+        oauth2.deprecated = Some(Deprecated::True);
+        let device_only = OAuth2::new([Flow::DeviceAuthorization(DeviceAuthorization::new(
+            "https://auth.example.com/device",
+            "https://auth.example.com/token",
+            Scopes::new(),
+        ))]);
+        let mut openapi = openapi(Paths::new());
+        openapi.components = Some(
+            ComponentsBuilder::new()
+                .security_scheme(
+                    "apiKey",
+                    SecurityScheme::ApiKey(ApiKey::Header(deprecated_key)),
+                )
+                .security_scheme("bearer", SecurityScheme::Http(bearer))
+                .security_scheme("oidc", SecurityScheme::OpenIdConnect(oidc))
+                .security_scheme("oauth2", SecurityScheme::OAuth2(oauth2))
+                .security_scheme("device", SecurityScheme::OAuth2(device_only))
+                .security_scheme(
+                    "mtls",
+                    SecurityScheme::MutualTls {
+                        description: None,
+                        deprecated: Some(Deprecated::True),
+                        extensions: None,
+                    },
+                )
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r#"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths: {}
+        components:
+          securitySchemes:
+            apiKey:
+              type: apiKey
+              in: header
+              name: X-Legacy-Key
+            bearer:
+              type: http
+              scheme: bearer
+            device:
+              type: oauth2
+              flows: {}
+            mtls:
+              type: mutualTLS
+            oauth2:
+              type: oauth2
+              flows:
+                clientCredentials:
+                  tokenUrl: https://auth.example.com/token
+                  scopes: {}
+            oidc:
+              type: openIdConnect
+              openIdConnectUrl: https://auth.example.com/.well-known/openid
         "#);
     }
 
