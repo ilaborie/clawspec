@@ -1,68 +1,22 @@
 use std::any::{TypeId, type_name};
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
-use std::sync::LazyLock;
 
 use indexmap::{IndexMap, IndexSet};
 use utoipa::ToSchema;
+use utoipa::openapi::schema::{AdditionalProperties, ArrayItems};
 use utoipa::openapi::{Ref, RefOr, Schema};
-
-/// Schema names that are inlined rather than referenced as a component.
-///
-/// Besides primitives, this lists the generic containers utoipa implements `ToSchema` for.
-/// Their name is the bare container name (`Vec`, `Option`, ...) whatever the element type, and
-/// their schema embeds the element schema, so they are never a meaningful component.
-static INLINED_SCHEMA_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    HashSet::from([
-        "bool",
-        "i8",
-        "i16",
-        "i32",
-        "i64",
-        "i128",
-        "isize",
-        "u8",
-        "u16",
-        "u32",
-        "u64",
-        "u128",
-        "usize",
-        "f32",
-        "f64",
-        "char",
-        "String",
-        "str",
-        "binary",
-        "Vec",
-        "LinkedList",
-        "Option",
-        "HashMap",
-        "BTreeMap",
-        "HashSet",
-        "BTreeSet",
-        "IndexMap",
-        "IndexSet",
-        "Box",
-        "Cow",
-        "RefCell",
-        "Rc",
-        "Arc",
-    ])
-});
-
-/// Slices (`[T]`, `&[T]`) get a name ending with `]` from utoipa's default `ToSchema::name()`.
-fn is_inlined_schema_name(name: &str) -> bool {
-    INLINED_SCHEMA_NAMES.contains(name) || name.ends_with(']')
-}
 
 /// Provides the OpenAPI schemas of a type to the schema collection.
 ///
 /// Every schema collected by the client goes through this trait, so that an
 /// alternative schema provider can be plugged in without touching the collection.
 pub(crate) trait SchemaSource: 'static {
+    /// The fully qualified Rust type path, as given by [`std::any::type_name`].
+    fn type_path() -> &'static str;
+
     /// The component name of the schema.
     fn schema_name() -> Cow<'static, str>;
 
@@ -77,6 +31,10 @@ impl<T> SchemaSource for T
 where
     T: ToSchema + 'static,
 {
+    fn type_path() -> &'static str {
+        type_name::<T>()
+    }
+
     fn schema_name() -> Cow<'static, str> {
         T::name()
     }
@@ -90,22 +48,209 @@ where
     }
 }
 
+/// How a Rust type maps onto its utoipa schema, read from its [`std::any::type_name`].
+///
+/// utoipa names a generic container after the bare container (`Vec`, `Option`, ...) and embeds
+/// the element schema inline, without registering the element as a component. The type path
+/// tells a standard container apart from a user type that happens to share its short name, and
+/// gives the element type to hoist into a component.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeShape<'a> {
+    /// A primitive or a tuple, always inlined.
+    Primitive,
+    /// An array whose `items` hold the element schema.
+    Sequence(&'a str),
+    /// A `oneOf` of `null` and the inner schema.
+    Optional(&'a str),
+    /// An object whose `additionalProperties` hold the value schema.
+    Map(&'a str),
+    /// A wrapper whose schema is the inner schema itself.
+    Transparent(&'a str),
+    /// A type referenced as a component.
+    Named(&'a str),
+}
+
+impl<'a> TypeShape<'a> {
+    fn of(type_path: &'a str) -> Self {
+        let type_path = strip_reference(type_path.trim());
+
+        if let Some(element) = type_path
+            .strip_prefix('[')
+            .and_then(|inner| inner.strip_suffix(']'))
+        {
+            let element = split_top_level(element, ';').next().unwrap_or(element);
+            return Self::Sequence(element);
+        }
+        if type_path.starts_with('(') {
+            return Self::Primitive;
+        }
+
+        let (path, args) = split_generics(type_path);
+        let root = path.split("::").next().unwrap_or(path);
+        let last = path.rsplit("::").next().unwrap_or(path);
+        let is_std = matches!(root, "core" | "alloc" | "std");
+
+        match (last, args.as_slice()) {
+            (
+                "bool" | "char" | "str" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8"
+                | "u16" | "u32" | "u64" | "u128" | "usize" | "f32" | "f64",
+                [],
+            ) if !path.contains("::") => Self::Primitive,
+            ("String", []) if is_std => Self::Primitive,
+            ("Vec" | "LinkedList" | "HashSet" | "BTreeSet", [element, ..]) if is_std => {
+                Self::Sequence(element)
+            }
+            ("IndexSet", [element, ..]) if root == "indexmap" => Self::Sequence(element),
+            ("Option", [inner]) if is_std => Self::Optional(inner),
+            ("HashMap" | "BTreeMap", [_, value, ..]) if is_std => Self::Map(value),
+            ("IndexMap", [_, value, ..]) if root == "indexmap" => Self::Map(value),
+            ("Box" | "Rc" | "Arc" | "RefCell" | "Cow", [inner, ..]) if is_std => {
+                Self::Transparent(inner)
+            }
+            ("ParamValue", [inner]) if root == "clawspec_core" => Self::Transparent(inner),
+            _ => Self::Named(type_path),
+        }
+    }
+
+    /// The component name utoipa gives by default: the last path segment without generics.
+    fn default_schema_name(type_path: &str) -> &str {
+        let (path, _) = split_generics(type_path);
+        path.rsplit("::").next().unwrap_or(path)
+    }
+}
+
+fn strip_reference(type_path: &str) -> &str {
+    let mut type_path = type_path;
+    while let Some(rest) = type_path.strip_prefix('&') {
+        type_path = rest.trim_start();
+        type_path = type_path.strip_prefix("mut ").unwrap_or(type_path);
+    }
+    type_path
+}
+
+/// Splits a type path into its path and its generic type arguments, lifetimes left out.
+fn split_generics(type_path: &str) -> (&str, Vec<&str>) {
+    match (type_path.find('<'), type_path.strip_suffix('>')) {
+        (Some(start), Some(without_end)) => (
+            &type_path[..start],
+            split_top_level(&without_end[start + 1..], ',')
+                .filter(|argument| !argument.starts_with('\''))
+                .collect(),
+        ),
+        _ => (type_path, Vec::new()),
+    }
+}
+
+/// Splits on `separator` outside of any `<>`, `[]` or `()` nesting, trimming each part.
+fn split_top_level(input: &str, separator: char) -> impl Iterator<Item = &str> {
+    let mut depth = 0_usize;
+    let mut start = 0;
+    let mut parts = Vec::new();
+    for (index, character) in input.char_indices() {
+        match character {
+            '<' | '[' | '(' => depth += 1,
+            '>' | ']' | ')' => depth = depth.saturating_sub(1),
+            _ if character == separator && depth == 0 => {
+                parts.push(input[start..index].trim());
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    parts.push(input[start..].trim());
+    parts.into_iter()
+}
+
+/// Replaces the inline schemas of named types inside a container schema with references, and
+/// collects the replaced schemas as components.
+fn hoist_named_schemas(
+    schema: &mut RefOr<Schema>,
+    shape: TypeShape<'_>,
+    hoisted: &mut Vec<(String, RefOr<Schema>)>,
+) {
+    match shape {
+        TypeShape::Primitive => {}
+        TypeShape::Named(type_path) => {
+            if matches!(schema, RefOr::T(_)) {
+                let name = TypeShape::default_schema_name(type_path);
+                let inline = std::mem::replace(schema, RefOr::Ref(Ref::from_schema_name(name)));
+                hoisted.push((name.to_string(), inline));
+            }
+        }
+        TypeShape::Transparent(inner) => {
+            hoist_named_schemas(schema, TypeShape::of(inner), hoisted);
+        }
+        TypeShape::Sequence(element) => {
+            if let RefOr::T(Schema::Array(array)) = schema
+                && let ArrayItems::RefOrSchema(items) = &mut array.items
+            {
+                hoist_named_schemas(items, TypeShape::of(element), hoisted);
+            }
+        }
+        TypeShape::Optional(inner) => {
+            if let RefOr::T(Schema::OneOf(one_of)) = schema
+                && let Some(item) = one_of.items.last_mut()
+            {
+                hoist_named_schemas(item, TypeShape::of(inner), hoisted);
+            }
+        }
+        TypeShape::Map(value) => {
+            if let RefOr::T(Schema::Object(object)) = schema
+                && let Some(additional) = object.additional_properties.as_deref_mut()
+                && let AdditionalProperties::RefOr(value_schema) = additional
+            {
+                hoist_named_schemas(value_schema, TypeShape::of(value), hoisted);
+            }
+        }
+    }
+}
+
+/// The schema of a type, resolved for the collection.
+struct ResolvedSchema {
+    /// Whether the schema is inlined (primitives and containers) rather than referenced.
+    inline: bool,
+    /// The schema, with named element types of a container replaced by references.
+    schema: RefOr<Schema>,
+    /// The named element types replaced by references, to register as components.
+    hoisted: Vec<(String, RefOr<Schema>)>,
+}
+
+impl ResolvedSchema {
+    fn of<T>() -> Self
+    where
+        T: SchemaSource,
+    {
+        let mut schema = T::root_schema();
+        let mut hoisted = Vec::new();
+        let shape = TypeShape::of(T::type_path());
+        let inline = !matches!(shape, TypeShape::Named(_));
+        if inline {
+            hoist_named_schemas(&mut schema, shape, &mut hoisted);
+        }
+        Self {
+            inline,
+            schema,
+            hoisted,
+        }
+    }
+}
+
 /// Computes a schema reference locally without accessing shared state.
 ///
 /// This enables fire-and-forget schema registration via channels by allowing
 /// callers to compute the schema reference before sending the message.
 ///
-/// - Primitive and container types are inlined (return `RefOr::T`)
+/// - Primitive and container types are inlined (return `RefOr::T`), with named element types
+///   referenced
 /// - Named types are referenced (return `RefOr::Ref`)
 pub(in crate::client) fn compute_schema_ref<T>() -> RefOr<Schema>
 where
     T: SchemaSource,
 {
-    let name = T::schema_name();
-    if is_inlined_schema_name(name.as_ref()) {
-        T::root_schema()
+    if matches!(TypeShape::of(T::type_path()), TypeShape::Named(_)) {
+        RefOr::Ref(Ref::from_schema_name(T::schema_name().as_ref()))
     } else {
-        RefOr::Ref(Ref::from_schema_name(name.as_ref()))
+        ResolvedSchema::of::<T>().schema
     }
 }
 
@@ -522,6 +667,9 @@ pub(in crate::client) struct SchemaEntry {
     #[debug(ignore)]
     pub(in crate::client) schema: RefOr<Schema>,
     pub(in crate::client) examples: IndexSet<serde_json::Value>,
+    /// Whether the schema is inlined (primitives and containers) rather than referenced.
+    #[debug(ignore)]
+    pub(in crate::client) inline: bool,
     /// Schemas transitively reachable from this type's fields/variants, discovered via
     /// utoipa's `ToSchema::schemas()` recursive walk. Only meaningful the first time this
     /// entry is inserted into a `Schemas` collection; consumed there (see
@@ -535,18 +683,20 @@ impl SchemaEntry {
     where
         T: SchemaSource,
     {
-        let id = TypeId::of::<T>();
-        let name = T::schema_name();
-        let type_name = type_name::<T>();
-        let mut nested = Vec::new();
-        T::nested_schemas(&mut nested);
+        let ResolvedSchema {
+            inline,
+            schema,
+            mut hoisted,
+        } = ResolvedSchema::of::<T>();
+        T::nested_schemas(&mut hoisted);
         Self {
-            id,
-            type_name: type_name.to_string(),
-            name: name.to_string(),
-            schema: T::root_schema(),
+            id: TypeId::of::<T>(),
+            type_name: T::type_path().to_string(),
+            name: T::schema_name().to_string(),
+            schema,
             examples: IndexSet::default(),
-            nested,
+            inline,
+            nested: hoisted,
         }
     }
 
@@ -576,6 +726,7 @@ impl SchemaEntry {
             name: name.to_string(),
             schema,
             examples: IndexSet::default(),
+            inline: true,
             nested: Vec::new(),
         }
     }
@@ -586,18 +737,19 @@ impl SchemaEntry {
 
     /// Determines if this schema should be inlined (primitives and containers) or referenced
     /// (named types).
-    ///
-    /// Wrapper types like `ParamValue<T>` delegate `name()` to `T`, so they follow `T`.
     fn should_inline_schema(&self) -> bool {
-        is_inlined_schema_name(&self.name)
+        self.inline
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::HashSet;
+
     use serde::Serialize;
     use utoipa::ToSchema;
+
+    use super::*;
 
     #[derive(Debug, ToSchema, Serialize)]
     struct TestType {
@@ -655,7 +807,7 @@ mod tests {
         );
     }
 
-    #[derive(Debug, ToSchema, Serialize)]
+    #[derive(Debug, Clone, Serialize, ToSchema)]
     struct Leaf {
         value: i32,
     }
@@ -668,30 +820,41 @@ mod tests {
     fn added_schema_and_components<T: SchemaSource>() -> String {
         let mut schemas = Schemas::default();
         let schema = schemas.add::<T>();
-        let components = schemas
+        let mut components = schemas
             .schema_vec()
             .into_iter()
             .map(|(name, _)| name)
             .collect::<Vec<_>>();
+        components.sort();
         serde_saphyr::to_string(&serde_json::json!({ "schema": schema, "components": components }))
             .expect("should serialize to YAML")
     }
 
     #[test]
-    fn test_schemas_add_inlines_vec_of_named_type() {
+    fn test_schemas_add_references_vec_element_as_component() {
         insta::assert_snapshot!(added_schema_and_components::<Vec<Named>>(), @r##"
         components:
         - Leaf
+        - Named
         schema:
           items:
-            properties:
-              leaf:
-                $ref: "#/components/schemas/Leaf"
-            required:
-            - leaf
-            type: object
+            $ref: "#/components/schemas/Named"
           type: array
         "##);
+    }
+
+    #[test]
+    fn test_schemas_add_registers_vec_element_with_its_own_schema() {
+        let mut schemas = Schemas::default();
+        schemas.add::<Vec<Named>>();
+
+        let named = schemas
+            .schema_vec()
+            .into_iter()
+            .find(|(name, _)| name == "Named")
+            .map(|(_, schema)| schema)
+            .expect("Named should be registered as a component");
+        assert_eq!(named, <Named as utoipa::PartialSchema>::schema());
     }
 
     #[test]
@@ -707,37 +870,40 @@ mod tests {
     }
 
     #[test]
-    fn test_schemas_add_inlines_option_of_named_type() {
+    fn test_schemas_add_references_option_inner_as_component() {
         insta::assert_snapshot!(added_schema_and_components::<Option<Named>>(), @r##"
         components:
         - Leaf
+        - Named
         schema:
           oneOf:
           - type: "null"
-          - properties:
-              leaf:
-                $ref: "#/components/schemas/Leaf"
-            required:
-            - leaf
-            type: object
+          - $ref: "#/components/schemas/Named"
         "##);
     }
 
     #[test]
-    fn test_schemas_add_inlines_map_of_named_type() {
+    fn test_schemas_add_references_boxed_type() {
+        insta::assert_snapshot!(added_schema_and_components::<Box<Named>>(), @r##"
+        components:
+        - Leaf
+        - Named
+        schema:
+          $ref: "#/components/schemas/Named"
+        "##);
+    }
+
+    #[test]
+    fn test_schemas_add_references_map_value_as_component() {
         insta::assert_snapshot!(
             added_schema_and_components::<std::collections::HashMap<String, Named>>(),
             @r##"
         components:
         - Leaf
+        - Named
         schema:
           additionalProperties:
-            properties:
-              leaf:
-                $ref: "#/components/schemas/Leaf"
-            required:
-            - leaf
-            type: object
+            $ref: "#/components/schemas/Named"
           propertyNames:
             type: string
           type: object
@@ -746,17 +912,143 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_schema_ref_inlines_containers_and_references_named_types() {
-        assert!(matches!(
+    fn test_schemas_add_references_nested_container_elements() {
+        insta::assert_snapshot!(
+            added_schema_and_components::<Vec<Option<std::collections::BTreeMap<String, Named>>>>(),
+            @r##"
+        components:
+        - Leaf
+        - Named
+        schema:
+          items:
+            oneOf:
+            - type: "null"
+            - additionalProperties:
+                $ref: "#/components/schemas/Named"
+              propertyNames:
+                type: string
+              type: object
+          type: array
+        "##
+        );
+    }
+
+    #[test]
+    fn test_schemas_add_references_slice_element_as_component() {
+        insta::assert_snapshot!(added_schema_and_components::<&'static [Named]>(), @r##"
+        components:
+        - Leaf
+        - Named
+        schema:
+          items:
+            $ref: "#/components/schemas/Named"
+          type: array
+        "##);
+    }
+
+    #[test]
+    fn test_schemas_add_keeps_user_type_named_like_a_container_as_component() {
+        #[derive(Debug, ToSchema, Serialize)]
+        struct Box {
+            value: i32,
+        }
+
+        #[derive(Debug, ToSchema, Serialize)]
+        #[schema(as = Option)]
+        struct Renamed {
+            value: i32,
+        }
+
+        insta::assert_snapshot!(added_schema_and_components::<Box>(), @r##"
+        components:
+        - Box
+        schema:
+          $ref: "#/components/schemas/Box"
+        "##);
+        insta::assert_snapshot!(added_schema_and_components::<Renamed>(), @r##"
+        components:
+        - Option
+        schema:
+          $ref: "#/components/schemas/Option"
+        "##);
+    }
+
+    #[test]
+    fn test_compute_schema_ref_matches_registered_schema() {
+        assert_eq!(
             compute_schema_ref::<Vec<Named>>(),
-            RefOr::T(Schema::Array(_))
-        ));
-        assert!(matches!(compute_schema_ref::<Box<Named>>(), RefOr::T(_)));
-        assert!(matches!(
-            compute_schema_ref::<&[Named]>(),
-            RefOr::T(Schema::Array(_))
-        ));
-        assert!(matches!(compute_schema_ref::<Named>(), RefOr::Ref(_)));
+            Schemas::default().add::<Vec<Named>>()
+        );
+        assert_eq!(
+            compute_schema_ref::<Named>(),
+            RefOr::Ref(Ref::from_schema_name("Named"))
+        );
+        assert_eq!(
+            compute_schema_ref::<Box<Named>>(),
+            RefOr::Ref(Ref::from_schema_name("Named"))
+        );
+    }
+
+    mod user_types {
+        #[derive(Debug, utoipa::ToSchema, serde::Serialize)]
+        pub(super) struct Box {
+            value: i32,
+        }
+    }
+
+    #[test]
+    fn test_type_shape_reads_standard_containers_from_type_path() {
+        let shapes = [
+            type_name::<Vec<Named>>(),
+            type_name::<std::collections::HashMap<String, Named>>(),
+            type_name::<indexmap::IndexMap<String, Named>>(),
+            type_name::<std::collections::BTreeSet<Named>>(),
+            type_name::<Cow<'static, Leaf>>(),
+            type_name::<std::sync::Arc<Named>>(),
+            type_name::<[Named; 2]>(),
+            type_name::<&mut [Named]>(),
+            type_name::<Option<String>>(),
+            type_name::<&str>(),
+            type_name::<(i32, String)>(),
+            type_name::<user_types::Box>(),
+        ]
+        .map(TypeShape::of);
+        insta::assert_debug_snapshot!(shapes, @r#"
+        [
+            Sequence(
+                "clawspec_core::client::openapi::schema::tests::Named",
+            ),
+            Map(
+                "clawspec_core::client::openapi::schema::tests::Named",
+            ),
+            Map(
+                "clawspec_core::client::openapi::schema::tests::Named",
+            ),
+            Sequence(
+                "clawspec_core::client::openapi::schema::tests::Named",
+            ),
+            Transparent(
+                "clawspec_core::client::openapi::schema::tests::Leaf",
+            ),
+            Transparent(
+                "clawspec_core::client::openapi::schema::tests::Named",
+            ),
+            Sequence(
+                "clawspec_core::client::openapi::schema::tests::Named",
+            ),
+            Sequence(
+                "clawspec_core::client::openapi::schema::tests::Named",
+            ),
+            Optional(
+                "alloc::string::String",
+            ),
+            Primitive,
+            Primitive,
+            Named(
+                "clawspec_core::client::openapi::schema::tests::user_types::Box",
+            ),
+        ]
+        "#);
     }
 
     #[test]
@@ -1345,6 +1637,7 @@ mod tests {
             name: "SimpleType".to_string(),
             schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
             examples: IndexSet::default(),
+            inline: false,
             nested: Vec::new(),
         };
 
@@ -1355,6 +1648,7 @@ mod tests {
             name: "SimpleType".to_string(), // Same name as above!
             schema: RefOr::T(utoipa::openapi::Schema::Object(Default::default())),
             examples: IndexSet::default(),
+            inline: false,
             nested: Vec::new(),
         };
 

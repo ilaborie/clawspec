@@ -2074,23 +2074,16 @@ mod extra_method_tests {
                   schema:
                     type: array
                     items:
-                      type: object
-                      description: Test user type for JSON responses.
-                      required:
-                      - id
-                      - name
-                      - email
-                      properties:
-                        email:
-                          type: string
-                        id:
-                          type: integer
-                          format: int32
-                          minimum: 0
-                        name:
-                          type: string
+                      $ref: "#/components/schemas/User"
         "##
         );
+        let component_names = openapi
+            .components
+            .iter()
+            .flat_map(|components| components.schemas.keys())
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(component_names, ["User", "UserSearch"]);
         let tags = openapi
             .tags
             .iter()
@@ -2187,7 +2180,7 @@ mod metadata_tests {
             .expect("should have GET /users");
         assert_snapshot!(
             serde_saphyr::to_string(operation).expect("should serialize to YAML"),
-            @r#"
+            @r##"
         tags:
         - users
         summary: List users
@@ -2202,22 +2195,8 @@ mod metadata_tests {
                 schema:
                   type: array
                   items:
-                    type: object
-                    description: Test user type for JSON responses.
-                    required:
-                    - id
-                    - name
-                    - email
-                    properties:
-                      email:
-                        type: string
-                      id:
-                        type: integer
-                        format: int32
-                        minimum: 0
-                      name:
-                        type: string
-        "#
+                    $ref: "#/components/schemas/User"
+        "##
         );
     }
 
