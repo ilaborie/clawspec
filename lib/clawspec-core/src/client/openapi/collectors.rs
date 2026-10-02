@@ -16,13 +16,18 @@ pub(in crate::client) fn build_response(
     description: String,
     content_type: Option<&ContentType>,
     schema: Option<RefOr<Schema>>,
+    item_schema: Option<RefOr<Schema>>,
     example: Option<serde_json::Value>,
 ) -> Response {
     if let Some(content_type) = content_type {
-        let content = Content::builder().schema(schema).example(example).build();
+        let content = Content::builder()
+            .schema(schema)
+            .item_schema(item_schema)
+            .example(example)
+            .build();
         ResponseBuilder::new()
             .description(description)
-            .content(content_type.to_string(), content)
+            .content(normalize_content_type(content_type), content)
             .build()
     } else {
         ResponseBuilder::new().description(description).build()
@@ -131,6 +136,7 @@ impl Collectors {
         status: StatusCode,
         content_type: Option<&ContentType>,
         schema: Option<RefOr<Schema>>,
+        item_schema: Option<RefOr<Schema>>,
         description: String,
     ) {
         let Some(operations) = self.operations.get_mut(operation_id) else {
@@ -141,7 +147,7 @@ impl Collectors {
             return;
         };
 
-        let response = build_response(description, content_type, schema, None);
+        let response = build_response(description, content_type, schema, item_schema, None);
 
         operation
             .operation
@@ -175,7 +181,7 @@ impl Collectors {
             .clone()
             .unwrap_or_else(|| format!("Status code {}", status.as_u16()));
 
-        let response = build_response(description, content_type, Some(schema), Some(example));
+        let response = build_response(description, content_type, Some(schema), None, Some(example));
 
         operation
             .operation

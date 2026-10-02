@@ -88,6 +88,13 @@ impl SearchObservations {
     }
 }
 
+/// Payload of a server-sent observation event.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ObservationEvent {
+    pub observation_id: ObservationId,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ImportResponse {
     pub imported: usize,

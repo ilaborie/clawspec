@@ -78,7 +78,8 @@ The foundation release establishes core functionality and project infrastructure
   - Authentication and authorization examples ([#17](https://github.com/ilaborie/clawspec/issues/17))
   - Cookie handling and session management ([#18](https://github.com/ilaborie/clawspec/issues/18))
   - File upload and download operations
-  - Streaming and WebSocket support exploration
+  - ~~Streaming responses~~ (JSON Lines, NDJSON, JSON text sequences and server-sent events, finite streams only)
+  - WebSocket support exploration
 
 ##### **Performance & Documentation**
 - [ ] **Performance Benchmarks**

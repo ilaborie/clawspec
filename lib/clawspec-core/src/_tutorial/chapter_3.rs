@@ -16,6 +16,8 @@
 //! | `as_raw()` | `RawResult` | Access status code and raw body |
 //! | `as_empty()` | `()` | Responses with no body (204, etc.) |
 //! | `as_text()` | `String` | Plain text responses |
+//! | `as_json_sequence::<T>()` | `Vec<T>` | JSON Lines, NDJSON, or JSON text sequences |
+//! | `as_sse::<T>()` | `Vec<SseEvent<T>>` | Server-sent events with JSON data |
 //!
 //! ## Standard JSON Response
 //!
@@ -197,6 +199,64 @@
 //! # }
 //! ```
 //!
+//! ## Streaming Responses
+//!
+//! Some endpoints return a sequence of JSON values instead of a single document.
+//! Use `as_json_sequence::<T>()` for `application/jsonl`, `application/x-ndjson`
+//! and `application/json-seq`:
+//!
+//! ```rust,no_run
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//! #[derive(Deserialize, ToSchema)]
+//! struct User { id: u64, name: String }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let users = client
+//!     .get("/users/export")?
+//!     .await?
+//!     .as_json_sequence::<User>()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Use `as_sse::<T>()` for a `text/event-stream` response. Each event exposes its
+//! `event`, `id` and `retry` fields, and its `data` parsed as JSON:
+//!
+//! ```rust,no_run
+//! # use clawspec_core::ApiClient;
+//! # use serde::Deserialize;
+//! # use utoipa::ToSchema;
+//! #[derive(Deserialize, ToSchema)]
+//! struct Progress { percent: u8 }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut client = ApiClient::builder().build()?;
+//! let events = client
+//!     .get("/jobs/42/progress")?
+//!     .await?
+//!     .as_sse::<Progress>()
+//!     .await?;
+//! for event in &events {
+//!     println!("{:?} {:?}: {}%", event.id, event.event, event.data.percent);
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The generated specification describes one item with `itemSchema`: a reference to
+//! `T` for JSON sequences, and an event object whose `data` is a JSON string with
+//! `T` as content schema for server-sent events. The older OpenAPI output cannot
+//! describe sequential media types, so the item schema is dropped there.
+//!
+//! The body is read in full before parsing: the server must end the stream, or the
+//! call never returns. Test a finite stream, for example a replay of past events.
+//!
 //! ## Error Handling
 //!
 //! Clawspec uses [`ApiClientError`][crate::ApiClientError] for client-level errors:
@@ -228,6 +288,7 @@
 //! - Use `add_expected_status()` to tell Clawspec about expected non-2xx codes
 //! - `as_optional_json()` is great for "get or not found" patterns
 //! - `as_result_json()` captures typed error schemas in OpenAPI
+//! - `as_json_sequence()` and `as_sse()` document streamed items, but need a finite stream
 //!
 //! Next: [Chapter 4: Advanced Parameters][super::chapter_4] - Headers, cookies,
 //! and parameter styles.

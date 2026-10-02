@@ -1,10 +1,11 @@
 //! Compatibility pass that strips data the older OpenAPI output cannot carry.
 
 use tracing::{debug, warn};
-use utoipa::openapi::path::{Operation, PathItem};
+use utoipa::openapi::path::{Operation, Parameter, PathItem};
+use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::response::Response;
 use utoipa::openapi::security::{ApiKey, Flow, SecurityScheme};
-use utoipa::openapi::{OpenApi, Paths, RefOr, Server, Tag};
+use utoipa::openapi::{Content, Header, OpenApi, Paths, RefOr, Server, Tag};
 
 pub(crate) fn iter_operations(path_item: &PathItem) -> impl Iterator<Item = &Operation> {
     [
@@ -53,6 +54,22 @@ pub(in crate::client) fn downgrade_to_31(openapi: &mut OpenApi) {
     }
     if let Some(components) = openapi.components.as_mut() {
         drop_response_summaries(&mut components.responses, "components.responses");
+        drop_responses_item_fields(&mut components.responses, "components.responses");
+        for (name, request_body) in &mut components.request_bodies {
+            drop_request_body_item_fields(
+                request_body,
+                &format!("components.requestBodies.{name}"),
+            );
+        }
+        drop_parameters_item_fields(components.parameters.values_mut(), "components.parameters");
+        drop_headers_item_fields(&mut components.headers, "components.headers");
+        if !std::mem::take(&mut components.media_types).is_empty() {
+            warn!(
+                location = "components",
+                field = "mediaTypes",
+                "dropping field not supported by OpenAPI 3.1"
+            );
+        }
         for (name, scheme) in &mut components.security_schemes {
             if let RefOr::T(scheme) = scheme {
                 downgrade_security_scheme(scheme, &format!("components.securitySchemes.{name}"));
@@ -68,6 +85,10 @@ pub(in crate::client) fn downgrade_paths_to_31(paths: &mut Paths) {
             path_item.servers.as_deref_mut(),
             &format!("paths.{path}.servers"),
         );
+        drop_parameters_item_fields(
+            path_item.parameters.iter_mut().flatten(),
+            &format!("paths.{path}.parameters"),
+        );
         for (method, operation) in iter_operations_mut(path_item) {
             let location = format!("paths.{path}.{method}");
             drop_server_names(
@@ -78,6 +99,7 @@ pub(in crate::client) fn downgrade_paths_to_31(paths: &mut Paths) {
                 &mut operation.responses.responses,
                 &format!("{location}.responses"),
             );
+            drop_operation_item_fields(operation, &location);
         }
     }
     remove_empty_path_items(paths);
@@ -172,6 +194,78 @@ fn drop_response_summaries<'a>(
     }
 }
 
+fn drop_operation_item_fields(operation: &mut Operation, location: &str) {
+    drop_parameters_item_fields(
+        operation.parameters.iter_mut().flatten(),
+        &format!("{location}.parameters"),
+    );
+    if let Some(request_body) = operation.request_body.as_mut() {
+        drop_request_body_item_fields(request_body, &format!("{location}.requestBody"));
+    }
+    drop_responses_item_fields(
+        &mut operation.responses.responses,
+        &format!("{location}.responses"),
+    );
+}
+
+fn drop_parameters_item_fields<'a>(
+    parameters: impl IntoIterator<Item = &'a mut RefOr<Parameter>>,
+    location: &str,
+) {
+    for parameter in parameters {
+        if let RefOr::T(parameter) = parameter {
+            let location = format!("{location}.{}", parameter.name);
+            drop_content_item_fields(&mut parameter.content, &location);
+        }
+    }
+}
+
+fn drop_request_body_item_fields(request_body: &mut RefOr<RequestBody>, location: &str) {
+    if let RefOr::T(request_body) = request_body {
+        drop_content_item_fields(&mut request_body.content, location);
+    }
+}
+
+fn drop_responses_item_fields<'a>(
+    responses: impl IntoIterator<Item = (&'a String, &'a mut RefOr<Response>)>,
+    location: &str,
+) {
+    for (status, response) in responses {
+        if let RefOr::T(response) = response {
+            let location = format!("{location}.{status}");
+            drop_content_item_fields(&mut response.content, &location);
+            drop_headers_item_fields(&mut response.headers, &format!("{location}.headers"));
+        }
+    }
+}
+
+fn drop_headers_item_fields<'a>(
+    headers: impl IntoIterator<Item = (&'a String, &'a mut RefOr<Header>)>,
+    location: &str,
+) {
+    for (name, header) in headers {
+        if let RefOr::T(header) = header {
+            drop_content_item_fields(&mut header.content, &format!("{location}.{name}"));
+        }
+    }
+}
+
+fn drop_content_item_fields<'a>(
+    contents: impl IntoIterator<Item = (&'a String, &'a mut RefOr<Content>)>,
+    location: &str,
+) {
+    for (media_type, content) in contents {
+        if let RefOr::T(content) = content {
+            let location = format!("{location}.content.{media_type}");
+            drop_field(&mut content.item_schema, &location, "itemSchema");
+            drop_field(&mut content.item_encoding, &location, "itemEncoding");
+            if !std::mem::take(&mut content.prefix_encoding).is_empty() {
+                warn!(%location, field = "prefixEncoding", "dropping field not supported by OpenAPI 3.1");
+            }
+        }
+    }
+}
+
 fn remove_empty_path_items(paths: &mut Paths) {
     paths.paths.retain(|path, path_item| {
         let has_operation = iter_operations(path_item).next().is_some();
@@ -185,7 +279,11 @@ fn remove_empty_path_items(paths: &mut Paths) {
 #[cfg(test)]
 mod tests {
     use insta::assert_snapshot;
-    use utoipa::openapi::path::{HttpMethod, OperationBuilder, PathItemBuilder};
+    use utoipa::openapi::encoding::Encoding;
+    use utoipa::openapi::path::{
+        HttpMethod, OperationBuilder, ParameterBuilder, ParameterIn, PathItemBuilder,
+    };
+    use utoipa::openapi::request_body::RequestBodyBuilder;
     use utoipa::openapi::response::{ResponseBuilder, ResponsesBuilder};
     use utoipa::openapi::security::{
         ApiKeyValue, ClientCredentials, DeviceAuthorization, Http, HttpAuthScheme, OAuth2,
@@ -194,7 +292,7 @@ mod tests {
     use utoipa::openapi::tag::TagBuilder;
     use utoipa::openapi::{
         ComponentsBuilder, Deprecated, InfoBuilder, OpenApiBuilder, OpenApiVersion, PathsBuilder,
-        ServerBuilder,
+        Ref, ServerBuilder,
     };
 
     use super::*;
@@ -482,6 +580,86 @@ mod tests {
                   description: The resource
               servers:
               - url: https://op.example.com
+        "#);
+    }
+
+    #[test]
+    fn should_drop_content_item_fields() {
+        let item_content = || {
+            Content::builder()
+                .item_schema(Some(Ref::from_schema_name("Event")))
+                .item_encoding(Some(
+                    Encoding::builder().content_type(Some("application/json")),
+                ))
+                .prefix_encoding([Encoding::builder().content_type(Some("text/plain"))])
+                .build()
+        };
+        let operation = OperationBuilder::new()
+            .parameter(
+                ParameterBuilder::new()
+                    .name("filter")
+                    .parameter_in(ParameterIn::Query)
+                    .content("application/jsonl", item_content()),
+            )
+            .request_body(Some(
+                RequestBodyBuilder::new()
+                    .content("application/json-seq", item_content())
+                    .build(),
+            ))
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .description("Events")
+                    .content("text/event-stream", item_content()),
+            )
+            .build();
+        let mut openapi = openapi(
+            PathsBuilder::new()
+                .path("/events", PathItem::new(HttpMethod::Post, operation))
+                .build(),
+        );
+        openapi.components = Some(
+            ComponentsBuilder::new()
+                .response(
+                    "Stream",
+                    ResponseBuilder::new()
+                        .description("Stream")
+                        .content("application/x-ndjson", item_content()),
+                )
+                .media_type("EventStream", item_content())
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r#"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths:
+          /events:
+            post:
+              parameters:
+              - name: filter
+                in: query
+                required: false
+                content:
+                  application/jsonl: {}
+              requestBody:
+                content:
+                  application/json-seq: {}
+              responses:
+                "200":
+                  description: Events
+                  content:
+                    text/event-stream: {}
+        components:
+          responses:
+            Stream:
+              description: Stream
+              content:
+                application/x-ndjson: {}
         "#);
     }
 

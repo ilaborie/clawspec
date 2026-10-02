@@ -16,6 +16,7 @@ axum = { workspace = true, features = ["macros", "multipart"]}
 bytes = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 derive_more = { workspace = true, features = ["error", "display", "from", "deref", "deref_mut"]}
+futures-util = { workspace = true }
 jiff = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v7", "serde"] }
 pico-args = { workspace = true }
