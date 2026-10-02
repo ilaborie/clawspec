@@ -1,7 +1,7 @@
 //! Compatibility pass that strips data the older OpenAPI output cannot carry.
 
 use tracing::{debug, warn};
-use utoipa::openapi::path::{Operation, Parameter, PathItem};
+use utoipa::openapi::path::{Operation, Parameter, ParameterIn, ParameterStyle, PathItem};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::response::Response;
 use utoipa::openapi::security::{ApiKey, Flow, SecurityScheme};
@@ -216,8 +216,39 @@ fn drop_parameters_item_fields<'a>(
         if let RefOr::T(parameter) = parameter {
             let location = format!("{location}.{}", parameter.name);
             drop_content_item_fields(&mut parameter.content, &location);
+            convert_querystring_parameter(parameter, &location);
+            drop_cookie_style(parameter, &location);
         }
     }
+}
+
+fn convert_querystring_parameter(parameter: &mut Parameter, location: &str) {
+    if parameter.parameter_in != ParameterIn::QueryString {
+        return;
+    }
+    parameter.parameter_in = ParameterIn::Query;
+    let schema = match parameter.content.values().next() {
+        Some(RefOr::T(content)) if parameter.content.len() == 1 => content.schema.clone(),
+        _ => None,
+    };
+    let Some(schema) = schema else {
+        warn!(%location, "converting querystring parameter to a query parameter, keeping its content");
+        return;
+    };
+    debug!(%location, "converting querystring parameter to an exploded form query parameter");
+    parameter.content.clear();
+    parameter.schema = Some(schema);
+    parameter.style = Some(ParameterStyle::Form);
+    parameter.explode = Some(true);
+}
+
+fn drop_cookie_style(parameter: &mut Parameter, location: &str) {
+    if parameter.style != Some(ParameterStyle::Cookie) {
+        return;
+    }
+    debug!(%location, "dropping cookie style and explode, using the default cookie serialization");
+    parameter.style = None;
+    parameter.explode = None;
 }
 
 fn drop_request_body_item_fields(request_body: &mut RefOr<RequestBody>, location: &str) {
@@ -661,6 +692,60 @@ mod tests {
               content:
                 application/x-ndjson: {}
         "#);
+    }
+
+    #[test]
+    fn should_convert_querystring_and_drop_cookie_style() {
+        let operation = OperationBuilder::new()
+            .parameter(
+                ParameterBuilder::new()
+                    .name("Filter")
+                    .parameter_in(ParameterIn::QueryString)
+                    .content(
+                        "application/x-www-form-urlencoded",
+                        Content::new(Some(Ref::from_schema_name("Filter"))),
+                    ),
+            )
+            .parameter(
+                ParameterBuilder::new()
+                    .name("session")
+                    .parameter_in(ParameterIn::Cookie)
+                    .schema(Some(Ref::from_schema_name("Session")))
+                    .style(Some(ParameterStyle::Cookie))
+                    .explode(Some(false)),
+            )
+            .build();
+        let mut openapi = openapi(
+            PathsBuilder::new()
+                .path("/items", PathItem::new(HttpMethod::Get, operation))
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r##"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths:
+          /items:
+            get:
+              parameters:
+              - name: Filter
+                in: query
+                required: false
+                schema:
+                  $ref: "#/components/schemas/Filter"
+                style: form
+                explode: true
+              - name: session
+                in: cookie
+                required: false
+                schema:
+                  $ref: "#/components/schemas/Session"
+              responses: {}
+        "##);
     }
 
     #[test]

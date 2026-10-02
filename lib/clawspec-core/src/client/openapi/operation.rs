@@ -298,6 +298,7 @@ fn merge_security(
 /// - **Collision**: When both lists hold the same parameter, the new one wins
 /// - **Parameter Order**: The new parameters first, then the current parameters
 ///   that are not in the new list
+/// - **Querystring**: At most one `querystring` parameter is kept, and it replaces every `query` parameter
 ///
 /// # Returns
 ///
@@ -322,7 +323,8 @@ fn merge_parameters(
         result.entry(ParameterKey::of(&param)).or_insert(param);
     }
 
-    let result = result.into_values().collect();
+    let mut result = result.into_values().collect::<Vec<_>>();
+    keep_querystring_over_query(&mut result);
     Some(result)
 }
 
@@ -345,6 +347,35 @@ impl ParameterKey {
             RefOr::Ref(reference) => Self::Ref(reference.ref_location.clone()),
         }
     }
+}
+
+fn keep_querystring_over_query(parameters: &mut Vec<RefOr<Parameter>>) {
+    let is_querystring = |param: &RefOr<Parameter>| matches!(param, RefOr::T(param) if param.parameter_in == ParameterIn::QueryString);
+    if !parameters.iter().any(is_querystring) {
+        return;
+    }
+
+    let mut querystring_kept = false;
+    parameters.retain(|param| {
+        let RefOr::T(param) = param else {
+            return true;
+        };
+        match param.parameter_in {
+            ParameterIn::QueryString if querystring_kept => {
+                warn!(name = %param.name, "dropping extra querystring parameter, an operation has at most one");
+                false
+            }
+            ParameterIn::QueryString => {
+                querystring_kept = true;
+                true
+            }
+            ParameterIn::Query => {
+                warn!(name = %param.name, "dropping query parameter, the operation uses a querystring parameter");
+                false
+            }
+            ParameterIn::Path | ParameterIn::Header | ParameterIn::Cookie => true,
+        }
+    });
 }
 
 fn merge_responses(
@@ -806,6 +837,31 @@ mod tests {
         assert_eq!(
             merged.external_docs.map(|docs| docs.url),
             Some("https://docs.example.com/users".to_string())
+        );
+    }
+
+    #[test]
+    fn should_replace_query_parameters_with_querystring_when_merging() {
+        let merged = merge_parameters(
+            Some(vec![
+                parameter("limit", ParameterIn::Query),
+                parameter("X-Trace", ParameterIn::Header),
+                parameter("Filter", ParameterIn::QueryString),
+            ]),
+            Some(vec![
+                parameter("offset", ParameterIn::Query),
+                parameter("Other", ParameterIn::QueryString),
+                parameter("session", ParameterIn::Cookie),
+            ]),
+        );
+
+        assert_eq!(
+            parameter_identities(&merged.expect("should have parameters")),
+            [
+                r#""querystring":Other"#,
+                r#""cookie":session"#,
+                r#""header":X-Trace"#
+            ]
         );
     }
 }

@@ -9,7 +9,9 @@ use crate::client::response::ExpectedStatusCodes;
 #[cfg(feature = "redaction")]
 use crate::client::response::RequestBodyRedactionBuilder;
 use crate::client::security::SecurityRequirement;
-use crate::client::{ApiClientError, CallBody, CallCookies, CallHeaders, CallQuery};
+use crate::client::{
+    ApiClientError, CallBody, CallCookies, CallHeaders, CallQuery, CallQueryString,
+};
 
 impl ApiCall {
     // =============================================================================
@@ -303,6 +305,55 @@ impl ApiCall {
     pub fn with_query(mut self, query: CallQuery) -> Self {
         self.query = query;
         self
+    }
+
+    /// Sets the whole query string from a single type.
+    ///
+    /// The value is encoded as `application/x-www-form-urlencoded` and sent as the
+    /// request query string. `None` fields are skipped, and nested objects are rejected.
+    ///
+    /// The OpenAPI operation gets one `querystring` parameter, named after the schema of `T`,
+    /// with an `application/x-www-form-urlencoded` content that references the schema of `T`.
+    /// For an older OpenAPI output, it becomes an exploded form-style `query` parameter.
+    ///
+    /// When several calls are merged into the same operation, the `querystring` parameter
+    /// replaces the `query` parameters of the other calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApiClientError::QuerySerializationError`] if the value cannot be encoded.
+    /// The request fails with [`ApiClientError::ConflictingQueryParameters`] if the call
+    /// also has query parameters set with [`with_query`](Self::with_query).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::Serialize;
+    /// # use utoipa::ToSchema;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Serialize, ToSchema)]
+    /// struct ListOptions {
+    ///     search: Option<String>,
+    ///     limit: Option<u32>,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    /// let options = ListOptions {
+    ///     search: Some("rust".to_string()),
+    ///     limit: Some(10),
+    /// };
+    /// // Sends ?search=rust&limit=10
+    /// let call = client.get("/users")?.with_querystring(&options)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_querystring<T>(mut self, value: &T) -> Result<Self, ApiClientError>
+    where
+        T: Serialize + ToSchema + 'static,
+    {
+        self.querystring = Some(CallQueryString::new(value)?);
+        Ok(self)
     }
 
     pub fn with_headers_option(mut self, headers: Option<CallHeaders>) -> Self {

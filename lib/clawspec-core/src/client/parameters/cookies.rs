@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 use utoipa::openapi::Required;
-use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
+use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn, ParameterStyle};
 
 use super::param::{ParamValue, ParameterValue, ResolvedParamValue};
 use crate::client::error::ApiClientError;
@@ -163,7 +163,13 @@ impl CallCookies {
     /// According to the OpenAPI Specification, cookies are parameters with `in: cookie`.
     /// This method generates the Parameter objects for the generated document.
     ///
-    /// Parameters are emitted with `in: cookie` and `required: false`.
+    /// # OpenAPI Specification
+    ///
+    /// From the OpenAPI specification:
+    /// - Parameter location: `in: cookie`
+    /// - Cookies are typically optional parameters
+    /// - Style `cookie` with `explode: false`: values are sent as `name=value` pairs joined
+    ///   by `; ` in one `Cookie` header, without percent-encoding, arrays comma-joined
     pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         self.cookies.iter().map(|(name, resolved)| {
             ParameterBuilder::new()
@@ -171,6 +177,8 @@ impl CallCookies {
                 .parameter_in(ParameterIn::Cookie)
                 .required(Required::False)
                 .schema(Some(resolved.schema.clone()))
+                .style(Some(ParameterStyle::Cookie))
+                .explode(Some(false))
                 .build()
         })
     }
