@@ -424,7 +424,8 @@ impl CallResult {
     ///
     /// # Errors
     ///
-    /// - [`ApiClientError::UnexpectedOutputType`] if the content type is not a sequential JSON type
+    /// - [`ApiClientError::UnexpectedOutputType`] if the content type is not a sequential JSON type,
+    ///   or if the response has no text body (e.g. a `204 No Content`)
     /// - [`ApiClientError::JsonError`] if an item cannot be deserialized; the path starts with
     ///   the item index, e.g. `[3].name`
     ///
@@ -459,8 +460,8 @@ impl CallResult {
             return Err(self.unexpected_output_type(JSON_SEQUENCE_MEDIA_TYPES));
         };
 
+        let parsed = parse_json_sequence(kind, self.stream_body(JSON_SEQUENCE_MEDIA_TYPES)?);
         let item_schema = self.register_schema::<T>().await;
-        let parsed = parse_json_sequence(kind, self.output.body_str().unwrap_or_default());
         self.register_stream_response(item_schema, parsed).await
     }
 
@@ -469,26 +470,31 @@ impl CallResult {
     /// The content type must be `text/event-stream`. Events are parsed following the
     /// HTML event stream rules: comment lines are ignored, multiple `data` lines are joined
     /// with a line feed, an `id` containing NUL and a non-numeric `retry` are ignored,
-    /// and a block without `data` is not dispatched. The `data` of each event is
-    /// deserialized as JSON into `T`.
+    /// and a block without `data` is not dispatched. A block whose `data` is empty,
+    /// such as an `event: ping` heartbeat with a bare `data:` line, is skipped because
+    /// it holds no JSON. The `data` of each event is deserialized as JSON into `T`.
+    ///
+    /// Each [`SseEvent`] carries the `event`, `id` and `retry` fields of its own block only:
+    /// an `id` is not carried over to the next events like the last event ID of a browser.
     ///
     /// The OpenAPI response records an item schema (`itemSchema`) describing one event,
     /// with `data` as a JSON-encoded string whose content schema is `T`.
     /// When the older OpenAPI output is selected, the item schema is dropped.
     ///
     /// The raw text of the first 3 dispatched events (each block with its comment lines
-    /// and its terminating blank line) is also recorded as a `first-items` example of the
+    /// and its terminating blank line, skipped blocks excluded) is also recorded as a `first-items` example of the
     /// media type, as `serializedValue`. The older OpenAPI output carries this text as a
     /// string `value` instead. No example is recorded when an event fails to parse. When
     /// several calls document the same response status, the last call wins, example included.
     ///
     /// The body is read in full before parsing, so the server must end the stream:
     /// an endless event stream makes this call hang. An unterminated last event
-    /// (no blank line after it) is discarded.
+    /// (no blank line after it) is discarded with a warning.
     ///
     /// # Errors
     ///
-    /// - [`ApiClientError::UnexpectedOutputType`] if the content type is not `text/event-stream`
+    /// - [`ApiClientError::UnexpectedOutputType`] if the content type is not `text/event-stream`,
+    ///   or if the response has no text body (e.g. a `204 No Content`)
     /// - [`ApiClientError::JsonError`] if an event `data` cannot be deserialized; the path
     ///   starts with the event index, e.g. `[2].data.name`
     ///
@@ -525,8 +531,8 @@ impl CallResult {
             return Err(self.unexpected_output_type(EVENT_STREAM_MEDIA_TYPE));
         }
 
+        let parsed = parse_sse(self.stream_body(EVENT_STREAM_MEDIA_TYPE)?);
         let data_schema = self.register_schema::<T>().await;
-        let parsed = parse_sse(self.output.body_str().unwrap_or_default());
         self.register_stream_response(sse_event_schema(data_schema), parsed)
             .await
     }
@@ -549,6 +555,18 @@ impl CallResult {
         )
         .await?;
         items
+    }
+
+    fn stream_body(&self, expected: &str) -> Result<&str, ApiClientError> {
+        let actual = match &self.output {
+            Output::Json(body) | Output::Text(body) | Output::Other { body } => return Ok(body),
+            Output::Empty => "empty body",
+            Output::Bytes(_) => "binary body",
+        };
+        Err(ApiClientError::UnexpectedOutputType {
+            expected: format!("{expected} with a text body"),
+            actual: actual.to_string(),
+        })
     }
 
     fn unexpected_output_type(&self, expected: &str) -> ApiClientError {

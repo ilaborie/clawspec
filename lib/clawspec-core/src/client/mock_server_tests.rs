@@ -2698,6 +2698,139 @@ mod sequential_response_tests {
     }
 
     #[tokio::test]
+    async fn should_reject_stream_without_body() {
+        let mock_server = MockServer::start().await;
+        for (route, content_type) in [
+            ("/users/export", "application/x-ndjson"),
+            ("/users/events", "text/event-stream"),
+        ] {
+            Mock::given(method("GET"))
+                .and(path(route))
+                .respond_with(
+                    ResponseTemplate::new(204).insert_header("content-type", content_type),
+                )
+                .mount(&mock_server)
+                .await;
+        }
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        let sequence_error = client
+            .get("/users/export")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect_err("no body is not a stream");
+        let sse_error = client
+            .get("/users/events")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect_err("no body is not an event stream");
+
+        assert_snapshot!(format!("{sequence_error}\n{sse_error}"), @"
+        Expected output type 'application/jsonl, application/x-ndjson or application/json-seq with a text body' but got 'empty body'
+        Expected output type 'text/event-stream with a text body' but got 'empty body'
+        ");
+        let openapi = client.collected_openapi().await;
+        let documented_statuses = ["/users/export", "/users/events"].map(|route| {
+            openapi
+                .paths
+                .paths
+                .get(route)
+                .and_then(|path_item| path_item.get.as_ref())
+                .map(|operation| {
+                    operation
+                        .responses
+                        .responses
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+        });
+        assert_eq!(documented_statuses, [Some(vec![]), Some(vec![])]);
+    }
+
+    #[tokio::test]
+    async fn should_skip_sse_heartbeats() {
+        let mock_server = MockServer::start().await;
+        let body = concat!(
+            "data: {\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n\n",
+            "event: ping\ndata:\n\n",
+            "data: {\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n\n",
+        );
+        mount_stream(&mock_server, "/users/events", "text/event-stream", body).await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version31).await;
+
+        let events = client
+            .get("/users/events")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect("should skip the heartbeat");
+
+        assert_eq!(
+            events.iter().map(|event| event.data.id).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_snapshot!(response_content_yaml(&mut client, "/users/events").await, @r#"
+        text/event-stream:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |+
+                data: {"id":1,"name":"Alice","email":"alice@example.com"}
+                
+                data: {"id":2,"name":"Bob","email":"bob@example.com"}
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_keep_last_call_example_on_same_streaming_route() {
+        let mock_server = MockServer::start().await;
+        for name in ["First", "Last"] {
+            Mock::given(method("GET"))
+                .and(path("/users/export"))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(
+                    format!("{{\"id\":1,\"name\":\"{name}\",\"email\":\"u@example.com\"}}\n"),
+                    "application/x-ndjson",
+                ))
+                .up_to_n_times(1)
+                .mount(&mock_server)
+                .await;
+        }
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        for expected_name in ["First", "Last"] {
+            let users = client
+                .get("/users/export")
+                .expect("should create call")
+                .await
+                .expect("should succeed")
+                .as_json_sequence::<User>()
+                .await
+                .expect("should parse NDJSON");
+            assert_eq!(users[0].name, expected_name);
+        }
+
+        assert_snapshot!(response_content_yaml(&mut client, "/users/export").await, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |
+                {"id":1,"name":"Last","email":"u@example.com"}
+        "##);
+    }
+
+    #[tokio::test]
     async fn should_reject_unexpected_content_type() {
         let mock_server = MockServer::start().await;
         Mock::given(method("GET"))

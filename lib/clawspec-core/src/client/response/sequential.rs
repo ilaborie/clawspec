@@ -1,7 +1,7 @@
 use headers::ContentType;
 use mime::Mime;
 use serde::de::DeserializeOwned;
-use tracing::debug;
+use tracing::{debug, warn};
 use utoipa::openapi::{ObjectBuilder, RefOr, Schema, Type};
 
 use crate::client::ApiClientError;
@@ -12,6 +12,7 @@ pub(in crate::client) const EVENT_STREAM_MEDIA_TYPE: &str = "text/event-stream";
 
 const RECORD_SEPARATOR: char = '\u{1e}';
 const BYTE_ORDER_MARK: char = '\u{feff}';
+const UNTERMINATED_PREVIEW_CHARS: usize = 40;
 
 /// A server-sent event whose `data` field holds a JSON value.
 ///
@@ -23,7 +24,9 @@ pub struct SseEvent<T> {
     pub event: Option<String>,
     /// The `data` field (multiple `data` lines joined with a line feed) parsed as JSON.
     pub data: T,
-    /// The `id` field of this event, if any.
+    /// The `id` field set in this event block, if any.
+    ///
+    /// It is not carried over to the next events, unlike the last event ID of a browser.
     pub id: Option<String>,
     /// The `retry` field of this event in milliseconds, if valid.
     pub retry: Option<u64>,
@@ -249,6 +252,12 @@ impl SseEventBuffer {
             id,
             retry,
         } = std::mem::take(self);
+        let data = data.filter(|data| {
+            if data.is_empty() {
+                debug!("skipping server-sent event with empty data");
+            }
+            !data.is_empty()
+        });
         data.map(|data| RawSseEvent {
             raw,
             event,
@@ -282,7 +291,16 @@ fn parse_event_stream(body: &str) -> Vec<RawSseEvent<'_>> {
         }
     }
     if !rest.is_empty() || !buffer.is_empty() {
-        debug!("discarding unterminated server-sent event at the end of the stream");
+        let unterminated = &body[block_start..];
+        let preview = unterminated
+            .chars()
+            .take(UNTERMINATED_PREVIEW_CHARS)
+            .collect::<String>();
+        warn!(
+            bytes = unterminated.len(),
+            %preview,
+            "discarding unterminated server-sent event at the end of the stream"
+        );
     }
     events
 }
@@ -576,6 +594,60 @@ mod tests {
             },
         ]
         "#);
+    }
+
+    #[test]
+    fn should_skip_events_with_empty_data() {
+        let body = "data: 1\n\nevent: ping\ndata:\n\ndata: \n\ndata: 2\n\n";
+
+        let events = parse_event_stream(body);
+
+        assert_debug_snapshot!(events, @r#"
+        [
+            RawSseEvent {
+                raw: "data: 1\n\n",
+                event: None,
+                data: "1",
+                id: None,
+                retry: None,
+            },
+            RawSseEvent {
+                raw: "data: 2\n\n",
+                event: None,
+                data: "2",
+                id: None,
+                retry: None,
+            },
+        ]
+        "#);
+    }
+
+    #[test]
+    fn should_not_count_heartbeats_in_example() {
+        let body = "data: {\"id\":1,\"name\":\"a\"}\n\nevent: ping\ndata:\n\ndata: {\"id\":2,\"name\":\"b\"}\n\ndata: {\"id\":3,\"name\":\"c\"}\n\n";
+
+        let parsed = parse_sse::<Item>(body).expect("should skip the heartbeat");
+
+        assert_eq!(parsed.items.len(), 3);
+        assert_debug_snapshot!(parsed.example, @r#"
+        Some(
+            "data: {\"id\":1,\"name\":\"a\"}\n\ndata: {\"id\":2,\"name\":\"b\"}\n\ndata: {\"id\":3,\"name\":\"c\"}\n\n",
+        )
+        "#);
+    }
+
+    #[test]
+    fn should_report_truncated_json_seq_record() {
+        let body = "\u{1e}{\"id\":0,\"name\":\"a\"}\n\u{1e}{\"id\":1";
+
+        let error = parse_json_sequence::<Item>(SequentialKind::JsonSeq, body)
+            .expect_err("should fail on the truncated record");
+
+        let ApiClientError::JsonError { path, body, .. } = error else {
+            panic!("expected a JSON error, got {error:?}");
+        };
+        assert_eq!(path, "[1].?");
+        assert_eq!(body, "{\"id\":1");
     }
 
     #[test]
