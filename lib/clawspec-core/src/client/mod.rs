@@ -361,7 +361,7 @@ impl ApiClient {
     ///
     /// The operation is documented under the path item `query` field.
     /// Use [`ApiClient::call`] for any other method, a custom method is documented
-    /// under `additionalOperations`.
+    /// under `additionalOperations` with its name in uppercase.
     ///
     /// # Example
     ///

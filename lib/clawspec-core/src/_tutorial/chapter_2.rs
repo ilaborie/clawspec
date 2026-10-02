@@ -201,7 +201,7 @@
 //! - [`CallQuery`][crate::CallQuery] handles query parameters
 //! - All HTTP methods are available: `get`, `post`, `put`, `patch`, `delete`, `query`
 //! - Use [`ApiClient::call`][crate::ApiClient::call] for any other method; a custom method
-//!   is documented under the path item `additionalOperations`
+//!   is documented under the path item `additionalOperations` with its name in uppercase
 //!
 //! Next: [Chapter 3: Response Handling][super::chapter_3] - Learn about different
 //! response handling strategies.
