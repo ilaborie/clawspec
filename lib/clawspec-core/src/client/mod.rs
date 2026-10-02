@@ -20,7 +20,7 @@ pub use self::parameters::{
 };
 
 mod response;
-pub use self::response::ExpectedStatusCodes;
+pub use self::response::{ExpectedStatusCodes, SseEvent};
 #[cfg(feature = "redaction")]
 pub use self::response::{
     RedactOptions, RedactedResult, RedactionBuilder, Redactor, RequestBodyRedactionBuilder,

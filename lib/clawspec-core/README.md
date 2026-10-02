@@ -20,6 +20,7 @@ Clawspec automatically generates OpenAPI documentation by observing HTTP client 
 - 🔐 **Authentication Support** - Bearer, Basic, and API Key authentication
 - 🍪 **Cookie Support** - Full cookie parameter handling and documentation
 - 📋 **Parameter Styles** - Complete OpenAPI parameter style support
+- 📡 **Streaming Responses** - JSON Lines, NDJSON, JSON text sequences, and server-sent events (finite streams)
 
 ## Quick Start
 

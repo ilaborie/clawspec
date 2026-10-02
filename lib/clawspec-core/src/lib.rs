@@ -562,7 +562,7 @@ pub use self::client::{
     AuthenticationError, CallBody, CallCookies, CallHeaders, CallPath, CallQuery, CallResult,
     ExpectedStatusCodes, OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows,
     OAuth2ImplicitFlow, ParamStyle, ParamValue, ParameterValue, RawBody, RawResult, SecureString,
-    SecurityRequirement, SecurityScheme,
+    SecurityRequirement, SecurityScheme, SseEvent,
 };
 
 // Re-export external types so users don't need to add these crates to their Cargo.toml.

@@ -8,7 +8,7 @@ use tracing::info;
 
 use axum_example::extractors::ExtractorError;
 use axum_example::observations::domain::{
-    LngLat, Observation, PartialObservation, PatchObservation, SearchObservations,
+    LngLat, Observation, ObservationEvent, PartialObservation, PatchObservation, SearchObservations,
 };
 use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 
@@ -39,6 +39,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     Box::pin(demonstrate_tags_and_metadata(&mut app)).await?;
     demonstrate_security(&mut app).await?;
     demonstrate_query_search(&mut app).await?;
+    demonstrate_streaming(&mut app).await?;
     // Call redaction demo LAST so its example appears in the generated OpenAPI
     demonstrate_redaction(&mut app).await?;
 
@@ -323,6 +324,40 @@ async fn demonstrate_query_search(app: &mut TestApp) -> anyhow::Result<()> {
     anyhow::ensure!(
         !found.observations.is_empty(),
         "should find observations matching the criteria"
+    );
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(app))]
+async fn demonstrate_streaming(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating an NDJSON export");
+    let exported = app
+        .get("/observations/export")?
+        .with_summary("Export all observations as NDJSON")
+        .await
+        .context("should export observations")?
+        .as_json_sequence::<Observation>()
+        .await?;
+    anyhow::ensure!(!exported.is_empty(), "should export observations");
+
+    info!("Demonstrating a finite server-sent event stream");
+    let events = app
+        .get("/observations/events")?
+        .with_summary("Stream observation events")
+        .await
+        .context("should stream observation events")?
+        .as_sse::<ObservationEvent>()
+        .await?;
+    anyhow::ensure!(
+        events.len() == exported.len(),
+        "should receive one event per observation"
+    );
+    anyhow::ensure!(
+        events
+            .iter()
+            .all(|event| event.event.as_deref() == Some("observation")),
+        "every event should have the observation type"
     );
 
     Ok(())

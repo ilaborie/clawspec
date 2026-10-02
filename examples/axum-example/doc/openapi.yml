@@ -180,6 +180,57 @@ paths:
                 $ref: '#/components/schemas/ListObservations'
       security:
       - bearerAuth: []
+  /api/observations/events:
+    get:
+      tags:
+      - observations
+      - events
+      summary: Stream observation events
+      description: Retrieve events
+      operationId: get-observations-events
+      parameters: []
+      responses:
+        '200':
+          description: Status code 200
+          content:
+            text/event-stream:
+              itemSchema:
+                type: object
+                required:
+                - data
+                properties:
+                  data:
+                    type: string
+                    contentMediaType: application/json
+                    contentSchema:
+                      $ref: '#/components/schemas/ObservationEvent'
+                  event:
+                    type: string
+                  id:
+                    type: string
+                  retry:
+                    type: integer
+                    minimum: 0
+      security:
+      - bearerAuth: []
+  /api/observations/export:
+    get:
+      tags:
+      - observations
+      - export
+      summary: Export all observations as NDJSON
+      description: Export observations
+      operationId: get-observations-export
+      parameters: []
+      responses:
+        '200':
+          description: Status code 200
+          content:
+            application/x-ndjson:
+              itemSchema:
+                $ref: '#/components/schemas/Observation'
+      security:
+      - bearerAuth: []
   /api/observations/import:
     post:
       tags:
@@ -579,6 +630,17 @@ components:
             example: 2024-01-01T00:00:00Z
           id:
             $ref: '#/components/schemas/ObservationId'
+    ObservationEvent:
+      type: object
+      description: Payload of a server-sent observation event.
+      required:
+      - observation_id
+      - name
+      properties:
+        name:
+          type: string
+        observation_id:
+          $ref: '#/components/schemas/ObservationId'
     ObservationId:
       type: string
       format: uuid
@@ -690,6 +752,8 @@ security:
 tags:
 - name: admin
 - name: bulk-operations
+- name: events
+- name: export
 - name: file-operations
 - name: health
 - name: import

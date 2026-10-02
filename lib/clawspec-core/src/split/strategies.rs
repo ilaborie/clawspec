@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use utoipa::openapi::path::Parameter;
-use utoipa::openapi::{Components, Content, OpenApi, Ref, RefOr};
+use utoipa::openapi::schema::{AdditionalProperties, ArrayItems};
+use utoipa::openapi::{Components, Content, OpenApi, Ref, RefOr, Schema};
 
 use super::{Fragment, OpenApiSplitter, SplitResult};
 use crate::client::iter_operations;
@@ -73,13 +74,7 @@ impl SplitSchemasByTag {
                 // Collect schema references from request body
                 if let Some(RefOr::T(ref request_body)) = operation.request_body {
                     for content in request_body.content.values() {
-                        if let RefOr::T(Content {
-                            schema: Some(ref schema),
-                            ..
-                        }) = *content
-                        {
-                            self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
-                        }
+                        self.collect_content_refs(content, &tags, &mut schema_to_tags);
                     }
                 }
 
@@ -87,13 +82,7 @@ impl SplitSchemasByTag {
                 for response in operation.responses.responses.values() {
                     if let RefOr::T(resp) = response {
                         for content in resp.content.values() {
-                            if let RefOr::T(Content {
-                                schema: Some(ref schema),
-                                ..
-                            }) = *content
-                            {
-                                self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
-                            }
+                            self.collect_content_refs(content, &tags, &mut schema_to_tags);
                         }
                     }
                 }
@@ -116,10 +105,24 @@ impl SplitSchemasByTag {
         schema_to_tags
     }
 
-    /// Collects schema references from a schema, adding tag associations.
+    /// Collects schema references from a media type schema and item schema.
+    fn collect_content_refs(
+        &self,
+        content: &RefOr<Content>,
+        tags: &[String],
+        schema_to_tags: &mut BTreeMap<String, BTreeSet<String>>,
+    ) {
+        if let RefOr::T(content) = content {
+            for schema in content.schema.iter().chain(&content.item_schema) {
+                self.collect_schema_refs(schema, tags, schema_to_tags);
+            }
+        }
+    }
+
+    /// Collects schema references from a schema, including references nested in inline schemas.
     fn collect_schema_refs(
         &self,
-        schema: &RefOr<utoipa::openapi::Schema>,
+        schema: &RefOr<Schema>,
         tags: &[String],
         schema_to_tags: &mut BTreeMap<String, BTreeSet<String>>,
     ) {
@@ -132,8 +135,10 @@ impl SplitSchemasByTag {
                     }
                 }
             }
-            RefOr::T(_) => {
-                // Inline schema, no reference to extract
+            RefOr::T(schema) => {
+                for nested in nested_schemas(schema) {
+                    self.collect_schema_refs(nested, tags, schema_to_tags);
+                }
             }
         }
     }
@@ -331,6 +336,29 @@ where
         let mut result = SplitResult::new(spec);
         result.add_fragment(Fragment::new(self.target_file.clone(), extracted));
         result
+    }
+}
+
+/// Lists the schemas directly nested in an inline schema.
+fn nested_schemas(schema: &Schema) -> Vec<&RefOr<Schema>> {
+    match schema {
+        Schema::Object(object) => object
+            .properties
+            .values()
+            .chain(object.content_schema.as_deref())
+            .chain(match object.additional_properties.as_deref() {
+                Some(AdditionalProperties::RefOr(additional)) => Some(additional),
+                _ => None,
+            })
+            .collect(),
+        Schema::Array(array) => match &array.items {
+            ArrayItems::RefOrSchema(items) => vec![items.as_ref()],
+            ArrayItems::False => Vec::new(),
+        },
+        Schema::OneOf(one_of) => one_of.items.iter().collect(),
+        Schema::AllOf(all_of) => all_of.items.iter().collect(),
+        Schema::AnyOf(any_of) => any_of.items.iter().collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -935,6 +963,80 @@ mod tests {
 
         // Should return unchanged (no components to split)
         assert!(result.is_unsplit());
+    }
+
+    #[test]
+    fn should_collect_schemas_from_item_schemas() {
+        let schema_ref = |name: &str| RefOr::Ref(Ref::from_schema_name(name));
+        let sse_event = ObjectBuilder::new()
+            .property(
+                "data",
+                ObjectBuilder::new()
+                    .schema_type(utoipa::openapi::Type::String)
+                    .content_media_type("application/json")
+                    .content_schema(Some(schema_ref("Progress"))),
+            )
+            .build();
+        let stream = |content_type: &str, item_schema: RefOr<Schema>| {
+            ResponseBuilder::new()
+                .description("Stream")
+                .content(
+                    content_type,
+                    ContentBuilder::new().item_schema(Some(item_schema)).build(),
+                )
+                .build()
+        };
+        let export_operation = OperationBuilder::new()
+            .tags(Some(vec!["exports".to_string()]))
+            .response("200", stream("application/x-ndjson", schema_ref("Row")))
+            .build();
+        let events_operation = OperationBuilder::new()
+            .tags(Some(vec!["jobs".to_string()]))
+            .response(
+                "200",
+                stream("text/event-stream", RefOr::T(Schema::Object(sse_event))),
+            )
+            .build();
+        let mut components = Components::new();
+        for name in ["Row", "Progress"] {
+            components
+                .schemas
+                .insert(name.to_string(), RefOr::T(ObjectBuilder::new().into()));
+        }
+        let mut paths = utoipa::openapi::Paths::new();
+        for (path, operation) in [("/export", export_operation), ("/events", events_operation)] {
+            paths.paths.insert(
+                path.to_string(),
+                PathItemBuilder::new()
+                    .operation(utoipa::openapi::HttpMethod::Get, operation)
+                    .build(),
+            );
+        }
+        let spec = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build();
+
+        let splitter = SplitSchemasByTag::new("common.yaml");
+        let usage = splitter.analyze_schema_usage(&spec);
+        let result = splitter.split(spec);
+
+        insta::assert_debug_snapshot!(usage, @r#"
+        {
+            "Progress": {
+                "jobs",
+            },
+            "Row": {
+                "exports",
+            },
+        }
+        "#);
+        let fragment_paths = result
+            .fragments
+            .iter()
+            .map(|fragment| fragment.path.display().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(fragment_paths, ["exports.yaml", "jobs.yaml"]);
     }
 
     #[test]

@@ -2236,3 +2236,266 @@ mod metadata_tests {
         );
     }
 }
+
+// =============================================================================
+// Tests for sequential and server-sent event responses
+// =============================================================================
+
+mod sequential_response_tests {
+    use insta::assert_snapshot;
+    use utoipa::openapi::OpenApiVersion;
+
+    use super::*;
+    use crate::client::SseEvent;
+
+    const NDJSON_BODY: &str = concat!(
+        "{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n",
+        "\n",
+        "{\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n",
+    );
+
+    const JSON_SEQ_BODY: &str = concat!(
+        "\u{1e}{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n",
+        "\u{1e}{\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n",
+    );
+
+    const SSE_BODY: &str = concat!(
+        ": stream start\n",
+        "event: created\n",
+        "id: 1\n",
+        "data: {\"id\":1,\"name\":\"Alice\",\n",
+        "data: \"email\":\"alice@example.com\"}\n",
+        "\n",
+        "retry: 5000\n",
+        "data: {\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n",
+        "\n",
+    );
+
+    async fn client_with_version(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
+        let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
+        ApiClient::builder()
+            .with_host(uri.host().expect("should have host"))
+            .with_port(uri.port_u16().expect("should have port"))
+            .with_openapi_version(version)
+            .build()
+            .expect("should build client")
+    }
+
+    async fn mount_stream(mock_server: &MockServer, route: &str, content_type: &str, body: &str) {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), content_type),
+            )
+            .mount(mock_server)
+            .await;
+    }
+
+    async fn response_content_yaml(client: &mut ApiClient, route: &str) -> String {
+        let openapi = client.collected_openapi().await;
+        let content = openapi
+            .paths
+            .paths
+            .get(route)
+            .and_then(|path_item| path_item.get.as_ref())
+            .and_then(|operation| operation.responses.responses.get("200"))
+            .and_then(|response| match response {
+                utoipa::openapi::RefOr::T(response) => Some(&response.content),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
+            .expect("should have a 200 response");
+        serde_saphyr::to_string(content).expect("should serialize to YAML")
+    }
+
+    async fn fetch_ndjson_users(version: OpenApiVersion) -> String {
+        let mock_server = MockServer::start().await;
+        mount_stream(
+            &mock_server,
+            "/users/export",
+            "application/x-ndjson; charset=utf-8",
+            NDJSON_BODY,
+        )
+        .await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        let users = client
+            .get("/users/export")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect("should parse NDJSON");
+
+        assert_eq!(users.iter().map(|user| user.id).collect::<Vec<_>>(), [1, 2]);
+        response_content_yaml(&mut client, "/users/export").await
+    }
+
+    #[tokio::test]
+    async fn should_document_ndjson_item_schema() {
+        let content = fetch_ndjson_users(OpenApiVersion::Version32).await;
+
+        assert_snapshot!(content, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_drop_item_schema_in_older_output() {
+        let content = fetch_ndjson_users(OpenApiVersion::Version31).await;
+
+        assert_snapshot!(content, @"application/x-ndjson: {}");
+    }
+
+    #[tokio::test]
+    async fn should_parse_json_seq_response() {
+        let mock_server = MockServer::start().await;
+        mount_stream(
+            &mock_server,
+            "/users/seq",
+            "application/json-seq",
+            JSON_SEQ_BODY,
+        )
+        .await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        let users = client
+            .get("/users/seq")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect("should parse JSON text sequence");
+
+        assert_eq!(
+            users
+                .iter()
+                .map(|user| user.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Alice", "Bob"]
+        );
+        assert_snapshot!(response_content_yaml(&mut client, "/users/seq").await, @r##"
+        application/json-seq:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+        "##);
+    }
+
+    async fn fetch_user_events(version: OpenApiVersion) -> (Vec<SseEvent<User>>, String) {
+        let mock_server = MockServer::start().await;
+        mount_stream(&mock_server, "/users/events", "text/event-stream", SSE_BODY).await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        let events = client
+            .get("/users/events")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect("should parse event stream");
+
+        let content = response_content_yaml(&mut client, "/users/events").await;
+        (events, content)
+    }
+
+    #[tokio::test]
+    async fn should_parse_and_document_sse_response() {
+        let (events, content) = fetch_user_events(OpenApiVersion::Version32).await;
+
+        insta::assert_debug_snapshot!(events, @r#"
+        [
+            SseEvent {
+                event: Some(
+                    "created",
+                ),
+                data: User {
+                    id: 1,
+                    name: "Alice",
+                    email: "alice@example.com",
+                },
+                id: Some(
+                    "1",
+                ),
+                retry: None,
+            },
+            SseEvent {
+                event: None,
+                data: User {
+                    id: 2,
+                    name: "Bob",
+                    email: "bob@example.com",
+                },
+                id: None,
+                retry: Some(
+                    5000,
+                ),
+            },
+        ]
+        "#);
+        assert_snapshot!(content, @r##"
+        text/event-stream:
+          itemSchema:
+            type: object
+            required:
+            - data
+            properties:
+              data:
+                type: string
+                contentMediaType: application/json
+                contentSchema:
+                  $ref: "#/components/schemas/User"
+              event:
+                type: string
+              id:
+                type: string
+              retry:
+                type: integer
+                minimum: 0
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_drop_sse_item_schema_in_older_output() {
+        let (events, content) = fetch_user_events(OpenApiVersion::Version31).await;
+
+        assert_eq!(events.len(), 2);
+        assert_snapshot!(content, @"text/event-stream: {}");
+    }
+
+    #[tokio::test]
+    async fn should_reject_unexpected_content_type() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&mock_server)
+            .await;
+        let client = client_for_mock(&mock_server).await;
+
+        let sequence_error = client
+            .get("/users")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect_err("JSON is not a sequential type");
+        let sse_error = client
+            .get("/users")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect_err("JSON is not an event stream");
+
+        assert_snapshot!(format!("{sequence_error}\n{sse_error}"), @"
+        Expected output type 'application/jsonl, application/x-ndjson or application/json-seq' but got 'application/json'
+        Expected output type 'text/event-stream' but got 'application/json'
+        ");
+    }
+}

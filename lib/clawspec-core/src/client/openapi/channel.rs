@@ -36,6 +36,7 @@ pub(in crate::client) enum CollectorMessage {
         status: StatusCode,
         content_type: Option<ContentType>,
         schema: Option<RefOr<Schema>>,
+        item_schema: Option<Box<RefOr<Schema>>>,
         description: String,
     },
 
@@ -137,6 +138,7 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
                 status,
                 content_type,
                 schema,
+                item_schema,
                 description,
             } => {
                 collectors.register_response(
@@ -144,6 +146,7 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
                     status,
                     content_type.as_ref(),
                     schema,
+                    item_schema.map(|item_schema| *item_schema),
                     description,
                 );
             }

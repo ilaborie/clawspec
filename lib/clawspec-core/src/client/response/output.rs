@@ -24,6 +24,13 @@ impl Output {
         };
         Ok(Some(value))
     }
+
+    pub fn body_str(&self) -> Option<&str> {
+        match self {
+            Self::Json(body) | Self::Text(body) | Self::Other { body } => Some(body),
+            Self::Empty | Self::Bytes(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]
