@@ -88,21 +88,31 @@ impl SplitSchemasByTag {
                 }
 
                 // Collect schema references from parameters
-                if let Some(ref parameters) = operation.parameters {
-                    for param in parameters {
-                        if let RefOr::T(Parameter {
-                            schema: Some(ref schema),
-                            ..
-                        }) = *param
-                        {
-                            self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
-                        }
+                for parameter in operation.parameters.iter().flatten() {
+                    if let RefOr::T(parameter) = parameter {
+                        self.collect_parameter_refs(parameter, &tags, &mut schema_to_tags);
                     }
                 }
             }
         }
 
         schema_to_tags
+    }
+
+    /// Collects schema references from a parameter schema and its content, used by a
+    /// `querystring` parameter.
+    fn collect_parameter_refs(
+        &self,
+        parameter: &Parameter,
+        tags: &[String],
+        schema_to_tags: &mut BTreeMap<String, BTreeSet<String>>,
+    ) {
+        if let Some(schema) = &parameter.schema {
+            self.collect_schema_refs(schema, tags, schema_to_tags);
+        }
+        for content in parameter.content.values() {
+            self.collect_content_refs(content, tags, schema_to_tags);
+        }
     }
 
     /// Collects schema references from a media type schema and item schema.
@@ -1037,6 +1047,178 @@ mod tests {
             .map(|fragment| fragment.path.display().to_string())
             .collect::<Vec<_>>();
         assert_eq!(fragment_paths, ["exports.yaml", "jobs.yaml"]);
+    }
+
+    fn spec_with_operations(
+        operations: Vec<(&str, utoipa::openapi::path::Operation)>,
+        schema_names: &[&str],
+    ) -> OpenApi {
+        let mut components = Components::new();
+        for name in schema_names {
+            components
+                .schemas
+                .insert(name.to_string(), RefOr::T(ObjectBuilder::new().into()));
+        }
+        let mut paths = utoipa::openapi::Paths::new();
+        for (path, operation) in operations {
+            paths.paths.insert(
+                path.to_string(),
+                PathItemBuilder::new()
+                    .operation(utoipa::openapi::HttpMethod::Get, operation)
+                    .build(),
+            );
+        }
+        OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build()
+    }
+
+    fn fragment_schema_names(result: &SplitResult<Components>) -> BTreeMap<String, Vec<String>> {
+        result
+            .fragments
+            .iter()
+            .map(|fragment| {
+                (
+                    fragment.path.display().to_string(),
+                    fragment.content.schemas.keys().cloned().collect(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn should_collect_schemas_from_inline_containers() {
+        use utoipa::openapi::schema::{ArrayBuilder, OneOfBuilder};
+
+        let schema_ref = |name: &str| RefOr::Ref(Ref::from_schema_name(name));
+        let json_response = |schema: Schema| {
+            ResponseBuilder::new()
+                .description("OK")
+                .content(
+                    "application/json",
+                    ContentBuilder::new().schema(Some(schema)).build(),
+                )
+                .build()
+        };
+        let list_users = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .response(
+                "200",
+                json_response(ArrayBuilder::new().items(schema_ref("User")).into()),
+            )
+            .build();
+        let find_order = OperationBuilder::new()
+            .tags(Some(vec!["orders".to_string()]))
+            .response(
+                "200",
+                json_response(
+                    OneOfBuilder::new()
+                        .item(ObjectBuilder::new().schema_type(utoipa::openapi::Type::Null))
+                        .item(schema_ref("Order"))
+                        .into(),
+                ),
+            )
+            .response(
+                "default",
+                json_response(
+                    ObjectBuilder::new()
+                        .additional_properties(Some(schema_ref("Error")))
+                        .into(),
+                ),
+            )
+            .build();
+        let list_errors = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .response(
+                "200",
+                json_response(
+                    ArrayBuilder::new()
+                        .items(
+                            ObjectBuilder::new().additional_properties(Some(schema_ref("Error"))),
+                        )
+                        .into(),
+                ),
+            )
+            .build();
+        let spec = spec_with_operations(
+            vec![
+                ("/users", list_users),
+                ("/orders/{id}", find_order),
+                ("/errors", list_errors),
+            ],
+            &["User", "Order", "Error"],
+        );
+
+        let result = SplitSchemasByTag::new("common.yaml").split(spec);
+
+        insta::assert_debug_snapshot!(fragment_schema_names(&result), @r#"
+        {
+            "common.yaml": [
+                "Error",
+            ],
+            "orders.yaml": [
+                "Order",
+            ],
+            "users.yaml": [
+                "User",
+            ],
+        }
+        "#);
+    }
+
+    #[test]
+    fn should_collect_schemas_from_querystring_parameter_content() {
+        use utoipa::openapi::path::{ParameterBuilder, ParameterIn};
+
+        let search_users = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .parameter(
+                ParameterBuilder::new()
+                    .name("UserFilter")
+                    .parameter_in(ParameterIn::QueryString)
+                    .content(
+                        "application/x-www-form-urlencoded",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::from_schema_name("UserFilter"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .response("200", ResponseBuilder::new().description("OK").build())
+            .build();
+        let list_orders = OperationBuilder::new()
+            .tags(Some(vec!["orders".to_string()]))
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .description("OK")
+                    .content(
+                        "application/json",
+                        ContentBuilder::new()
+                            .schema(Some(RefOr::Ref(Ref::from_schema_name("Order"))))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .build();
+        let spec = spec_with_operations(
+            vec![("/users", search_users), ("/orders", list_orders)],
+            &["UserFilter", "Order"],
+        );
+
+        let result = SplitSchemasByTag::new("common.yaml").split(spec);
+
+        insta::assert_debug_snapshot!(fragment_schema_names(&result), @r#"
+        {
+            "orders.yaml": [
+                "Order",
+            ],
+            "users.yaml": [
+                "UserFilter",
+            ],
+        }
+        "#);
     }
 
     #[test]
