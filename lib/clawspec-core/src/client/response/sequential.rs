@@ -46,16 +46,24 @@ pub(in crate::client) fn sequential_kind(content_type: &ContentType) -> Option<S
     }
 }
 
+pub(in crate::client) const STREAM_EXAMPLE_ITEM_COUNT: usize = 3;
+
+#[derive(Debug)]
+pub(in crate::client) struct ParsedStream<T> {
+    pub(in crate::client) items: Vec<T>,
+    pub(in crate::client) example: Option<String>,
+}
+
 pub(in crate::client) fn parse_json_sequence<T>(
     kind: SequentialKind,
     body: &str,
-) -> Result<Vec<T>, ApiClientError>
+) -> Result<ParsedStream<T>, ApiClientError>
 where
     T: DeserializeOwned,
 {
-    let items = match kind {
-        SequentialKind::JsonLines => body.lines().collect::<Vec<_>>(),
-        SequentialKind::JsonSeq => body.split(RECORD_SEPARATOR).collect(),
+    let (records, separator) = match kind {
+        SequentialKind::JsonLines => (json_lines_records(body), "\n"),
+        SequentialKind::JsonSeq => (json_seq_records(body), ""),
         SequentialKind::EventStream => {
             return Err(ApiClientError::UnexpectedOutputType {
                 expected: JSON_SEQUENCE_MEDIA_TYPES.to_string(),
@@ -63,20 +71,24 @@ where
             });
         }
     };
-    items
-        .into_iter()
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
+    let items = records
+        .iter()
         .enumerate()
-        .map(|(index, item)| deserialize_item(&format!("[{index}]"), item))
-        .collect()
+        .map(|(index, record)| deserialize_item(&format!("[{index}]"), record.json))
+        .collect::<Result<Vec<_>, _>>()?;
+    let example = stream_example(records.iter().map(|record| record.raw), separator);
+    Ok(ParsedStream { items, example })
 }
 
-pub(in crate::client) fn parse_sse<T>(body: &str) -> Result<Vec<SseEvent<T>>, ApiClientError>
+pub(in crate::client) fn parse_sse<T>(
+    body: &str,
+) -> Result<ParsedStream<SseEvent<T>>, ApiClientError>
 where
     T: DeserializeOwned,
 {
-    parse_event_stream(body)
+    let raw_events = parse_event_stream(body);
+    let example = stream_example(raw_events.iter().map(|raw| raw.raw), "");
+    let items = raw_events
         .into_iter()
         .enumerate()
         .map(|(index, raw)| {
@@ -88,6 +100,55 @@ where
                 retry: raw.retry,
             })
         })
+        .collect::<Result<Vec<_>, ApiClientError>>()?;
+    Ok(ParsedStream { items, example })
+}
+
+fn stream_example<'a>(raw_items: impl Iterator<Item = &'a str>, separator: &str) -> Option<String> {
+    let example =
+        raw_items
+            .take(STREAM_EXAMPLE_ITEM_COUNT)
+            .fold(String::new(), |mut example, raw| {
+                example.push_str(raw);
+                example.push_str(separator);
+                example
+            });
+    (!example.is_empty()).then_some(example)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SequenceRecord<'a> {
+    raw: &'a str,
+    json: &'a str,
+}
+
+fn json_lines_records(body: &str) -> Vec<SequenceRecord<'_>> {
+    body.lines()
+        .map(|line| SequenceRecord {
+            raw: line,
+            json: line.trim(),
+        })
+        .filter(|record| !record.json.is_empty())
+        .collect()
+}
+
+fn json_seq_records(body: &str) -> Vec<SequenceRecord<'_>> {
+    let mut boundaries = body
+        .match_indices(RECORD_SEPARATOR)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if boundaries.first() != Some(&0) {
+        boundaries.insert(0, 0);
+    }
+    boundaries.push(body.len());
+    boundaries
+        .windows(2)
+        .map(|window| {
+            let raw = &body[window[0]..window[1]];
+            let json = raw.strip_prefix(RECORD_SEPARATOR).unwrap_or(raw).trim();
+            SequenceRecord { raw, json }
+        })
+        .filter(|record| !record.json.is_empty())
         .collect()
 }
 
@@ -135,7 +196,8 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RawSseEvent {
+struct RawSseEvent<'a> {
+    raw: &'a str,
     event: Option<String>,
     data: String,
     id: Option<String>,
@@ -180,7 +242,7 @@ impl SseEventBuffer {
         }
     }
 
-    fn dispatch(&mut self) -> Option<RawSseEvent> {
+    fn dispatch<'a>(&mut self, raw: &'a str) -> Option<RawSseEvent<'a>> {
         let Self {
             event,
             data,
@@ -188,6 +250,7 @@ impl SseEventBuffer {
             retry,
         } = std::mem::take(self);
         data.map(|data| RawSseEvent {
+            raw,
             event,
             data,
             id,
@@ -196,10 +259,11 @@ impl SseEventBuffer {
     }
 }
 
-fn parse_event_stream(body: &str) -> Vec<RawSseEvent> {
+fn parse_event_stream(body: &str) -> Vec<RawSseEvent<'_>> {
     let body = body.strip_prefix(BYTE_ORDER_MARK).unwrap_or(body);
     let mut events = Vec::new();
     let mut buffer = SseEventBuffer::default();
+    let mut block_start = 0;
     let mut rest = body;
     while let Some(end) = rest.find(['\r', '\n']) {
         let line = &rest[..end];
@@ -210,7 +274,9 @@ fn parse_event_stream(body: &str) -> Vec<RawSseEvent> {
         };
         rest = &rest[end + terminator_len..];
         if line.is_empty() {
-            events.extend(buffer.dispatch());
+            let block_end = body.len() - rest.len();
+            events.extend(buffer.dispatch(&body[block_start..block_end]));
+            block_start = block_end;
         } else {
             buffer.process_line(line);
         }
@@ -267,7 +333,8 @@ mod tests {
         let body = "{\"id\":1,\"name\":\"a\"}\r\n\n   \n{\"id\":2,\"name\":\"b\"}";
 
         let items = parse_json_sequence::<Item>(SequentialKind::JsonLines, body)
-            .expect("should parse JSON lines");
+            .expect("should parse JSON lines")
+            .items;
 
         assert_debug_snapshot!(items, @r#"
         [
@@ -288,7 +355,8 @@ mod tests {
         let body = "\u{1e}{\"id\":1,\"name\":\"a\"}\n\u{1e}{\"id\":2,\n\"name\":\"b\"}\n\u{1e}\n";
 
         let items = parse_json_sequence::<Item>(SequentialKind::JsonSeq, body)
-            .expect("should parse JSON text sequence");
+            .expect("should parse JSON text sequence")
+            .items;
 
         assert_debug_snapshot!(items, @r#"
         [
@@ -338,7 +406,9 @@ mod tests {
     fn should_parse_sse_fields() {
         let body = "event: created\nid: 42\nretry: 3000\ndata: {\"id\":1,\"name\":\"a\"}\n\n";
 
-        let events = parse_sse::<Item>(body).expect("should parse event stream");
+        let events = parse_sse::<Item>(body)
+            .expect("should parse event stream")
+            .items;
 
         assert_debug_snapshot!(events, @r#"
         [
@@ -385,6 +455,7 @@ mod tests {
         assert_debug_snapshot!(events, @r#"
         [
             RawSseEvent {
+                raw: ": comment\ndata: 1\n: another\n\n",
                 event: None,
                 data: "1",
                 id: None,
@@ -403,6 +474,7 @@ mod tests {
         assert_debug_snapshot!(events, @r#"
         [
             RawSseEvent {
+                raw: "data:no-space\ndata:  two-spaces\nevent:  spaced\n\n",
                 event: Some(
                     " spaced",
                 ),
@@ -423,12 +495,14 @@ mod tests {
         assert_debug_snapshot!(events, @r#"
         [
             RawSseEvent {
+                raw: "data\ndata\n\n",
                 event: None,
                 data: "\n",
                 id: None,
                 retry: None,
             },
             RawSseEvent {
+                raw: "event\ndata: x\n\n",
                 event: None,
                 data: "x",
                 id: None,
@@ -442,7 +516,9 @@ mod tests {
     fn should_join_multiple_data_lines() {
         let body = "data: {\ndata: \"id\": 1,\ndata: \"name\": \"a\"\ndata: }\n\n";
 
-        let events = parse_sse::<Item>(body).expect("should parse multi-line data");
+        let events = parse_sse::<Item>(body)
+            .expect("should parse multi-line data")
+            .items;
 
         assert_debug_snapshot!(events[0].data, @r#"
         Item {
@@ -462,12 +538,14 @@ mod tests {
         assert_debug_snapshot!(events, @r#"
         [
             RawSseEvent {
+                raw: "id: a\0b\nretry: 12a\nretry: -5\nretry:\ndata: 1\n\n",
                 event: None,
                 data: "1",
                 id: None,
                 retry: None,
             },
             RawSseEvent {
+                raw: "id: ok\nretry: 0010\ndata: 2\n\n",
                 event: None,
                 data: "2",
                 id: Some(
@@ -490,6 +568,7 @@ mod tests {
         assert_debug_snapshot!(events, @r#"
         [
             RawSseEvent {
+                raw: "data: 2\n\n",
                 event: None,
                 data: "2",
                 id: None,
@@ -507,6 +586,93 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].data, "1");
+    }
+
+    #[test]
+    fn should_record_first_json_lines_as_example() {
+        let body = (1..=5)
+            .map(|id| format!("{{\"id\":{id},\"name\":\"n\"}} "))
+            .collect::<Vec<_>>()
+            .join("\r\n\r\n");
+
+        let parsed = parse_json_sequence::<Item>(SequentialKind::JsonLines, &body)
+            .expect("should parse JSON lines");
+
+        assert_eq!(parsed.items.len(), 5);
+        assert_debug_snapshot!(parsed.example, @r#"
+        Some(
+            "{\"id\":1,\"name\":\"n\"} \n{\"id\":2,\"name\":\"n\"} \n{\"id\":3,\"name\":\"n\"} \n",
+        )
+        "#);
+    }
+
+    #[test]
+    fn should_keep_json_seq_records_as_on_the_wire() {
+        let body = "{\"id\":0,\"name\":\"a\"}\n\u{1e}{\"id\":1,\n\"name\":\"b\"}\r\n\u{1e}\n\u{1e} {\"id\":2,\"name\":\"c\"}\u{1e}{\"id\":3,\"name\":\"d\"}\n";
+
+        let records = json_seq_records(body)
+            .into_iter()
+            .map(|record| record.raw)
+            .collect::<Vec<_>>();
+        let parsed = parse_json_sequence::<Item>(SequentialKind::JsonSeq, body)
+            .expect("should parse JSON text sequence");
+
+        assert_debug_snapshot!(records, @r#"
+        [
+            "{\"id\":0,\"name\":\"a\"}\n",
+            "\u{1e}{\"id\":1,\n\"name\":\"b\"}\r\n",
+            "\u{1e} {\"id\":2,\"name\":\"c\"}",
+            "\u{1e}{\"id\":3,\"name\":\"d\"}\n",
+        ]
+        "#);
+        assert_debug_snapshot!(parsed.example, @r#"
+        Some(
+            "{\"id\":0,\"name\":\"a\"}\n\u{1e}{\"id\":1,\n\"name\":\"b\"}\r\n\u{1e} {\"id\":2,\"name\":\"c\"}",
+        )
+        "#);
+    }
+
+    #[test]
+    fn should_keep_raw_sse_blocks() {
+        let body = ": keep-alive\r\n\r\nevent: a\r\n: inside\r\ndata: {\r\ndata: \"id\": 1, \"name\": \"a\"}\r\n\r\ndata: 2\n\n";
+
+        let raw_blocks = parse_event_stream(body)
+            .into_iter()
+            .map(|event| event.raw)
+            .collect::<Vec<_>>();
+
+        assert_debug_snapshot!(raw_blocks, @r#"
+        [
+            "event: a\r\n: inside\r\ndata: {\r\ndata: \"id\": 1, \"name\": \"a\"}\r\n\r\n",
+            "data: 2\n\n",
+        ]
+        "#);
+    }
+
+    #[test]
+    fn should_record_first_sse_events_as_example() {
+        let body = (1..=5)
+            .map(|id| format!("id: {id}\ndata: {{\"id\":{id},\"name\":\"n\"}}\n\n"))
+            .collect::<String>();
+
+        let parsed = parse_sse::<Item>(&body).expect("should parse event stream");
+
+        assert_eq!(parsed.items.len(), 5);
+        assert_debug_snapshot!(parsed.example, @r#"
+        Some(
+            "id: 1\ndata: {\"id\":1,\"name\":\"n\"}\n\nid: 2\ndata: {\"id\":2,\"name\":\"n\"}\n\nid: 3\ndata: {\"id\":3,\"name\":\"n\"}\n\n",
+        )
+        "#);
+    }
+
+    #[test]
+    fn should_not_record_example_for_empty_stream() {
+        let sequence = parse_json_sequence::<Item>(SequentialKind::JsonLines, "\n\n")
+            .expect("should parse empty JSON lines");
+        let events = parse_sse::<Item>(": only a comment\n\n").expect("should parse empty stream");
+
+        assert_eq!(sequence.example, None);
+        assert_eq!(events.example, None);
     }
 
     #[test]

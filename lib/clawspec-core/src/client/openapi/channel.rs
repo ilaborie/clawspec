@@ -5,7 +5,7 @@ use http::StatusCode;
 use tokio::sync::{mpsc, oneshot};
 use utoipa::openapi::{RefOr, Schema};
 
-use super::collectors::Collectors;
+use super::collectors::{Collectors, StreamContent};
 use super::operation::CalledOperation;
 use super::schema::{SchemaEntry, Schemas};
 
@@ -36,7 +36,7 @@ pub(in crate::client) enum CollectorMessage {
         status: StatusCode,
         content_type: Option<ContentType>,
         schema: Option<RefOr<Schema>>,
-        item_schema: Option<Box<RefOr<Schema>>>,
+        stream: Option<Box<StreamContent>>,
         description: String,
     },
 
@@ -138,7 +138,7 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
                 status,
                 content_type,
                 schema,
-                item_schema,
+                stream,
                 description,
             } => {
                 collectors.register_response(
@@ -146,7 +146,7 @@ async fn collector_task(mut receiver: mpsc::Receiver<CollectorMessage>) {
                     status,
                     content_type.as_ref(),
                     schema,
-                    item_schema.map(|item_schema| *item_schema),
+                    stream.map(|stream| *stream),
                     description,
                 );
             }

@@ -2,11 +2,22 @@ use headers::ContentType;
 use http::{Method, StatusCode};
 use indexmap::IndexMap;
 use tracing::warn;
+use utoipa::openapi::example::ExampleBuilder;
 use utoipa::openapi::path::Operation;
 use utoipa::openapi::{Content, PathItem, RefOr, Response, ResponseBuilder, Schema};
 
 use super::operation::{CalledOperation, merge_operation};
 use super::schema::Schemas;
+
+const STREAM_EXAMPLE_NAME: &str = "first-items";
+const STREAM_EXAMPLE_SUMMARY: &str = "First items of the stream";
+
+/// Item schema and recorded example of a sequential or server-sent event response.
+#[derive(Debug, Clone)]
+pub(in crate::client) struct StreamContent {
+    pub(in crate::client) item_schema: RefOr<Schema>,
+    pub(in crate::client) example: Option<String>,
+}
 
 /// Builds an OpenAPI response with optional schema and example.
 ///
@@ -16,14 +27,25 @@ pub(in crate::client) fn build_response(
     description: String,
     content_type: Option<&ContentType>,
     schema: Option<RefOr<Schema>>,
-    item_schema: Option<RefOr<Schema>>,
+    stream: Option<StreamContent>,
     example: Option<serde_json::Value>,
 ) -> Response {
     if let Some(content_type) = content_type {
+        let (item_schema, stream_example) = stream.map_or((None, None), |stream| {
+            (Some(stream.item_schema), stream.example)
+        });
         let content = Content::builder()
             .schema(schema)
             .item_schema(item_schema)
             .example(example)
+            .examples_from_iter(stream_example.map(|serialized| {
+                (
+                    STREAM_EXAMPLE_NAME,
+                    ExampleBuilder::new()
+                        .summary(STREAM_EXAMPLE_SUMMARY)
+                        .serialized_value(Some(serialized)),
+                )
+            }))
             .build();
         ResponseBuilder::new()
             .description(description)
@@ -136,7 +158,7 @@ impl Collectors {
         status: StatusCode,
         content_type: Option<&ContentType>,
         schema: Option<RefOr<Schema>>,
-        item_schema: Option<RefOr<Schema>>,
+        stream: Option<StreamContent>,
         description: String,
     ) {
         let Some(operations) = self.operations.get_mut(operation_id) else {
@@ -147,7 +169,7 @@ impl Collectors {
             return;
         };
 
-        let response = build_response(description, content_type, schema, item_schema, None);
+        let response = build_response(description, content_type, schema, stream, None);
 
         operation
             .operation

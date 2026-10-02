@@ -254,6 +254,10 @@
 //! `T` as content schema for server-sent events. The older OpenAPI output cannot
 //! describe sequential media types, so the item schema is dropped there.
 //!
+//! The first 3 items or events are recorded as a `first-items` example, with their
+//! text exactly as received in `serializedValue`. The older OpenAPI output carries the
+//! same text as a string `value`. No example is recorded when an item fails to parse.
+//!
 //! The body is read in full before parsing: the server must end the stream, or the
 //! call never returns. Test a finite stream, for example a replay of past events.
 //!
@@ -288,7 +292,8 @@
 //! - Use `add_expected_status()` to tell Clawspec about expected non-2xx codes
 //! - `as_optional_json()` is great for "get or not found" patterns
 //! - `as_result_json()` captures typed error schemas in OpenAPI
-//! - `as_json_sequence()` and `as_sse()` document streamed items, but need a finite stream
+//! - `as_json_sequence()` and `as_sse()` document streamed items and an example of the
+//!   first 3, but need a finite stream
 //!
 //! Next: [Chapter 4: Advanced Parameters][super::chapter_4] - Headers, cookies,
 //! and parameter styles.

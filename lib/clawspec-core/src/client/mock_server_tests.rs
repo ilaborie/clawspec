@@ -2361,6 +2361,12 @@ mod sequential_response_tests {
         application/x-ndjson:
           itemSchema:
             $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |
+                {"id":1,"name":"Alice","email":"alice@example.com"}
+                {"id":2,"name":"Bob","email":"bob@example.com"}
         "##);
     }
 
@@ -2368,7 +2374,15 @@ mod sequential_response_tests {
     async fn should_drop_item_schema_in_older_output() {
         let content = fetch_ndjson_users(OpenApiVersion::Version31).await;
 
-        assert_snapshot!(content, @"application/x-ndjson: {}");
+        assert_snapshot!(content, @r#"
+        application/x-ndjson:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |
+                {"id":1,"name":"Alice","email":"alice@example.com"}
+                {"id":2,"name":"Bob","email":"bob@example.com"}
+        "#);
     }
 
     #[tokio::test]
@@ -2403,6 +2417,10 @@ mod sequential_response_tests {
         application/json-seq:
           itemSchema:
             $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: "\x1E{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n\x1E{\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n"
         "##);
     }
 
@@ -2477,6 +2495,18 @@ mod sequential_response_tests {
               retry:
                 type: integer
                 minimum: 0
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |+
+                : stream start
+                event: created
+                id: 1
+                data: {"id":1,"name":"Alice",
+                data: "email":"alice@example.com"}
+                
+                retry: 5000
+                data: {"id":2,"name":"Bob","email":"bob@example.com"}
         "##);
     }
 
@@ -2485,7 +2515,207 @@ mod sequential_response_tests {
         let (events, content) = fetch_user_events(OpenApiVersion::Version31).await;
 
         assert_eq!(events.len(), 2);
-        assert_snapshot!(content, @"text/event-stream: {}");
+        assert_snapshot!(content, @r#"
+        text/event-stream:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |+
+                : stream start
+                event: created
+                id: 1
+                data: {"id":1,"name":"Alice",
+                data: "email":"alice@example.com"}
+                
+                retry: 5000
+                data: {"id":2,"name":"Bob","email":"bob@example.com"}
+        "#);
+    }
+
+    fn five_users(render: impl Fn(u32) -> String) -> String {
+        (1..=5).map(render).collect()
+    }
+
+    async fn first_items_content(
+        version: OpenApiVersion,
+        content_type: &str,
+        body: &str,
+    ) -> String {
+        let mock_server = MockServer::start().await;
+        mount_stream(&mock_server, "/users/stream", content_type, body).await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        let mut result = client
+            .get("/users/stream")
+            .expect("should create call")
+            .await
+            .expect("should succeed");
+        let count = if content_type == "text/event-stream" {
+            result.as_sse::<User>().await.map(|events| events.len())
+        } else {
+            result
+                .as_json_sequence::<User>()
+                .await
+                .map(|users| users.len())
+        }
+        .expect("should parse the stream");
+
+        assert_eq!(count, 5);
+        response_content_yaml(&mut client, "/users/stream").await
+    }
+
+    #[tokio::test]
+    async fn should_record_first_three_ndjson_items() {
+        let body = five_users(|id| {
+            format!("{{\"id\":{id},\"name\":\"u{id}\",\"email\":\"u{id}@example.com\"}}\n")
+        });
+
+        let content =
+            first_items_content(OpenApiVersion::Version32, "application/x-ndjson", &body).await;
+        let older =
+            first_items_content(OpenApiVersion::Version31, "application/x-ndjson", &body).await;
+
+        assert_snapshot!(content, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |
+                {"id":1,"name":"u1","email":"u1@example.com"}
+                {"id":2,"name":"u2","email":"u2@example.com"}
+                {"id":3,"name":"u3","email":"u3@example.com"}
+        "##);
+        assert_snapshot!(older, @r#"
+        application/x-ndjson:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |
+                {"id":1,"name":"u1","email":"u1@example.com"}
+                {"id":2,"name":"u2","email":"u2@example.com"}
+                {"id":3,"name":"u3","email":"u3@example.com"}
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_record_first_three_json_seq_records() {
+        let body = five_users(|id| {
+            format!("\u{1e}{{\"id\":{id},\"name\":\"u{id}\",\"email\":\"u{id}@example.com\"}}\n")
+        });
+
+        let content =
+            first_items_content(OpenApiVersion::Version32, "application/json-seq", &body).await;
+        let older =
+            first_items_content(OpenApiVersion::Version31, "application/json-seq", &body).await;
+
+        assert_snapshot!(content, @r##"
+        application/json-seq:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: "\x1E{\"id\":1,\"name\":\"u1\",\"email\":\"u1@example.com\"}\n\x1E{\"id\":2,\"name\":\"u2\",\"email\":\"u2@example.com\"}\n\x1E{\"id\":3,\"name\":\"u3\",\"email\":\"u3@example.com\"}\n"
+        "##);
+        assert_snapshot!(older, @r#"
+        application/json-seq:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: "\x1E{\"id\":1,\"name\":\"u1\",\"email\":\"u1@example.com\"}\n\x1E{\"id\":2,\"name\":\"u2\",\"email\":\"u2@example.com\"}\n\x1E{\"id\":3,\"name\":\"u3\",\"email\":\"u3@example.com\"}\n"
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_record_first_three_sse_events() {
+        let body = five_users(|id| {
+            format!(
+                "id: {id}\ndata: {{\"id\":{id},\"name\":\"u{id}\",\"email\":\"u{id}@example.com\"}}\n\n"
+            )
+        });
+
+        let content =
+            first_items_content(OpenApiVersion::Version32, "text/event-stream", &body).await;
+        let older =
+            first_items_content(OpenApiVersion::Version31, "text/event-stream", &body).await;
+
+        assert_snapshot!(content, @r##"
+        text/event-stream:
+          itemSchema:
+            type: object
+            required:
+            - data
+            properties:
+              data:
+                type: string
+                contentMediaType: application/json
+                contentSchema:
+                  $ref: "#/components/schemas/User"
+              event:
+                type: string
+              id:
+                type: string
+              retry:
+                type: integer
+                minimum: 0
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |+
+                id: 1
+                data: {"id":1,"name":"u1","email":"u1@example.com"}
+                
+                id: 2
+                data: {"id":2,"name":"u2","email":"u2@example.com"}
+                
+                id: 3
+                data: {"id":3,"name":"u3","email":"u3@example.com"}
+        "##);
+        assert_snapshot!(older, @r#"
+        text/event-stream:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |+
+                id: 1
+                data: {"id":1,"name":"u1","email":"u1@example.com"}
+                
+                id: 2
+                data: {"id":2,"name":"u2","email":"u2@example.com"}
+                
+                id: 3
+                data: {"id":3,"name":"u3","email":"u3@example.com"}
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_not_record_example_when_an_item_fails_to_parse() {
+        let mock_server = MockServer::start().await;
+        mount_stream(
+            &mock_server,
+            "/users/export",
+            "application/x-ndjson",
+            "{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n{\"id\":\"two\"}\n",
+        )
+        .await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        client
+            .get("/users/export")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect_err("second item is not a user");
+
+        assert_snapshot!(response_content_yaml(&mut client, "/users/export").await, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+        "##);
     }
 
     #[tokio::test]

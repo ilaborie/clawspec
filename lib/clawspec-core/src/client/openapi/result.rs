@@ -9,13 +9,14 @@ use utoipa::ToSchema;
 use utoipa::openapi::{RefOr, Schema};
 
 use super::channel::{CollectorMessage, CollectorSender};
+use super::collectors::StreamContent;
 use super::schema::{SchemaEntry, compute_schema_ref};
 use crate::client::ApiClientError;
 use crate::client::response::SseEvent;
 use crate::client::response::output::Output;
 use crate::client::response::sequential::{
-    EVENT_STREAM_MEDIA_TYPE, JSON_SEQUENCE_MEDIA_TYPES, SequentialKind, parse_json_sequence,
-    parse_sse, sequential_kind, sse_event_schema,
+    EVENT_STREAM_MEDIA_TYPE, JSON_SEQUENCE_MEDIA_TYPES, ParsedStream, SequentialKind,
+    parse_json_sequence, parse_sse, sequential_kind, sse_event_schema,
 };
 
 /// Represents the result of an API call with response processing capabilities.
@@ -322,7 +323,7 @@ impl CallResult {
     async fn get_output_with(
         &self,
         schema: Option<RefOr<Schema>>,
-        item_schema: Option<RefOr<Schema>>,
+        stream: Option<StreamContent>,
     ) -> Result<&Output, ApiClientError> {
         // Skip if operation_id is empty (skip_collection case)
         if self.operation_id.is_empty() {
@@ -339,7 +340,7 @@ impl CallResult {
                 status: self.status,
                 content_type: self.content_type.clone(),
                 schema,
-                item_schema: item_schema.map(Box::new),
+                stream: stream.map(Box::new),
                 description,
             })
             .await;
@@ -412,6 +413,12 @@ impl CallResult {
     /// When the older OpenAPI output is selected, the item schema is dropped because that
     /// version cannot describe sequential media types.
     ///
+    /// The first 3 items are also recorded as a `first-items` example of the media type,
+    /// with their original text as `serializedValue` (fewer items are recorded as is).
+    /// The older OpenAPI output carries this text as a string `value` instead. No example
+    /// is recorded when an item fails to parse. When several calls document the same
+    /// response status, the last call wins, example included.
+    ///
     /// The body is read in full before parsing, so the server must end the stream:
     /// a stream that never ends makes this call hang.
     ///
@@ -453,9 +460,8 @@ impl CallResult {
         };
 
         let item_schema = self.register_schema::<T>().await;
-        let output = self.get_output_with(None, Some(item_schema)).await?;
-
-        parse_json_sequence(kind, output.body_str().unwrap_or_default())
+        let parsed = parse_json_sequence(kind, self.output.body_str().unwrap_or_default());
+        self.register_stream_response(item_schema, parsed).await
     }
 
     /// Processes the response as server-sent events whose `data` field holds JSON.
@@ -469,6 +475,12 @@ impl CallResult {
     /// The OpenAPI response records an item schema (`itemSchema`) describing one event,
     /// with `data` as a JSON-encoded string whose content schema is `T`.
     /// When the older OpenAPI output is selected, the item schema is dropped.
+    ///
+    /// The raw text of the first 3 dispatched events (each block with its comment lines
+    /// and its terminating blank line) is also recorded as a `first-items` example of the
+    /// media type, as `serializedValue`. The older OpenAPI output carries this text as a
+    /// string `value` instead. No example is recorded when an event fails to parse. When
+    /// several calls document the same response status, the last call wins, example included.
     ///
     /// The body is read in full before parsing, so the server must end the stream:
     /// an endless event stream makes this call hang. An unterminated last event
@@ -514,11 +526,29 @@ impl CallResult {
         }
 
         let data_schema = self.register_schema::<T>().await;
-        let output = self
-            .get_output_with(None, Some(sse_event_schema(data_schema)))
-            .await?;
+        let parsed = parse_sse(self.output.body_str().unwrap_or_default());
+        self.register_stream_response(sse_event_schema(data_schema), parsed)
+            .await
+    }
 
-        parse_sse(output.body_str().unwrap_or_default())
+    async fn register_stream_response<T>(
+        &self,
+        item_schema: RefOr<Schema>,
+        parsed: Result<ParsedStream<T>, ApiClientError>,
+    ) -> Result<Vec<T>, ApiClientError> {
+        let (items, example) = match parsed {
+            Ok(ParsedStream { items, example }) => (Ok(items), example),
+            Err(error) => (Err(error), None),
+        };
+        self.get_output_with(
+            None,
+            Some(StreamContent {
+                item_schema,
+                example,
+            }),
+        )
+        .await?;
+        items
     }
 
     fn unexpected_output_type(&self, expected: &str) -> ApiClientError {
