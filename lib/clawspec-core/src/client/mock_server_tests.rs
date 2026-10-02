@@ -2948,7 +2948,12 @@ mod querystring_tests {
     #[tokio::test]
     async fn should_reject_query_parameters_combined_with_querystring() {
         let mock_server = MockServer::start().await;
-        let client = client_for_mock(&mock_server).await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
 
         let error = client
             .get("/users")
@@ -2964,6 +2969,7 @@ mod querystring_tests {
             .expect_err("query and querystring should conflict");
 
         assert!(matches!(error, ApiClientError::ConflictingQueryParameters));
+        assert!(client.collected_openapi().await.paths.paths.is_empty());
     }
 
     #[tokio::test]
@@ -3069,6 +3075,31 @@ mod querystring_tests {
               schema:
                 $ref: "#/components/schemas/UserFilter"
         "##);
+    }
+
+    #[tokio::test]
+    async fn should_keep_schema_of_dropped_querystring_as_component() {
+        let mock_server = mock_list_users().await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        list_users_with_user_filter(&mut client).await;
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&PageFilter { page: 2 })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        let openapi = client.collected_openapi().await;
+        let schema_names = openapi
+            .components
+            .map(|components| components.schemas.into_keys().collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert_eq!(schema_names, ["PageFilter", "User", "UserFilter"]);
     }
 
     #[tokio::test]

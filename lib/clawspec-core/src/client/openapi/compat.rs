@@ -399,6 +399,7 @@ mod tests {
     use insta::assert_snapshot;
     use utoipa::openapi::encoding::Encoding;
     use utoipa::openapi::example::ExampleBuilder;
+    use utoipa::openapi::header::HeaderBuilder;
     use utoipa::openapi::path::{
         HttpMethod, OperationBuilder, ParameterBuilder, ParameterIn, PathItemBuilder,
     };
@@ -435,6 +436,28 @@ mod tests {
                     .response("200", summarized_response())
                     .build(),
             )
+            .build()
+    }
+
+    fn item_content() -> Content {
+        Content::builder()
+            .item_schema(Some(Ref::from_schema_name("Event")))
+            .item_encoding(Some(
+                Encoding::builder().content_type(Some("application/json")),
+            ))
+            .prefix_encoding([Encoding::builder().content_type(Some("text/plain"))])
+            .examples_from_iter([(
+                "first",
+                ExampleBuilder::new().serialized_value(Some("{\"id\":1}\n")),
+            )])
+            .build()
+    }
+
+    fn item_parameter(name: &str) -> Parameter {
+        ParameterBuilder::new()
+            .name(name)
+            .parameter_in(ParameterIn::Query)
+            .content("application/jsonl", item_content())
             .build()
     }
 
@@ -744,22 +767,8 @@ mod tests {
 
     #[test]
     fn should_drop_content_item_fields() {
-        let item_content = || {
-            Content::builder()
-                .item_schema(Some(Ref::from_schema_name("Event")))
-                .item_encoding(Some(
-                    Encoding::builder().content_type(Some("application/json")),
-                ))
-                .prefix_encoding([Encoding::builder().content_type(Some("text/plain"))])
-                .build()
-        };
         let operation = OperationBuilder::new()
-            .parameter(
-                ParameterBuilder::new()
-                    .name("filter")
-                    .parameter_in(ParameterIn::Query)
-                    .content("application/jsonl", item_content()),
-            )
+            .parameter(item_parameter("filter"))
             .request_body(Some(
                 RequestBodyBuilder::new()
                     .content("application/json-seq", item_content())
@@ -804,22 +813,210 @@ mod tests {
                 in: query
                 required: false
                 content:
-                  application/jsonl: {}
+                  application/jsonl:
+                    examples:
+                      first:
+                        value: |
+                          {"id":1}
               requestBody:
                 content:
-                  application/json-seq: {}
+                  application/json-seq:
+                    examples:
+                      first:
+                        value: |
+                          {"id":1}
               responses:
                 "200":
                   description: Events
                   content:
-                    text/event-stream: {}
+                    text/event-stream:
+                      examples:
+                        first:
+                          value: |
+                            {"id":1}
         components:
           responses:
             Stream:
               description: Stream
               content:
-                application/x-ndjson: {}
+                application/x-ndjson:
+                  examples:
+                    first:
+                      value: |
+                        {"id":1}
         "#);
+    }
+
+    #[test]
+    fn should_drop_item_fields_in_components_and_path_level_parameters() {
+        let header = || {
+            HeaderBuilder::new()
+                .content_from_iter([("application/jsonl", item_content())])
+                .examples_from_iter([(
+                    "sample",
+                    ExampleBuilder::new().data_value(Some(serde_json::json!(42))),
+                )])
+                .build()
+        };
+        let path_item = PathItemBuilder::new()
+            .parameters(Some([item_parameter("cursor")]))
+            .operation(
+                HttpMethod::Get,
+                OperationBuilder::new()
+                    .response(
+                        "200",
+                        ResponseBuilder::new()
+                            .description("Events")
+                            .header("X-Trace", header()),
+                    )
+                    .build(),
+            )
+            .build();
+        let mut openapi = openapi(PathsBuilder::new().path("/events", path_item).build());
+        openapi.components = Some(
+            ComponentsBuilder::new()
+                .request_body(
+                    "Events",
+                    RequestBodyBuilder::new()
+                        .content("application/jsonl", item_content())
+                        .build(),
+                )
+                .parameter("Filter", item_parameter("filter"))
+                .header("X-Rate", header())
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r#"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths:
+          /events:
+            parameters:
+            - name: cursor
+              in: query
+              required: false
+              content:
+                application/jsonl:
+                  examples:
+                    first:
+                      value: |
+                        {"id":1}
+            get:
+              responses:
+                "200":
+                  description: Events
+                  headers:
+                    X-Trace:
+                      schema:
+                        type: string
+                      examples:
+                        sample:
+                          value: 42
+                      content:
+                        application/jsonl:
+                          examples:
+                            first:
+                              value: |
+                                {"id":1}
+        components:
+          parameters:
+            Filter:
+              name: filter
+              in: query
+              required: false
+              content:
+                application/jsonl:
+                  examples:
+                    first:
+                      value: |
+                        {"id":1}
+          requestBodies:
+            Events:
+              content:
+                application/jsonl:
+                  examples:
+                    first:
+                      value: |
+                        {"id":1}
+          headers:
+            X-Rate:
+              schema:
+                type: string
+              examples:
+                sample:
+                  value: 42
+              content:
+                application/jsonl:
+                  examples:
+                    first:
+                      value: |
+                        {"id":1}
+        "#);
+    }
+
+    #[test]
+    fn should_keep_querystring_content_without_a_single_inline_schema() {
+        let querystring = |name: &str| {
+            ParameterBuilder::new()
+                .name(name)
+                .parameter_in(ParameterIn::QueryString)
+        };
+        let operation = OperationBuilder::new()
+            .parameter(querystring("Shared").content(
+                "application/x-www-form-urlencoded",
+                RefOr::Ref(Ref::new("#/components/mediaTypes/Form")),
+            ))
+            .parameter(
+                querystring("Multiple")
+                    .content(
+                        "application/x-www-form-urlencoded",
+                        Content::new(Some(Ref::from_schema_name("Filter"))),
+                    )
+                    .content(
+                        "application/json",
+                        Content::new(Some(Ref::from_schema_name("Filter"))),
+                    ),
+            )
+            .build();
+        let mut openapi = openapi(
+            PathsBuilder::new()
+                .path("/items", PathItem::new(HttpMethod::Get, operation))
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r##"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths:
+          /items:
+            get:
+              parameters:
+              - name: Shared
+                in: query
+                required: false
+                content:
+                  application/x-www-form-urlencoded:
+                    $ref: "#/components/mediaTypes/Form"
+              - name: Multiple
+                in: query
+                required: false
+                content:
+                  application/json:
+                    schema:
+                      $ref: "#/components/schemas/Filter"
+                  application/x-www-form-urlencoded:
+                    schema:
+                      $ref: "#/components/schemas/Filter"
+              responses: {}
+        "##);
     }
 
     #[test]
