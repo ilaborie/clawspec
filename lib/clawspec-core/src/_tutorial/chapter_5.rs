@@ -1,7 +1,7 @@
 //! # Chapter 5: OpenAPI Customization
 //!
 //! This chapter covers how to customize the generated OpenAPI specification with
-//! tags, descriptions, and metadata.
+//! tags, summaries, descriptions, servers, security schemes, and metadata.
 //!
 //! ## Adding Operation Tags
 //!
@@ -28,9 +28,39 @@
 //! Tags appear in the OpenAPI spec and are used by documentation tools to group
 //! related endpoints.
 //!
-//! ## Operation Descriptions
+//! ## Declaring Tags
 //!
-//! Add descriptions to document what operations do:
+//! Tags used by operations are listed automatically. Declare a tag on the client
+//! builder to add its metadata (summary, description, parent, kind):
+//!
+//! ```rust,no_run
+//! use clawspec_core::{ApiClient, Tag, TagBuilder};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = ApiClient::builder()
+//!     .add_tag(
+//!         TagBuilder::new()
+//!             .name("users")
+//!             .summary(Some("Users"))
+//!             .description(Some("User account management"))
+//!             .parent(Some("accounts"))
+//!             .kind(Some("nav"))
+//!             .build(),
+//!     )
+//!     .with_tags([Tag::new("admin")])
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! A declared tag replaces the automatic tag with the same name, and stays in the
+//! specification even when no operation uses it. A parent that is neither declared
+//! nor used by an operation is added as a plain tag, with a warning. Tags are sorted
+//! by name.
+//!
+//! ## Operation Summaries and Descriptions
+//!
+//! Add a short summary and a longer description to document what operations do:
 //!
 //! ```rust,no_run
 //! # use clawspec_core::ApiClient;
@@ -39,6 +69,7 @@
 //! # let mut client = ApiClient::builder().build()?;
 //! client.get("/users")?
 //!     .with_tag("users")
+//!     .with_summary("List users")
 //!     .with_description("List all users with optional pagination")
 //!     .await?;
 //!
@@ -75,6 +106,27 @@
 //! # #[cfg(not(feature = "redaction"))]
 //! # fn main() {}
 //! ```
+//!
+//! ## OpenAPI Version
+//!
+//! The generated specification targets the latest OpenAPI version by default.
+//! Select the previous version when the consumers of the specification do not support
+//! the latest one yet:
+//!
+//! ```rust,no_run
+//! use clawspec_core::{ApiClient, OpenApiVersion};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = ApiClient::builder()
+//!     .with_openapi_version(OpenApiVersion::Version31)
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The data that the previous version cannot carry is converted when an equivalent
+//! exists, otherwise dropped with a warning. Warnings are emitted with `tracing`:
+//! install a subscriber (for example `tracing-subscriber`) in your tests to see them.
 //!
 //! ## API Info Configuration
 //!
@@ -126,12 +178,14 @@
 //!     .add_server(
 //!         ServerBuilder::new()
 //!             .url("https://api.example.com")
+//!             .name(Some("production"))
 //!             .description(Some("Production server"))
 //!             .build(),
 //!     )
 //!     .add_server(
 //!         ServerBuilder::new()
 //!             .url("https://staging-api.example.com")
+//!             .name(Some("staging"))
 //!             .description(Some("Staging server"))
 //!             .build(),
 //!     )
@@ -139,6 +193,51 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Security Schemes
+//!
+//! Declare the authentication methods of the API in `components.securitySchemes`:
+//!
+//! ```rust,no_run
+//! use clawspec_core::{
+//!     ApiClient, ApiKeyLocation, OAuth2DeviceAuthorizationFlow, OAuth2Flows, SecurityRequirement,
+//!     SecurityScheme,
+//! };
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let flows = OAuth2Flows::client_credentials(
+//!     "https://auth.example.com/token",
+//!     [("read:users", "Read user data")],
+//! )
+//! .with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
+//!     "https://auth.example.com/device",
+//!     "https://auth.example.com/token",
+//!     [("read:users", "Read user data")],
+//! ));
+//!
+//! let client = ApiClient::builder()
+//!     .with_security_scheme("bearerAuth", SecurityScheme::bearer_with_format("JWT"))
+//!     .with_security_scheme(
+//!         "oauth2",
+//!         SecurityScheme::oauth2_with_metadata_url(
+//!             flows,
+//!             "https://auth.example.com/.well-known/oauth-authorization-server",
+//!         ),
+//!     )
+//!     .with_security_scheme(
+//!         "legacyKey",
+//!         SecurityScheme::api_key("X-Legacy-Key", ApiKeyLocation::Header)
+//!             .with_description("Use bearerAuth instead")
+//!             .with_deprecated(true),
+//!     )
+//!     .with_default_security(SecurityRequirement::new("bearerAuth"))
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The device authorization flow is only documented: the `oauth2` feature cannot
+//! acquire tokens with it.
 //!
 //! ## Manual Schema Registration
 //!
@@ -233,6 +332,7 @@
 //! let user: User = client.post("/users")?
 //!     .json(&CreateUser { name: "Alice".to_string() })?
 //!     .with_tag("users")
+//!     .with_summary("Create user")
 //!     .with_description("Create a new user account")
 //!     .with_response_description("The created user with assigned ID")
 //!     .await?
@@ -255,8 +355,9 @@
 //! ## Key Points
 //!
 //! - Use `.with_tag()` and `.with_tags()` to organize operations
-//! - Use `.with_description()` to document operations
-//! - Configure API info and servers at the client builder level
+//! - Use `.add_tag()` on the client builder to describe tags
+//! - Use `.with_summary()` and `.with_description()` to document operations
+//! - Configure API info, servers, and security schemes at the client builder level
 //! - Use `register_schemas!` for nested or error schemas
 //! - For YAML output, enable the `yaml` feature (see [Chapter 1][super::chapter_1])
 //!

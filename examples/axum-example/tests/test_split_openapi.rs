@@ -133,7 +133,7 @@ async fn test_split_by_tag_organizes_schemas() -> anyhow::Result<()> {
     if !result.is_unsplit() {
         for fragment in &result.fragments {
             let json = serde_json::to_string(&fragment.content)?;
-            assert!(!json.is_empty());
+            assert_ne!(json, "");
         }
     }
 

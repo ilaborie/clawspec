@@ -9,9 +9,15 @@ use utoipa::ToSchema;
 use utoipa::openapi::{RefOr, Schema};
 
 use super::channel::{CollectorMessage, CollectorSender};
+use super::collectors::StreamContent;
 use super::schema::{SchemaEntry, compute_schema_ref};
 use crate::client::ApiClientError;
+use crate::client::response::SseEvent;
 use crate::client::response::output::Output;
+use crate::client::response::sequential::{
+    EVENT_STREAM_MEDIA_TYPE, JSON_SEQUENCE_MEDIA_TYPES, ParsedStream, SequentialKind,
+    parse_json_sequence, parse_sse, sequential_kind, sse_event_schema,
+};
 
 /// Represents the result of an API call with response processing capabilities.
 ///
@@ -34,6 +40,8 @@ use crate::client::response::output::Output;
 /// - **Optional JSON responses** (204/404 → None): [`as_optional_json::<T>()`](Self::as_optional_json)
 /// - **Type-safe error handling**: [`as_result_json::<T, E>()`](Self::as_result_json) (2xx → Ok(T), 4xx/5xx → Err(E))
 /// - **Optional with errors**: [`as_result_option_json::<T, E>()`](Self::as_result_option_json) (combines optional and error handling)
+/// - **Sequential JSON responses** (JSON Lines, NDJSON, JSON text sequences): [`as_json_sequence::<T>()`](Self::as_json_sequence)
+/// - **Server-sent events**: [`as_sse::<T>()`](Self::as_sse)
 /// - **Text responses**: [`as_text()`](Self::as_text)
 /// - **Binary responses**: [`as_bytes()`](Self::as_bytes)
 /// - **Raw response access**: [`as_raw()`](Self::as_raw) (includes status code, content-type, and body)
@@ -309,6 +317,14 @@ impl CallResult {
         &self,
         schema: Option<RefOr<Schema>>,
     ) -> Result<&Output, ApiClientError> {
+        self.get_output_with(schema, None).await
+    }
+
+    async fn get_output_with(
+        &self,
+        schema: Option<RefOr<Schema>>,
+        stream: Option<StreamContent>,
+    ) -> Result<&Output, ApiClientError> {
         // Skip if operation_id is empty (skip_collection case)
         if self.operation_id.is_empty() {
             return Ok(&self.output);
@@ -324,6 +340,7 @@ impl CallResult {
                 status: self.status,
                 content_type: self.content_type.clone(),
                 schema,
+                stream: stream.map(Box::new),
                 description,
             })
             .await;
@@ -384,6 +401,183 @@ impl CallResult {
         };
 
         self.deserialize_and_record::<T>(json).await
+    }
+
+    /// Processes the response as a sequence of JSON values and deserializes each item.
+    ///
+    /// Accepted content types are `application/jsonl`, `application/x-ndjson` (one JSON
+    /// value per non-empty line) and `application/json-seq` (JSON texts separated by the
+    /// record separator character).
+    ///
+    /// The OpenAPI response records `T` as the item schema (`itemSchema`) of the media type.
+    /// When the older OpenAPI output is selected, the item schema is dropped because that
+    /// version cannot describe sequential media types.
+    ///
+    /// The raw text of the first 3 items (all items when fewer, no example for an empty
+    /// body) is also recorded as a `first-items` example of the media type, as
+    /// `serializedValue`.
+    /// The older OpenAPI output carries this text as a string `value` instead. No example
+    /// is recorded when an item fails to parse. When several calls document the same
+    /// response status, the last call wins, example included.
+    ///
+    /// The body is read in full before parsing, so the server must end the stream:
+    /// a stream that never ends makes this call hang.
+    ///
+    /// # Errors
+    ///
+    /// - [`ApiClientError::UnexpectedOutputType`] if the content type is not a sequential JSON type,
+    ///   or if the response has no text body (e.g. a `204 No Content`)
+    /// - [`ApiClientError::JsonError`] if an item cannot be deserialized; the path starts with
+    ///   the item index, e.g. `[3].name`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::Deserialize;
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct LogEntry {
+    ///     level: String,
+    ///     message: String,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    /// let entries = client
+    ///     .get("/logs/export")?
+    ///     .await?
+    ///     .as_json_sequence::<LogEntry>()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_json_sequence<T>(&mut self) -> Result<Vec<T>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+    {
+        let kind = self.content_type.as_ref().and_then(sequential_kind);
+        let Some(kind @ (SequentialKind::JsonLines | SequentialKind::JsonSeq)) = kind else {
+            return Err(self.unexpected_output_type(JSON_SEQUENCE_MEDIA_TYPES));
+        };
+
+        let parsed = parse_json_sequence(kind, self.stream_body(JSON_SEQUENCE_MEDIA_TYPES)?);
+        let item_schema = self.register_schema::<T>().await;
+        self.register_stream_response(item_schema, parsed).await
+    }
+
+    /// Processes the response as server-sent events whose `data` field holds JSON.
+    ///
+    /// The content type must be `text/event-stream`. Events are parsed following the
+    /// HTML event stream rules: comment lines are ignored, multiple `data` lines are joined
+    /// with a line feed, an `id` containing NUL and a non-numeric `retry` are ignored,
+    /// and a block without `data` is not dispatched. A block whose `data` is empty,
+    /// such as an `event: ping` heartbeat with a bare `data:` line, is skipped because
+    /// it holds no JSON. The `data` of each event is deserialized as JSON into `T`.
+    ///
+    /// Each [`SseEvent`] carries the `event`, `id` and `retry` fields of its own block only:
+    /// an `id` is not carried over to the next events like the last event ID of a browser.
+    ///
+    /// The OpenAPI response records an item schema (`itemSchema`) describing one event,
+    /// with `data` as a JSON-encoded string whose content schema is `T`.
+    /// When the older OpenAPI output is selected, the item schema is dropped.
+    ///
+    /// The raw text of the first 3 dispatched events (each block with its comment lines
+    /// and its terminating blank line, skipped blocks excluded) is also recorded as a `first-items` example of the
+    /// media type, as `serializedValue`. The older OpenAPI output carries this text as a
+    /// string `value` instead. No example is recorded when an event fails to parse. When
+    /// several calls document the same response status, the last call wins, example included.
+    ///
+    /// The body is read in full before parsing, so the server must end the stream:
+    /// an endless event stream makes this call hang. An unterminated last event
+    /// (no blank line after it) is discarded with a warning.
+    ///
+    /// # Errors
+    ///
+    /// - [`ApiClientError::UnexpectedOutputType`] if the content type is not `text/event-stream`,
+    ///   or if the response has no text body (e.g. a `204 No Content`)
+    /// - [`ApiClientError::JsonError`] if an event `data` cannot be deserialized; the path
+    ///   starts with the event index, e.g. `[2].data.name`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use clawspec_core::ApiClient;
+    /// # use serde::Deserialize;
+    /// # use utoipa::ToSchema;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// #[derive(Deserialize, ToSchema)]
+    /// struct Progress {
+    ///     percent: u8,
+    /// }
+    ///
+    /// let mut client = ApiClient::builder().build()?;
+    /// let events = client
+    ///     .get("/jobs/42/progress")?
+    ///     .await?
+    ///     .as_sse::<Progress>()
+    ///     .await?;
+    /// for event in &events {
+    ///     println!("{:?}: {}%", event.event, event.data.percent);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn as_sse<T>(&mut self) -> Result<Vec<SseEvent<T>>, ApiClientError>
+    where
+        T: DeserializeOwned + ToSchema + 'static,
+    {
+        let kind = self.content_type.as_ref().and_then(sequential_kind);
+        if kind != Some(SequentialKind::EventStream) {
+            return Err(self.unexpected_output_type(EVENT_STREAM_MEDIA_TYPE));
+        }
+
+        let parsed = parse_sse(self.stream_body(EVENT_STREAM_MEDIA_TYPE)?);
+        let data_schema = self.register_schema::<T>().await;
+        self.register_stream_response(sse_event_schema(data_schema), parsed)
+            .await
+    }
+
+    async fn register_stream_response<T>(
+        &self,
+        item_schema: RefOr<Schema>,
+        parsed: Result<ParsedStream<T>, ApiClientError>,
+    ) -> Result<Vec<T>, ApiClientError> {
+        let (items, example) = match parsed {
+            Ok(ParsedStream { items, example }) => (Ok(items), example),
+            Err(error) => (Err(error), None),
+        };
+        self.get_output_with(
+            None,
+            Some(StreamContent {
+                item_schema,
+                example,
+            }),
+        )
+        .await?;
+        items
+    }
+
+    fn stream_body(&self, expected: &str) -> Result<&str, ApiClientError> {
+        let actual = match &self.output {
+            Output::Json(body) | Output::Text(body) | Output::Other { body } => return Ok(body),
+            Output::Empty => "empty body",
+            Output::Bytes(_) => "binary body",
+        };
+        Err(ApiClientError::UnexpectedOutputType {
+            expected: format!("{expected} with a text body"),
+            actual: actual.to_string(),
+        })
+    }
+
+    fn unexpected_output_type(&self, expected: &str) -> ApiClientError {
+        ApiClientError::UnexpectedOutputType {
+            expected: expected.to_string(),
+            actual: self
+                .content_type
+                .as_ref()
+                .map_or_else(|| "no content type".to_string(), ToString::to_string),
+        }
     }
 
     /// Processes the response as optional JSON, treating 204 and 404 status codes as `None`.

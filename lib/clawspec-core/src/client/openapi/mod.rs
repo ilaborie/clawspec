@@ -19,5 +19,7 @@ mod operation;
 pub(in crate::client) use self::operation::CalledOperation;
 
 mod collectors;
-// Collectors is internal to the client module
-pub(in crate::client) use self::collectors::Collectors;
+
+mod compat;
+pub(crate) use self::compat::iter_operations;
+pub(in crate::client) use self::compat::{downgrade_paths_to_31, downgrade_to_31};

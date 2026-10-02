@@ -91,12 +91,12 @@ impl<T: Serialize> Fragment<T> {
 ///
 /// // Write fragments to files
 /// for fragment in &result.fragments {
-///     let yaml = serde_yaml::to_string(&fragment.content)?;
+///     let yaml = fragment.to_yaml()?;
 ///     std::fs::write(&fragment.path, yaml)?;
 /// }
 ///
 /// // Write main spec
-/// let main_yaml = serde_yaml::to_string(&result.main)?;
+/// let main_yaml = result.main_to_yaml()?;
 /// std::fs::write("openapi.yaml", main_yaml)?;
 /// ```
 #[derive(Debug, Clone)]
@@ -222,9 +222,9 @@ mod yaml_tests {
         let yaml = result.main_to_yaml().expect("should serialize to YAML");
 
         // Verify the essential structure is present
-        assert!(yaml.contains("openapi: 3.1.0"));
+        assert!(yaml.contains(r#"openapi: "3.1.0""#));
         assert!(yaml.contains("title: Test API"));
-        assert!(yaml.contains("version: 1.0.0"));
+        assert!(yaml.contains(r#"version: "1.0.0""#));
         assert!(yaml.contains("paths"));
     }
 
@@ -249,9 +249,9 @@ mod yaml_tests {
             .expect("should serialize fragment to YAML");
 
         // Verify the essential structure is present
-        assert!(main_yaml.contains("openapi: 3.1.0"));
+        assert!(main_yaml.contains(r#"openapi: "3.1.0""#));
         assert!(main_yaml.contains("title: Split API"));
-        assert!(main_yaml.contains("version: 2.0.0"));
+        assert!(main_yaml.contains(r#"version: "2.0.0""#));
         assert!(main_yaml.contains("paths"));
 
         // serde_saphyr serializes empty objects without braces

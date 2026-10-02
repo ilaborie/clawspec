@@ -1,8 +1,9 @@
 use indexmap::IndexMap;
+use tracing::warn;
 use utoipa::openapi::Required;
-use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn};
+use utoipa::openapi::path::{Parameter, ParameterBuilder, ParameterIn, ParameterStyle};
 
-use super::param::{ParamValue, ParameterValue, ResolvedParamValue};
+use super::param::{ParamStyle, ParamValue, ParameterValue, ResolvedParamValue};
 use crate::client::error::ApiClientError;
 use crate::client::openapi::schema::Schemas;
 
@@ -25,7 +26,7 @@ use crate::client::openapi::schema::Schemas;
 /// # OpenAPI Integration
 ///
 /// Cookies are automatically documented in the OpenAPI specification with `in: cookie` parameter type.
-/// This follows the OpenAPI 3.1.0 specification for cookie parameters.
+/// This follows the OpenAPI specification for cookie parameters.
 #[derive(Debug, Clone, Default)]
 pub struct CallCookies {
     cookies: IndexMap<String, ResolvedParamValue>,
@@ -78,6 +79,9 @@ impl CallCookies {
     ) -> Self {
         let name = name.into();
         let param_value = value.into();
+        if param_value.style != ParamStyle::Default {
+            warn!(%name, style = ?param_value.style, "ignoring parameter style for a cookie, arrays are comma-joined");
+        }
 
         // Generate schema for the cookie value
         let schema = self.schemas.add::<T>();
@@ -88,7 +92,7 @@ impl CallCookies {
                 .as_query_value()
                 .expect("Cookie serialization should not fail"),
             schema,
-            style: param_value.query_style(), // Cookies use simple string serialization like query params
+            style: ParamStyle::Simple,
         };
 
         self.cookies.insert(name, resolved);
@@ -160,23 +164,27 @@ impl CallCookies {
 
     /// Converts cookies to OpenAPI Parameter objects.
     ///
-    /// According to the OpenAPI 3.1.0 specification, cookies are represented as parameters
+    /// According to the OpenAPI specification, cookies are represented as parameters
     /// with `in: cookie`. This method generates the appropriate Parameter objects for
     /// inclusion in the OpenAPI specification.
     ///
     /// # OpenAPI Specification
     ///
-    /// From the OpenAPI 3.1.0 specification:
+    /// From the OpenAPI specification:
     /// - Parameter location: `in: cookie`
     /// - Cookies are typically optional parameters
-    /// - Cookie values are serialized as simple strings
+    /// - Style `cookie` with `explode: false`: values are sent as `name=value` pairs joined
+    ///   by `; ` in one `Cookie` header, without percent-encoding, arrays comma-joined
+    ///   (the style of a [`ParamValue`] is ignored for cookies)
     pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         self.cookies.iter().map(|(name, resolved)| {
             ParameterBuilder::new()
                 .name(name)
                 .parameter_in(ParameterIn::Cookie)
-                .required(Required::False) // Cookies are typically optional
+                .required(Required::False)
                 .schema(Some(resolved.schema.clone()))
+                .style(Some(ParameterStyle::Cookie))
+                .explode(Some(false))
                 .build()
         })
     }
@@ -217,7 +225,6 @@ impl CallCookies {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::ParamStyle;
     use serde::{Deserialize, Serialize};
     use utoipa::ToSchema;
 
@@ -437,6 +444,25 @@ mod tests {
         // Arrays should be serialized as comma-separated values (Simple style)
         assert!(cookie_header.contains("tags=rust,web,api"));
         assert!(cookie_header.contains("ids=1,2,3"));
+    }
+
+    #[test]
+    fn should_comma_join_cookie_arrays_whatever_the_style() {
+        let cookies = CallCookies::new()
+            .add_cookie(
+                "tags",
+                ParamValue::with_style(vec!["rust", "web"], ParamStyle::SpaceDelimited),
+            )
+            .add_cookie(
+                "ids",
+                ParamValue::with_style(vec![1, 2], ParamStyle::PipeDelimited),
+            );
+
+        let cookie_header = cookies
+            .to_cookie_header()
+            .expect("Should handle styled array values");
+
+        assert_eq!(cookie_header, "tags=rust,web; ids=1,2");
     }
 
     #[test]

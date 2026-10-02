@@ -49,6 +49,14 @@ pub enum ApiClientError {
     /// Occurs when converting structures to URL query strings.
     QuerySerializationError(serde_urlencoded::ser::Error),
 
+    /// Query parameters and a whole query string were both set on the same call.
+    ///
+    /// Occurs when `with_query` and `with_querystring` are combined on one request.
+    #[display(
+        "Conflicting query parameters: a call cannot combine query parameters with a querystring"
+    )]
+    ConflictingQueryParameters,
+
     /// Authentication processing error.
     ///
     /// Occurs when authentication credentials cannot be processed or are invalid.

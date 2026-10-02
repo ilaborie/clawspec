@@ -1013,7 +1013,9 @@ mod tests {
         let utoipa::openapi::RefOr::T(response) = response else {
             return None;
         };
-        let content = response.content.get("application/json")?;
+        let utoipa::openapi::RefOr::T(content) = response.content.get("application/json")? else {
+            return None;
+        };
         content.example.clone()
     }
 

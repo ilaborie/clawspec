@@ -1,8 +1,9 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 
 use http::{Method, Uri};
-use utoipa::openapi::{Components, Info, OpenApi, Paths, Server, Tag};
+use tracing::warn;
+use utoipa::openapi::{Components, Info, OpenApi, OpenApiVersion, Paths, Server, Tag};
 
 mod builder;
 use crate::client::openapi::channel::{CollectorHandle, CollectorMessage};
@@ -14,12 +15,13 @@ mod call;
 pub use self::call::ApiCall;
 
 mod parameters;
+use self::parameters::CallQueryString;
 pub use self::parameters::{
     CallBody, CallCookies, CallHeaders, CallPath, CallQuery, ParamStyle, ParamValue, ParameterValue,
 };
 
 mod response;
-pub use self::response::ExpectedStatusCodes;
+pub use self::response::{ExpectedStatusCodes, SseEvent};
 #[cfg(feature = "redaction")]
 pub use self::response::{
     RedactOptions, RedactedResult, RedactionBuilder, Redactor, RequestBodyRedactionBuilder,
@@ -36,14 +38,15 @@ pub use self::oauth2::{OAuth2Config, OAuth2ConfigBuilder, OAuth2Error, OAuth2Tok
 
 mod security;
 pub use self::security::{
-    ApiKeyLocation, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow, SecurityRequirement,
-    SecurityScheme,
+    ApiKeyLocation, OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow,
+    SecurityRequirement, SecurityScheme,
 };
 
 mod call_parameters;
 
 mod openapi;
 // CallResult, RawResult, and RawBody are public API, but CalledOperation and Collectors are internal
+pub(crate) use self::openapi::iter_operations;
 pub use self::openapi::{CallResult, RawBody, RawResult};
 
 mod error;
@@ -97,8 +100,10 @@ pub struct ApiClient {
     client: reqwest::Client,
     base_uri: Uri,
     base_path: String,
+    openapi_version: OpenApiVersion,
     info: Option<Info>,
     servers: Vec<Server>,
+    tags: Vec<Tag>,
     collector_handle: CollectorHandle,
     authentication: Option<Authentication>,
     security_schemes: IndexMap<String, SecurityScheme>,
@@ -122,13 +127,17 @@ impl ApiClient {
         }
         mem::drop(collectors);
 
-        builder.build()
+        let mut paths = builder.build();
+        if self.openapi_version == OpenApiVersion::Version31 {
+            openapi::downgrade_paths_to_31(&mut paths);
+        }
+        paths
     }
 
     /// Generates a complete OpenAPI specification from collected request/response data.
     ///
     /// This method aggregates all the information collected during API calls and produces
-    /// a comprehensive OpenAPI 3.1 specification including paths, components, schemas,
+    /// a comprehensive OpenAPI specification including paths, components, schemas,
     /// operation metadata, and server information.
     ///
     /// # Features
@@ -187,13 +196,16 @@ impl ApiClient {
     /// - **Servers**: Server URLs and descriptions if configured
     /// - **Paths**: All documented endpoints with operations
     /// - **Components**: Reusable schema definitions
-    /// - **Tags**: Automatically computed from operation tags
+    /// - **Tags**: Computed from operation tags, plus the declared tags
     ///
     /// # Tag Generation
     ///
     /// Tags are automatically computed from all operations and include:
     /// - Explicit tags set on operations
     /// - Auto-generated tags based on path patterns
+    /// - Tags declared with [`ApiClientBuilder::add_tag`], which replace the
+    ///   automatic tag with the same name and are kept even when unused
+    /// - Missing `parent` tags, added as plain tags
     /// - Deduplicated and sorted alphabetically
     ///
     /// # Performance Notes
@@ -202,7 +214,7 @@ impl ApiClient {
     /// - Schema processing is cached to avoid redundant work
     /// - Tags are computed on-demand from operation metadata
     pub async fn collected_openapi(&mut self) -> OpenApi {
-        let mut builder = OpenApi::builder();
+        let mut builder = OpenApi::builder().openapi(self.openapi_version.clone());
 
         // Add API info if configured
         if let Some(ref info) = self.info {
@@ -214,8 +226,9 @@ impl ApiClient {
             builder = builder.servers(Some(self.servers.clone()));
         }
 
-        // Add paths
-        builder = builder.paths(self.collected_paths().await);
+        let paths = self.collected_paths().await;
+        let tags = compute_tags(&paths, &self.tags);
+        builder = builder.paths(paths);
 
         // Add components with schemas and security schemes
         let collectors = self.collector_handle.get_collectors().await;
@@ -227,9 +240,6 @@ impl ApiClient {
         }
 
         let components = components_builder.build();
-
-        // Compute tags from all operations
-        let tags = self.compute_tags(&collectors).await;
         mem::drop(collectors);
 
         let builder = builder.components(Some(components));
@@ -253,24 +263,11 @@ impl ApiClient {
             builder.security(Some(security))
         };
 
-        builder.build()
-    }
-
-    /// Computes the list of unique tags from all collected operations.
-    async fn compute_tags(&self, collectors: &openapi::Collectors) -> Vec<Tag> {
-        let mut tag_names = BTreeSet::new();
-
-        // Collect all unique tag names from operations
-        for operation in collectors.operations() {
-            if let Some(tags) = operation.tags() {
-                for tag in tags {
-                    tag_names.insert(tag.clone());
-                }
-            }
+        let mut openapi = builder.build();
+        if self.openapi_version == OpenApiVersion::Version31 {
+            openapi::downgrade_to_31(&mut openapi);
         }
-
-        // Convert to Tag objects
-        tag_names.into_iter().map(Tag::new).collect()
+        openapi
     }
 
     /// Manually registers a type in the schema collection.
@@ -358,5 +355,143 @@ impl ApiClient {
 
     pub fn patch(&self, path: impl Into<CallPath>) -> Result<ApiCall, ApiClientError> {
         self.call(Method::PATCH, path.into())
+    }
+
+    /// Creates a `QUERY` call: a safe, idempotent request that carries its criteria in the body.
+    ///
+    /// The operation is documented under the path item `query` field.
+    /// Use [`ApiClient::call`] for any other method: a custom method is documented
+    /// under `additionalOperations` with its name in uppercase.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use clawspec_core::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # use utoipa::ToSchema;
+    /// # #[derive(Serialize, ToSchema)]
+    /// # struct UserSearch { name: String }
+    /// # #[derive(Deserialize, ToSchema)]
+    /// # struct User { id: u32, name: String }
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// let criteria = UserSearch { name: "Alice".to_string() };
+    /// let users = client
+    ///     .query("/users")?
+    ///     .json(&criteria)?
+    ///     .await?
+    ///     .as_json::<Vec<User>>()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn query(&self, path: impl Into<CallPath>) -> Result<ApiCall, ApiClientError> {
+        let method = Method::from_bytes(b"QUERY").map_err(http::Error::from)?;
+        self.call(method, path.into())
+    }
+}
+
+fn compute_tags(paths: &Paths, declared: &[Tag]) -> Vec<Tag> {
+    let mut tags = paths
+        .paths
+        .values()
+        .flat_map(iter_operations)
+        .flat_map(|operation| operation.tags.iter().flatten())
+        .map(|name| (name.clone(), Tag::new(name)))
+        .collect::<BTreeMap<_, _>>();
+    tags.extend(declared.iter().map(|tag| (tag.name.clone(), tag.clone())));
+    let missing_parents = tags
+        .values()
+        .filter_map(|tag| tag.parent.as_deref())
+        .filter(|parent| !tags.contains_key(*parent))
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
+    for parent in missing_parents {
+        warn!(%parent, "adding missing parent tag");
+        tags.insert(parent.clone(), Tag::new(parent));
+    }
+    tags.into_values().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use utoipa::openapi::path::{HttpMethod, OperationBuilder, PathItem};
+    use utoipa::openapi::tag::TagBuilder;
+
+    use super::*;
+
+    fn tagged_path_item(tag: &str) -> PathItem {
+        PathItem::new(HttpMethod::Get, OperationBuilder::new().tag(tag).build())
+    }
+
+    #[test]
+    fn should_compute_sorted_tags_from_all_operations() {
+        let mut items = tagged_path_item("users");
+        items.query = Some(OperationBuilder::new().tag("search").build());
+        items.additional_operations.insert(
+            "PURGE".to_string(),
+            OperationBuilder::new().tag("cache").build(),
+        );
+        let paths = Paths::builder()
+            .path("/items", items)
+            .path("/users", tagged_path_item("users"))
+            .build();
+
+        let tags = compute_tags(&paths, &[]);
+
+        let names = tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>();
+        assert_eq!(names, ["cache", "search", "users"]);
+    }
+
+    #[test]
+    fn should_prefer_declared_tags() {
+        let paths = Paths::builder()
+            .path("/users", tagged_path_item("users"))
+            .build();
+        let declared = TagBuilder::new()
+            .name("users")
+            .description(Some("User management"))
+            .build();
+
+        let tags = compute_tags(&paths, std::slice::from_ref(&declared));
+
+        assert_eq!(tags, [declared]);
+    }
+
+    #[test]
+    fn should_keep_unused_declared_tags() {
+        let paths = Paths::builder()
+            .path("/users", tagged_path_item("users"))
+            .build();
+        let declared = TagBuilder::new()
+            .name("admin")
+            .summary(Some("Administration"))
+            .build();
+
+        let tags = compute_tags(&paths, std::slice::from_ref(&declared));
+
+        assert_eq!(tags, [declared, Tag::new("users")]);
+    }
+
+    #[test]
+    fn should_add_missing_parent_tags() {
+        let paths = Paths::builder()
+            .path("/users", tagged_path_item("users"))
+            .build();
+        let declared = TagBuilder::new()
+            .name("users")
+            .parent(Some("accounts"))
+            .build();
+        let child = TagBuilder::new()
+            .name("roles")
+            .parent(Some("users"))
+            .build();
+
+        let tags = compute_tags(&paths, &[declared.clone(), child.clone()]);
+
+        assert_eq!(tags, [Tag::new("accounts"), child, declared]);
     }
 }

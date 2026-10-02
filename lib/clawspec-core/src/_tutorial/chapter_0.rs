@@ -56,7 +56,7 @@
 //! [dependencies]
 //! clawspec-core = "0.4"
 //! serde = { version = "1", features = ["derive"] }
-//! utoipa = { version = "5", features = ["preserve_order"] }
+//! utoipa = { version = "6", features = ["preserve_order"] }
 //! tokio = { version = "1", features = ["full"] }
 //!
 //! [dev-dependencies]
@@ -68,10 +68,10 @@
 //! By the end of this tutorial, you'll know how to:
 //!
 //! - Create and configure an API client
-//! - Make GET, POST, PUT, PATCH, and DELETE requests
+//! - Make GET, POST, PUT, PATCH, DELETE, and QUERY requests
 //! - Use path, query, header, and cookie parameters
 //! - Handle different response types and errors
-//! - Customize OpenAPI output with tags and descriptions
+//! - Customize OpenAPI output with tags, summaries, descriptions, and security schemes
 //! - Use redaction for stable documentation examples
 //! - Integrate with test frameworks using `TestClient`
 //!

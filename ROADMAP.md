@@ -26,10 +26,11 @@ The foundation release establishes core functionality and project infrastructure
 
 #### ✅ **Completed Features**
 - ✅ Core `clawspec-core` library with HTTP client
-- ✅ OpenAPI 3.1 specification generation from tests
-- ✅ Comprehensive parameter support (path, query, headers)
+- ✅ OpenAPI specification generation from tests
+- ✅ Comprehensive parameter support (path, query, whole query string, headers, cookies)
 - ✅ Request body handling (JSON, form, multipart, binary)
 - ✅ Response extraction and schema collection
+- ✅ Streaming responses (JSON Lines, NDJSON, JSON text sequences and server-sent events, finite streams only)
 - ✅ Axum framework example with real-world scenarios
 - ✅ CI/CD infrastructure with comprehensive testing
 - ✅ Project governance and contribution guidelines
@@ -78,7 +79,7 @@ The foundation release establishes core functionality and project infrastructure
   - Authentication and authorization examples ([#17](https://github.com/ilaborie/clawspec/issues/17))
   - Cookie handling and session management ([#18](https://github.com/ilaborie/clawspec/issues/18))
   - File upload and download operations
-  - Streaming and WebSocket support exploration
+  - WebSocket support exploration
 
 ##### **Performance & Documentation**
 - [ ] **Performance Benchmarks**

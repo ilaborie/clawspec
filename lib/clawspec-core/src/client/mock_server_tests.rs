@@ -6,12 +6,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
+use utoipa::openapi::OpenApiVersion;
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::client::{
-    ApiClient, ApiClientError, ApiKeyLocation, CallPath, ExpectedStatusCodes, SecurityRequirement,
-    SecurityScheme,
+    ApiClient, ApiClientError, ApiKeyLocation, CallPath, CallQuery, ExpectedStatusCodes,
+    SecurityRequirement, SecurityScheme,
 };
 
 /// Test user type for JSON responses.
@@ -42,6 +43,17 @@ async fn client_for_mock(mock_server: &MockServer) -> ApiClient {
     ApiClient::builder()
         .with_host(uri.host().expect("should have host"))
         .with_port(uri.port_u16().expect("should have port"))
+        .build()
+        .expect("should build client")
+}
+
+/// Helper to create an ApiClient generating the given OpenAPI version.
+async fn client_with_version(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
+    let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
+    ApiClient::builder()
+        .with_host(uri.host().expect("should have host"))
+        .with_port(uri.port_u16().expect("should have port"))
+        .with_openapi_version(version)
         .build()
         .expect("should build client")
 }
@@ -956,10 +968,9 @@ mod operation_tests {
             .expect("should have POST");
 
         assert!(post_op.request_body.is_some());
-        let request_body = post_op
-            .request_body
-            .as_ref()
-            .expect("should have request body");
+        let Some(utoipa::openapi::RefOr::T(request_body)) = post_op.request_body.as_ref() else {
+            panic!("should have an inline request body");
+        };
         assert!(request_body.content.contains_key("application/json"));
     }
 
@@ -1054,7 +1065,13 @@ mod operation_tests {
             .expect("should have GET");
 
         let params = get_op.parameters.as_ref().expect("should have parameters");
-        let param_names: Vec<_> = params.iter().map(|p| p.name.as_str()).collect();
+        let param_names = params
+            .iter()
+            .filter_map(|param| match param {
+                utoipa::openapi::RefOr::T(param) => Some(param.name.as_str()),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
+            .collect::<Vec<_>>();
         assert!(param_names.contains(&"limit"));
         assert!(param_names.contains(&"offset"));
     }
@@ -1463,14 +1480,12 @@ mod client_tests {
             .with_port(uri.port_u16().expect("should have port"))
             .with_security_scheme(
                 "oauth2",
-                SecurityScheme::OAuth2 {
-                    flows: Box::new(OAuth2Flows::authorization_code(
-                        "https://auth.example.com/authorize",
-                        "https://auth.example.com/token",
-                        [("read:users", "Read user data")],
-                    )),
-                    description: Some("OAuth2 authentication".to_string()),
-                },
+                SecurityScheme::oauth2(OAuth2Flows::authorization_code(
+                    "https://auth.example.com/authorize",
+                    "https://auth.example.com/token",
+                    [("read:users", "Read user data")],
+                ))
+                .with_description("OAuth2 authentication"),
             )
             .build()
             .expect("should build client");
@@ -1496,7 +1511,9 @@ mod client_tests {
 
 mod security_tests {
     use super::*;
-    use crate::client::security::{OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow};
+    use crate::client::security::{
+        OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow,
+    };
 
     #[tokio::test]
     async fn should_convert_all_api_key_locations() {
@@ -1599,49 +1616,45 @@ mod security_tests {
 
         let uri: http::Uri = mock_server.uri().parse().expect("valid URI");
 
-        let flows = OAuth2Flows {
-            authorization_code: Some(OAuth2Flow {
-                authorization_url: Some("https://auth.example.com/authorize".to_string()),
-                token_url: "https://auth.example.com/token".to_string(),
-                refresh_url: Some("https://auth.example.com/refresh".to_string()),
-                scopes: [("read".to_string(), "Read access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-            client_credentials: Some(OAuth2Flow {
-                authorization_url: None,
-                token_url: "https://auth.example.com/token".to_string(),
-                refresh_url: None,
-                scopes: [("api".to_string(), "API access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-            implicit: Some(OAuth2ImplicitFlow {
-                authorization_url: "https://auth.example.com/authorize".to_string(),
-                refresh_url: Some("https://auth.example.com/refresh".to_string()),
-                scopes: [("implicit".to_string(), "Implicit access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-            password: Some(OAuth2Flow {
-                authorization_url: None,
-                token_url: "https://auth.example.com/token".to_string(),
-                refresh_url: Some("https://auth.example.com/refresh".to_string()),
-                scopes: [("password".to_string(), "Password access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-        };
+        let flows = OAuth2Flows::default()
+            .with_authorization_code(
+                OAuth2Flow::new("https://auth.example.com/token", [("read", "Read access")])
+                    .with_authorization_url("https://auth.example.com/authorize")
+                    .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_client_credentials(OAuth2Flow::new(
+                "https://auth.example.com/token",
+                [("api", "API access")],
+            ))
+            .with_implicit(
+                OAuth2ImplicitFlow::new(
+                    "https://auth.example.com/authorize",
+                    [("implicit", "Implicit access")],
+                )
+                .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_password(
+                OAuth2Flow::new(
+                    "https://auth.example.com/token",
+                    [("password", "Password access")],
+                )
+                .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_device_authorization(
+                OAuth2DeviceAuthorizationFlow::new(
+                    "https://auth.example.com/device",
+                    "https://auth.example.com/token",
+                    [("device", "Device access")],
+                )
+                .with_refresh_url("https://auth.example.com/refresh"),
+            );
 
         let mut client = ApiClient::builder()
             .with_host(uri.host().expect("should have host"))
             .with_port(uri.port_u16().expect("should have port"))
             .with_security_scheme(
                 "oauth2",
-                SecurityScheme::OAuth2 {
-                    flows: Box::new(flows),
-                    description: Some("OAuth2 with all flows".to_string()),
-                },
+                SecurityScheme::oauth2(flows).with_description("OAuth2 with all flows"),
             )
             .build()
             .expect("should build client");
@@ -1676,7 +1689,8 @@ mod security_tests {
         assert!(matches!(
             basic,
             SecurityScheme::Basic {
-                description: Some(ref d)
+                description: Some(ref d),
+                ..
             } if d == "Basic auth"
         ));
 
@@ -1700,11 +1714,7 @@ mod security_tests {
             } if d == "OIDC auth"
         ));
 
-        let oauth2 = SecurityScheme::OAuth2 {
-            flows: Box::default(),
-            description: None,
-        }
-        .with_description("OAuth2 auth");
+        let oauth2 = SecurityScheme::oauth2(OAuth2Flows::default()).with_description("OAuth2 auth");
         assert!(matches!(
             oauth2,
             SecurityScheme::OAuth2 {
@@ -1973,5 +1983,1225 @@ mod content_type_tests {
         let text = response.as_text().await.expect("should get text");
 
         assert!(text.contains("<html>"));
+    }
+}
+
+// =============================================================================
+// Tests for QUERY and custom HTTP methods
+// =============================================================================
+
+mod extra_method_tests {
+    use http::Method;
+    use insta::assert_snapshot;
+
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    struct UserSearch {
+        name: String,
+    }
+
+    async fn query_users(mock_server: &MockServer, version: OpenApiVersion) -> ApiClient {
+        Mock::given(method("QUERY"))
+            .and(path("/users"))
+            .and(body_json(json!({ "name": "Alice" })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                { "id": 1, "name": "Alice", "email": "alice@example.com" }
+            ])))
+            .expect(1)
+            .mount(mock_server)
+            .await;
+
+        let client = client_with_version(mock_server, version).await;
+        let users = client
+            .query("/users")
+            .expect("should create QUERY call")
+            .json(&UserSearch {
+                name: "Alice".to_string(),
+            })
+            .expect("should set body")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+        assert_eq!(users.len(), 1);
+        client
+    }
+
+    #[tokio::test]
+    async fn should_document_query_operation() {
+        let mock_server = MockServer::start().await;
+        let mut client = query_users(&mock_server, OpenApiVersion::Version32).await;
+
+        let openapi = client.collected_openapi().await;
+
+        let path_item = openapi
+            .paths
+            .paths
+            .get("/users")
+            .expect("should have /users");
+        assert_snapshot!(
+            serde_saphyr::to_string(path_item).expect("should serialize to YAML"),
+            @r##"
+        query:
+          tags:
+          - users
+          description: Query users
+          operationId: query-users
+          parameters: []
+          requestBody:
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/UserSearch"
+                example:
+                  name: Alice
+          responses:
+            "200":
+              description: Status code 200
+              content:
+                application/json:
+                  schema:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+        "##
+        );
+        let component_names = openapi
+            .components
+            .iter()
+            .flat_map(|components| components.schemas.keys())
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(component_names, ["User", "UserSearch"]);
+        let tags = openapi
+            .tags
+            .iter()
+            .flatten()
+            .map(|tag| tag.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(tags, ["users"]);
+    }
+
+    #[tokio::test]
+    async fn should_drop_query_operation_in_older_output() {
+        let mock_server = MockServer::start().await;
+        let mut client = query_users(&mock_server, OpenApiVersion::Version31).await;
+
+        let openapi = client.collected_openapi().await;
+
+        assert!(openapi.paths.paths.is_empty());
+        assert!(openapi.tags.iter().flatten().next().is_none());
+    }
+
+    #[tokio::test]
+    async fn should_document_custom_method_as_additional_operation() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("PURGE"))
+            .and(path("/cache"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+        let purge = Method::from_bytes(b"PURGE").expect("PURGE should be a valid method");
+
+        client
+            .call(purge, CallPath::from("/cache"))
+            .expect("should create PURGE call")
+            .with_expected_status_codes(ExpectedStatusCodes::from_single(204))
+            .await
+            .expect("should succeed")
+            .as_empty()
+            .await
+            .expect("should complete");
+
+        let openapi = client.collected_openapi().await;
+        let path_item = openapi
+            .paths
+            .paths
+            .get("/cache")
+            .expect("should have /cache");
+        let methods = path_item.additional_operations.keys().collect::<Vec<_>>();
+        assert_eq!(methods, ["PURGE"]);
+    }
+}
+
+// =============================================================================
+// Tests for operation summary and declared tags
+// =============================================================================
+
+mod metadata_tests {
+    use insta::assert_snapshot;
+    use utoipa::openapi::Tag;
+    use utoipa::openapi::tag::TagBuilder;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn should_keep_first_summary_across_calls() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(2)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        for summary in ["List users", "Search users"] {
+            client
+                .get("/users")
+                .expect("should create call")
+                .with_summary(summary)
+                .await
+                .expect("should succeed")
+                .as_json::<Vec<User>>()
+                .await
+                .expect("should deserialize");
+        }
+
+        let openapi = client.collected_openapi().await;
+        let operation = openapi
+            .paths
+            .paths
+            .get("/users")
+            .and_then(|path_item| path_item.get.as_ref())
+            .expect("should have GET /users");
+        assert_snapshot!(
+            serde_saphyr::to_string(operation).expect("should serialize to YAML"),
+            @r##"
+        tags:
+        - users
+        summary: List users
+        description: Retrieve users
+        operationId: get-users
+        parameters: []
+        responses:
+          "200":
+            description: Status code 200
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/User"
+        "##
+        );
+    }
+
+    #[tokio::test]
+    async fn should_write_declared_tags() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let uri = mock_server.uri().parse::<http::Uri>().expect("valid URI");
+        let mut client = ApiClient::builder()
+            .with_host(uri.host().expect("should have host"))
+            .with_port(uri.port_u16().expect("should have port"))
+            .add_tag(
+                TagBuilder::new()
+                    .name("users")
+                    .summary(Some("Users"))
+                    .parent(Some("accounts"))
+                    .kind(Some("nav"))
+                    .build(),
+            )
+            .with_tags([Tag::new("admin")])
+            .build()
+            .expect("should build client");
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        let openapi = client.collected_openapi().await;
+        assert_snapshot!(
+            serde_saphyr::to_string(&openapi.tags).expect("should serialize to YAML"),
+            @"
+        - name: accounts
+        - name: admin
+        - name: users
+          summary: Users
+          parent: accounts
+          kind: nav
+        "
+        );
+    }
+}
+
+// =============================================================================
+// Tests for sequential and server-sent event responses
+// =============================================================================
+
+mod sequential_response_tests {
+    use insta::assert_snapshot;
+
+    use super::*;
+    use crate::client::SseEvent;
+
+    const NDJSON_BODY: &str = concat!(
+        "{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n",
+        "\n",
+        "{\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n",
+    );
+
+    const JSON_SEQ_BODY: &str = concat!(
+        "\u{1e}{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n",
+        "\u{1e}{\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n",
+    );
+
+    const SSE_BODY: &str = concat!(
+        ": stream start\n",
+        "event: created\n",
+        "id: 1\n",
+        "data: {\"id\":1,\"name\":\"Alice\",\n",
+        "data: \"email\":\"alice@example.com\"}\n",
+        "\n",
+        "retry: 5000\n",
+        "data: {\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n",
+        "\n",
+    );
+
+    async fn mount_stream(mock_server: &MockServer, route: &str, content_type: &str, body: &str) {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), content_type),
+            )
+            .mount(mock_server)
+            .await;
+    }
+
+    async fn response_content_yaml(client: &mut ApiClient, route: &str) -> String {
+        let openapi = client.collected_openapi().await;
+        let content = openapi
+            .paths
+            .paths
+            .get(route)
+            .and_then(|path_item| path_item.get.as_ref())
+            .and_then(|operation| operation.responses.responses.get("200"))
+            .and_then(|response| match response {
+                utoipa::openapi::RefOr::T(response) => Some(&response.content),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
+            .expect("should have a 200 response");
+        serde_saphyr::to_string(content).expect("should serialize to YAML")
+    }
+
+    async fn fetch_ndjson_users(version: OpenApiVersion) -> String {
+        let mock_server = MockServer::start().await;
+        mount_stream(
+            &mock_server,
+            "/users/export",
+            "application/x-ndjson; charset=utf-8",
+            NDJSON_BODY,
+        )
+        .await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        let users = client
+            .get("/users/export")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect("should parse NDJSON");
+
+        assert_eq!(users.iter().map(|user| user.id).collect::<Vec<_>>(), [1, 2]);
+        response_content_yaml(&mut client, "/users/export").await
+    }
+
+    #[tokio::test]
+    async fn should_document_ndjson_item_schema() {
+        let content = fetch_ndjson_users(OpenApiVersion::Version32).await;
+
+        assert_snapshot!(content, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |
+                {"id":1,"name":"Alice","email":"alice@example.com"}
+                {"id":2,"name":"Bob","email":"bob@example.com"}
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_drop_item_schema_in_older_output() {
+        let content = fetch_ndjson_users(OpenApiVersion::Version31).await;
+
+        assert_snapshot!(content, @r#"
+        application/x-ndjson:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |
+                {"id":1,"name":"Alice","email":"alice@example.com"}
+                {"id":2,"name":"Bob","email":"bob@example.com"}
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_parse_json_seq_response() {
+        let mock_server = MockServer::start().await;
+        mount_stream(
+            &mock_server,
+            "/users/seq",
+            "application/json-seq",
+            JSON_SEQ_BODY,
+        )
+        .await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        let users = client
+            .get("/users/seq")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect("should parse JSON text sequence");
+
+        assert_eq!(
+            users
+                .iter()
+                .map(|user| user.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Alice", "Bob"]
+        );
+        assert_snapshot!(response_content_yaml(&mut client, "/users/seq").await, @r##"
+        application/json-seq:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: "\x1E{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n\x1E{\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n"
+        "##);
+    }
+
+    async fn fetch_user_events(version: OpenApiVersion) -> (Vec<SseEvent<User>>, String) {
+        let mock_server = MockServer::start().await;
+        mount_stream(&mock_server, "/users/events", "text/event-stream", SSE_BODY).await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        let events = client
+            .get("/users/events")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect("should parse event stream");
+
+        let content = response_content_yaml(&mut client, "/users/events").await;
+        (events, content)
+    }
+
+    #[tokio::test]
+    async fn should_parse_and_document_sse_response() {
+        let (events, content) = fetch_user_events(OpenApiVersion::Version32).await;
+
+        insta::assert_debug_snapshot!(events, @r#"
+        [
+            SseEvent {
+                event: Some(
+                    "created",
+                ),
+                data: User {
+                    id: 1,
+                    name: "Alice",
+                    email: "alice@example.com",
+                },
+                id: Some(
+                    "1",
+                ),
+                retry: None,
+            },
+            SseEvent {
+                event: None,
+                data: User {
+                    id: 2,
+                    name: "Bob",
+                    email: "bob@example.com",
+                },
+                id: None,
+                retry: Some(
+                    5000,
+                ),
+            },
+        ]
+        "#);
+        assert_snapshot!(content, @r##"
+        text/event-stream:
+          itemSchema:
+            type: object
+            required:
+            - data
+            properties:
+              data:
+                type: string
+                contentMediaType: application/json
+                contentSchema:
+                  $ref: "#/components/schemas/User"
+              event:
+                type: string
+              id:
+                type: string
+              retry:
+                type: integer
+                minimum: 0
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |+
+                : stream start
+                event: created
+                id: 1
+                data: {"id":1,"name":"Alice",
+                data: "email":"alice@example.com"}
+                
+                retry: 5000
+                data: {"id":2,"name":"Bob","email":"bob@example.com"}
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_drop_sse_item_schema_in_older_output() {
+        let (events, content) = fetch_user_events(OpenApiVersion::Version31).await;
+
+        assert_eq!(events.len(), 2);
+        assert_snapshot!(content, @r#"
+        text/event-stream:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |+
+                : stream start
+                event: created
+                id: 1
+                data: {"id":1,"name":"Alice",
+                data: "email":"alice@example.com"}
+                
+                retry: 5000
+                data: {"id":2,"name":"Bob","email":"bob@example.com"}
+        "#);
+    }
+
+    fn five_users(render: impl Fn(u32) -> String) -> String {
+        (1..=5).map(render).collect()
+    }
+
+    async fn first_items_content(
+        version: OpenApiVersion,
+        content_type: &str,
+        body: &str,
+    ) -> String {
+        let mock_server = MockServer::start().await;
+        mount_stream(&mock_server, "/users/stream", content_type, body).await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        let mut result = client
+            .get("/users/stream")
+            .expect("should create call")
+            .await
+            .expect("should succeed");
+        let count = if content_type == "text/event-stream" {
+            result.as_sse::<User>().await.map(|events| events.len())
+        } else {
+            result
+                .as_json_sequence::<User>()
+                .await
+                .map(|users| users.len())
+        }
+        .expect("should parse the stream");
+
+        assert_eq!(count, 5);
+        response_content_yaml(&mut client, "/users/stream").await
+    }
+
+    #[tokio::test]
+    async fn should_record_first_three_ndjson_items() {
+        let body = five_users(|id| {
+            format!("{{\"id\":{id},\"name\":\"u{id}\",\"email\":\"u{id}@example.com\"}}\n")
+        });
+
+        let content =
+            first_items_content(OpenApiVersion::Version32, "application/x-ndjson", &body).await;
+        let older =
+            first_items_content(OpenApiVersion::Version31, "application/x-ndjson", &body).await;
+
+        assert_snapshot!(content, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |
+                {"id":1,"name":"u1","email":"u1@example.com"}
+                {"id":2,"name":"u2","email":"u2@example.com"}
+                {"id":3,"name":"u3","email":"u3@example.com"}
+        "##);
+        assert_snapshot!(older, @r#"
+        application/x-ndjson:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |
+                {"id":1,"name":"u1","email":"u1@example.com"}
+                {"id":2,"name":"u2","email":"u2@example.com"}
+                {"id":3,"name":"u3","email":"u3@example.com"}
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_record_first_three_json_seq_records() {
+        let body = five_users(|id| {
+            format!("\u{1e}{{\"id\":{id},\"name\":\"u{id}\",\"email\":\"u{id}@example.com\"}}\n")
+        });
+
+        let content =
+            first_items_content(OpenApiVersion::Version32, "application/json-seq", &body).await;
+        let older =
+            first_items_content(OpenApiVersion::Version31, "application/json-seq", &body).await;
+
+        assert_snapshot!(content, @r##"
+        application/json-seq:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: "\x1E{\"id\":1,\"name\":\"u1\",\"email\":\"u1@example.com\"}\n\x1E{\"id\":2,\"name\":\"u2\",\"email\":\"u2@example.com\"}\n\x1E{\"id\":3,\"name\":\"u3\",\"email\":\"u3@example.com\"}\n"
+        "##);
+        assert_snapshot!(older, @r#"
+        application/json-seq:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: "\x1E{\"id\":1,\"name\":\"u1\",\"email\":\"u1@example.com\"}\n\x1E{\"id\":2,\"name\":\"u2\",\"email\":\"u2@example.com\"}\n\x1E{\"id\":3,\"name\":\"u3\",\"email\":\"u3@example.com\"}\n"
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_record_first_three_sse_events() {
+        let body = five_users(|id| {
+            format!(
+                "id: {id}\ndata: {{\"id\":{id},\"name\":\"u{id}\",\"email\":\"u{id}@example.com\"}}\n\n"
+            )
+        });
+
+        let content =
+            first_items_content(OpenApiVersion::Version32, "text/event-stream", &body).await;
+        let older =
+            first_items_content(OpenApiVersion::Version31, "text/event-stream", &body).await;
+
+        assert_snapshot!(content, @r##"
+        text/event-stream:
+          itemSchema:
+            type: object
+            required:
+            - data
+            properties:
+              data:
+                type: string
+                contentMediaType: application/json
+                contentSchema:
+                  $ref: "#/components/schemas/User"
+              event:
+                type: string
+              id:
+                type: string
+              retry:
+                type: integer
+                minimum: 0
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |+
+                id: 1
+                data: {"id":1,"name":"u1","email":"u1@example.com"}
+                
+                id: 2
+                data: {"id":2,"name":"u2","email":"u2@example.com"}
+                
+                id: 3
+                data: {"id":3,"name":"u3","email":"u3@example.com"}
+        "##);
+        assert_snapshot!(older, @r#"
+        text/event-stream:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |+
+                id: 1
+                data: {"id":1,"name":"u1","email":"u1@example.com"}
+                
+                id: 2
+                data: {"id":2,"name":"u2","email":"u2@example.com"}
+                
+                id: 3
+                data: {"id":3,"name":"u3","email":"u3@example.com"}
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_not_record_example_when_an_item_fails_to_parse() {
+        let mock_server = MockServer::start().await;
+        mount_stream(
+            &mock_server,
+            "/users/export",
+            "application/x-ndjson",
+            "{\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n{\"id\":\"two\"}\n",
+        )
+        .await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        client
+            .get("/users/export")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect_err("second item is not a user");
+
+        assert_snapshot!(response_content_yaml(&mut client, "/users/export").await, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_reject_stream_without_body() {
+        let mock_server = MockServer::start().await;
+        for (route, content_type) in [
+            ("/users/export", "application/x-ndjson"),
+            ("/users/events", "text/event-stream"),
+        ] {
+            Mock::given(method("GET"))
+                .and(path(route))
+                .respond_with(
+                    ResponseTemplate::new(204).insert_header("content-type", content_type),
+                )
+                .mount(&mock_server)
+                .await;
+        }
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        let sequence_error = client
+            .get("/users/export")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect_err("no body is not a stream");
+        let sse_error = client
+            .get("/users/events")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect_err("no body is not an event stream");
+
+        assert_snapshot!(format!("{sequence_error}\n{sse_error}"), @"
+        Expected output type 'application/jsonl, application/x-ndjson or application/json-seq with a text body' but got 'empty body'
+        Expected output type 'text/event-stream with a text body' but got 'empty body'
+        ");
+        let openapi = client.collected_openapi().await;
+        let documented_statuses = ["/users/export", "/users/events"].map(|route| {
+            openapi
+                .paths
+                .paths
+                .get(route)
+                .and_then(|path_item| path_item.get.as_ref())
+                .map(|operation| {
+                    operation
+                        .responses
+                        .responses
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+        });
+        assert_eq!(documented_statuses, [Some(vec![]), Some(vec![])]);
+    }
+
+    #[tokio::test]
+    async fn should_skip_sse_heartbeats() {
+        let mock_server = MockServer::start().await;
+        let body = concat!(
+            "data: {\"id\":1,\"name\":\"Alice\",\"email\":\"alice@example.com\"}\n\n",
+            "event: ping\ndata:\n\n",
+            "data: {\"id\":2,\"name\":\"Bob\",\"email\":\"bob@example.com\"}\n\n",
+        );
+        mount_stream(&mock_server, "/users/events", "text/event-stream", body).await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version31).await;
+
+        let events = client
+            .get("/users/events")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect("should skip the heartbeat");
+
+        assert_eq!(
+            events.iter().map(|event| event.data.id).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_snapshot!(response_content_yaml(&mut client, "/users/events").await, @r#"
+        text/event-stream:
+          examples:
+            first-items:
+              summary: First items of the stream
+              value: |+
+                data: {"id":1,"name":"Alice","email":"alice@example.com"}
+                
+                data: {"id":2,"name":"Bob","email":"bob@example.com"}
+        "#);
+    }
+
+    #[tokio::test]
+    async fn should_keep_last_call_example_on_same_streaming_route() {
+        let mock_server = MockServer::start().await;
+        for name in ["First", "Last"] {
+            Mock::given(method("GET"))
+                .and(path("/users/export"))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(
+                    format!("{{\"id\":1,\"name\":\"{name}\",\"email\":\"u@example.com\"}}\n"),
+                    "application/x-ndjson",
+                ))
+                .up_to_n_times(1)
+                .mount(&mock_server)
+                .await;
+        }
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
+
+        for expected_name in ["First", "Last"] {
+            let users = client
+                .get("/users/export")
+                .expect("should create call")
+                .await
+                .expect("should succeed")
+                .as_json_sequence::<User>()
+                .await
+                .expect("should parse NDJSON");
+            assert_eq!(users[0].name, expected_name);
+        }
+
+        assert_snapshot!(response_content_yaml(&mut client, "/users/export").await, @r##"
+        application/x-ndjson:
+          itemSchema:
+            $ref: "#/components/schemas/User"
+          examples:
+            first-items:
+              summary: First items of the stream
+              serializedValue: |
+                {"id":1,"name":"Last","email":"u@example.com"}
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_reject_unexpected_content_type() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&mock_server)
+            .await;
+        let client = client_for_mock(&mock_server).await;
+
+        let sequence_error = client
+            .get("/users")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_json_sequence::<User>()
+            .await
+            .expect_err("JSON is not a sequential type");
+        let sse_error = client
+            .get("/users")
+            .expect("should create call")
+            .await
+            .expect("should succeed")
+            .as_sse::<User>()
+            .await
+            .expect_err("JSON is not an event stream");
+
+        assert_snapshot!(format!("{sequence_error}\n{sse_error}"), @"
+        Expected output type 'application/jsonl, application/x-ndjson or application/json-seq' but got 'application/json'
+        Expected output type 'text/event-stream' but got 'application/json'
+        ");
+    }
+}
+
+// =============================================================================
+// Tests for querystring and cookie parameters
+// =============================================================================
+
+mod querystring_tests {
+    use insta::assert_snapshot;
+
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    struct UserFilter {
+        search: String,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    }
+
+    async fn list_users_with_querystring(version: OpenApiVersion) -> String {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .and(|request: &wiremock::Request| {
+                request.url.query() == Some("search=alice+smith%26co&limit=10")
+            })
+            .and(query_param("search", "alice smith&co"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&UserFilter {
+                search: "alice smith&co".to_string(),
+                limit: Some(10),
+                offset: None,
+            })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        parameters_yaml(&mut client, "/users").await
+    }
+
+    async fn parameters_yaml(client: &mut ApiClient, route: &str) -> String {
+        let openapi = client.collected_openapi().await;
+        let parameters = openapi
+            .paths
+            .paths
+            .get(route)
+            .and_then(|path_item| path_item.get.as_ref())
+            .and_then(|operation| operation.parameters.as_ref())
+            .expect("should have parameters");
+        serde_saphyr::to_string(parameters).expect("should serialize to YAML")
+    }
+
+    #[tokio::test]
+    async fn should_send_and_document_querystring() {
+        let parameters = list_users_with_querystring(OpenApiVersion::Version32).await;
+
+        assert_snapshot!(parameters, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_convert_querystring_in_older_output() {
+        let parameters = list_users_with_querystring(OpenApiVersion::Version31).await;
+
+        assert_snapshot!(parameters, @r##"
+        - name: UserFilter
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/UserFilter"
+          style: form
+          explode: true
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_reject_query_parameters_combined_with_querystring() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        let error = client
+            .get("/users")
+            .expect("should create call")
+            .with_query(CallQuery::new().add_param("page", 1))
+            .with_querystring(&UserFilter {
+                search: "alice".to_string(),
+                limit: None,
+                offset: None,
+            })
+            .expect("should encode querystring")
+            .await
+            .expect_err("query and querystring should conflict");
+
+        assert!(matches!(error, ApiClientError::ConflictingQueryParameters));
+        assert!(client.collected_openapi().await.paths.paths.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_keep_querystring_over_query_parameters_across_calls() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_query(CallQuery::new().add_param("page", 1))
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&UserFilter {
+                search: "alice".to_string(),
+                limit: None,
+                offset: Some(5),
+            })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        assert_snapshot!(parameters_yaml(&mut client, "/users").await, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    struct PageFilter {
+        page: u32,
+    }
+
+    async fn mock_list_users() -> MockServer {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&mock_server)
+            .await;
+        mock_server
+    }
+
+    async fn list_users_with_user_filter(client: &mut ApiClient) {
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&UserFilter {
+                search: "alice".to_string(),
+                limit: None,
+                offset: None,
+            })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+    }
+
+    #[tokio::test]
+    async fn should_keep_first_querystring_across_calls() {
+        let mock_server = mock_list_users().await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        list_users_with_user_filter(&mut client).await;
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&PageFilter { page: 2 })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        assert_snapshot!(parameters_yaml(&mut client, "/users").await, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_keep_schema_of_dropped_querystring_as_component() {
+        let mock_server = mock_list_users().await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        list_users_with_user_filter(&mut client).await;
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&PageFilter { page: 2 })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        let openapi = client.collected_openapi().await;
+        let schema_names = openapi
+            .components
+            .map(|components| components.schemas.into_keys().collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert_eq!(schema_names, ["PageFilter", "User", "UserFilter"]);
+    }
+
+    #[tokio::test]
+    async fn should_drop_later_query_parameters_after_querystring() {
+        let mock_server = mock_list_users().await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        list_users_with_user_filter(&mut client).await;
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_query(CallQuery::new().add_param("page", 1))
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        assert_snapshot!(parameters_yaml(&mut client, "/users").await, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
+    async fn get_with_cookies(version: OpenApiVersion) -> String {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .and(|request: &wiremock::Request| {
+                request
+                    .headers
+                    .get("cookie")
+                    .is_some_and(|cookie| cookie == "session=abc123; ids=1,2,3")
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_with_version(&mock_server, version).await;
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_cookie("session", "abc123")
+            .with_cookie("ids", vec![1, 2, 3])
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        parameters_yaml(&mut client, "/users").await
+    }
+
+    #[tokio::test]
+    async fn should_document_cookie_style() {
+        let parameters = get_with_cookies(OpenApiVersion::Version32).await;
+
+        assert_snapshot!(parameters, @"
+        - name: session
+          in: cookie
+          required: false
+          schema:
+            type: string
+          style: cookie
+          explode: false
+        - name: ids
+          in: cookie
+          required: false
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int32
+          style: cookie
+          explode: false
+        ");
+    }
+
+    #[tokio::test]
+    async fn should_drop_cookie_style_in_older_output() {
+        let parameters = get_with_cookies(OpenApiVersion::Version31).await;
+
+        assert_snapshot!(parameters, @"
+        - name: session
+          in: cookie
+          required: false
+          schema:
+            type: string
+        - name: ids
+          in: cookie
+          required: false
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int32
+        ");
     }
 }

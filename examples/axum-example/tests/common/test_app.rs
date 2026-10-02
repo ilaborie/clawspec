@@ -14,7 +14,7 @@ use tracing::info;
 use utoipa::openapi::{ContactBuilder, InfoBuilder, ServerBuilder};
 
 use clawspec_core::test_client::{HealthStatus, TestClient, TestServer, TestServerConfig};
-use clawspec_core::{ApiClient, ApiKeyLocation, SecurityRequirement, SecurityScheme};
+use clawspec_core::{ApiClient, ApiKeyLocation, SecurityRequirement, SecurityScheme, TagBuilder};
 
 use axum_example::launch;
 
@@ -79,7 +79,16 @@ impl TestServer for AppTestServer {
             .add_server(
                 ServerBuilder::new()
                     .url("https://api.birdwatch.example.com/api")
+                    .name(Some("production"))
                     .description(Some("Production server"))
+                    .build(),
+            )
+            .add_tag(
+                TagBuilder::new()
+                    .name("observations")
+                    .summary(Some("Observations"))
+                    .description(Some("Create, read, update and delete bird observations"))
+                    .kind(Some("nav"))
                     .build(),
             )
             // Add security schemes for API documentation
@@ -92,6 +101,12 @@ impl TestServer for AppTestServer {
                 "apiKey",
                 SecurityScheme::api_key("X-API-Key", ApiKeyLocation::Header)
                     .with_description("API key for service-to-service authentication"),
+            )
+            .with_security_scheme(
+                "legacyApiKey",
+                SecurityScheme::api_key("X-Legacy-Key", ApiKeyLocation::Header)
+                    .with_description("Legacy API key, use apiKey instead")
+                    .with_deprecated(true),
             )
             // Set bearer auth as the default security requirement
             .with_default_security(SecurityRequirement::new("bearerAuth"));

@@ -17,7 +17,7 @@ pub trait ParameterValue: Serialize + ToSchema + Debug + Send + Sync + Clone + '
 // Blanket implementation for all types that satisfy the constraints
 impl<T> ParameterValue for T where T: Serialize + ToSchema + Debug + Send + Sync + Clone + 'static {}
 
-/// Parameter styles supported by OpenAPI 3.1 specification.
+/// Parameter styles supported by the OpenAPI specification.
 ///
 /// These styles define how array values and complex parameters are serialized
 /// in strings according to the OpenAPI standard.

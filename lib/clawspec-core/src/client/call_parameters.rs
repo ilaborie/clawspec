@@ -1,10 +1,11 @@
-/// A collection of all HTTP parameters (query, headers, cookies) for an API call.
+/// A collection of all HTTP parameters (query, querystring, headers, cookies) for an API call.
 ///
-/// This struct groups together query parameters, headers, and cookies to reduce
+/// This struct groups together the query, querystring, header and cookie parameters to reduce
 /// the number of arguments passed between functions and improve code organization.
 #[derive(Debug, Clone, Default)]
 pub struct CallParameters {
     pub(super) query: super::CallQuery,
+    pub(super) querystring: Option<super::CallQueryString>,
     pub(super) headers: Option<super::CallHeaders>,
     pub(super) cookies: Option<super::CallCookies>,
 }
@@ -17,6 +18,7 @@ pub struct CallParameters {
 pub(super) struct OperationMetadata {
     pub(super) operation_id: String,
     pub(super) tags: Option<Vec<String>>,
+    pub(super) summary: Option<String>,
     pub(super) description: Option<String>,
     #[cfg(feature = "redaction")]
     pub(super) response_description: Option<String>,
@@ -31,14 +33,34 @@ impl CallParameters {
     ) -> Self {
         Self {
             query,
+            querystring: None,
             headers,
             cookies,
         }
     }
 
-    /// Collects all schemas from query, headers, and cookies.
+    pub(super) fn with_querystring(mut self, querystring: Option<super::CallQueryString>) -> Self {
+        self.querystring = querystring;
+        self
+    }
+
+    /// Builds the encoded query string sent with the request.
+    pub(super) fn to_query_string(&self) -> Result<Option<String>, super::ApiClientError> {
+        match (&self.querystring, self.query.is_empty()) {
+            (Some(_), false) => Err(super::ApiClientError::ConflictingQueryParameters),
+            (Some(querystring), true) => Ok(Some(querystring.encoded().to_owned())),
+            (None, false) => self.query.to_query_string().map(Some),
+            (None, true) => Ok(None),
+        }
+    }
+
+    /// Collects all schemas from query, querystring, headers, and cookies.
     pub(super) fn collect_schemas(&self) -> super::openapi::schema::Schemas {
         let mut schemas = self.query.schemas.clone();
+
+        if let Some(ref querystring) = self.querystring {
+            schemas.merge(querystring.schemas.clone());
+        }
 
         if let Some(ref headers) = self.headers {
             schemas.merge(headers.schemas().clone());
@@ -58,6 +80,10 @@ impl CallParameters {
         // Add query parameters
         if !self.query.is_empty() {
             parameters.extend(self.query.to_parameters());
+        }
+
+        if let Some(ref querystring) = self.querystring {
+            parameters.push(querystring.to_parameter());
         }
 
         // Add header parameters

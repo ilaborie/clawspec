@@ -8,7 +8,8 @@ use tracing::info;
 
 use axum_example::extractors::ExtractorError;
 use axum_example::observations::domain::{
-    LngLat, Observation, PartialObservation, PatchObservation,
+    LngLat, Observation, ObservationEvent, ObservationNames, PartialObservation, PatchObservation,
+    SearchObservations,
 };
 use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 
@@ -38,6 +39,9 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     test_error_cases(&mut app).await?;
     Box::pin(demonstrate_tags_and_metadata(&mut app)).await?;
     demonstrate_security(&mut app).await?;
+    demonstrate_query_search(&mut app).await?;
+    demonstrate_querystring(&mut app).await?;
+    demonstrate_streaming(&mut app).await?;
     // Call redaction demo LAST so its example appears in the generated OpenAPI
     demonstrate_redaction(&mut app).await?;
 
@@ -305,6 +309,83 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument(skip(app))]
+async fn demonstrate_query_search(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating a QUERY search with criteria in the request body");
+
+    let criteria = SearchObservations {
+        name: Some("gull".to_string()),
+        color: None,
+    };
+    let found = app
+        .query("/observations")?
+        .json(&criteria)?
+        .await
+        .context("should search observations with QUERY")?
+        .as_json::<ListObservations>()
+        .await?;
+    anyhow::ensure!(
+        !found.observations.is_empty(),
+        "should find observations matching the criteria"
+    );
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(app))]
+async fn demonstrate_querystring(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating a whole query string described by one type");
+    let names = app
+        .get("/observations/names")?
+        .with_tags(["observations"])
+        .with_summary("List observation names")
+        .with_querystring(&ListOption {
+            offset: 0,
+            limit: 2,
+        })?
+        .await
+        .context("should list observation names")?
+        .as_json::<ObservationNames>()
+        .await?;
+    anyhow::ensure!(names.names.len() <= 2, "should honour the limit");
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(app))]
+async fn demonstrate_streaming(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating an NDJSON export");
+    let exported = app
+        .get("/observations/export")?
+        .with_summary("Export all observations as NDJSON")
+        .await
+        .context("should export observations")?
+        .as_json_sequence::<Observation>()
+        .await?;
+    anyhow::ensure!(!exported.is_empty(), "should export observations");
+
+    info!("Demonstrating a finite server-sent event stream");
+    let events = app
+        .get("/observations/events")?
+        .with_summary("Stream observation events")
+        .await
+        .context("should stream observation events")?
+        .as_sse::<ObservationEvent>()
+        .await?;
+    anyhow::ensure!(
+        events.len() == exported.len(),
+        "should receive one event per observation"
+    );
+    anyhow::ensure!(
+        events
+            .iter()
+            .all(|event| event.event.as_deref() == Some("observation")),
+        "every event should have the observation type"
+    );
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(app))]
 async fn demonstrate_redaction(app: &mut TestApp) -> anyhow::Result<()> {
     info!("Demonstrating redaction feature for stable examples");
 
@@ -361,6 +442,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .post("/observations")?
         .json(&test_observation)?
         .with_tag("observations")
+        .with_summary("Create an observation")
         .with_description("Create a new bird observation with comprehensive metadata")
         .await
         .context("should create observation with tag")?
@@ -372,6 +454,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     let _list_result = app
         .get("/observations")?
         .with_tags(["observations", "listing"])
+        .with_summary("List observations")
         .with_description("Retrieve observations")
         .await
         .context("should list observations with multiple tags")?
@@ -412,6 +495,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
     app.put(path)?
         .json(&updated_observation)?
         .with_tags(["observations", "modification"])
+        .with_summary("Update an observation")
         .with_description("Update an existing observation with new data")
         .await
         .context("should update with modification tags")?
@@ -424,6 +508,7 @@ async fn demonstrate_tags_and_metadata(app: &mut TestApp) -> anyhow::Result<()> 
         .add_param("observation_id", ParamValue::new(created_id));
     app.delete(path)?
         .with_tag("observations")
+        .with_summary("Delete an observation")
         .with_description("Remove observation from the system")
         .await
         .context("should delete demonstration observation")?

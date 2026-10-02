@@ -106,7 +106,7 @@
 //!
 //! ## Parameter Styles
 //!
-//! The library supports OpenAPI 3.1.0 parameter styles. Use [`ParamStyle`] for advanced serialization:
+//! The library supports OpenAPI parameter styles. Use [`ParamStyle`] for advanced serialization:
 //!
 //! ```rust
 //! use clawspec_core::{CallPath, CallQuery, ParamValue, ParamStyle};
@@ -560,8 +560,9 @@ pub mod test_client;
 pub use self::client::{
     ApiCall, ApiClient, ApiClientBuilder, ApiClientError, ApiKeyLocation, Authentication,
     AuthenticationError, CallBody, CallCookies, CallHeaders, CallPath, CallQuery, CallResult,
-    ExpectedStatusCodes, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow, ParamStyle, ParamValue,
-    ParameterValue, RawBody, RawResult, SecureString, SecurityRequirement, SecurityScheme,
+    ExpectedStatusCodes, OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows,
+    OAuth2ImplicitFlow, ParamStyle, ParamValue, ParameterValue, RawBody, RawResult, SecureString,
+    SecurityRequirement, SecurityScheme, SseEvent,
 };
 
 // Re-export external types so users don't need to add these crates to their Cargo.toml.
@@ -575,7 +576,9 @@ pub use self::client::{
 //   use http::StatusCode;
 
 /// OpenAPI types re-exported from utoipa for convenience.
-pub use utoipa::openapi::{Info, InfoBuilder, OpenApi, Paths, Server, ServerBuilder};
+pub use utoipa::openapi::{
+    Info, InfoBuilder, OpenApi, OpenApiVersion, Paths, Server, ServerBuilder, Tag, tag::TagBuilder,
+};
 
 /// The `ToSchema` derive macro for generating OpenAPI schemas.
 /// Types used in JSON request/response bodies should derive this trait.

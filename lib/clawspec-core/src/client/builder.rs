@@ -4,7 +4,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use http::Uri;
 use http::uri::{PathAndQuery, Scheme};
 use indexmap::IndexMap;
-use utoipa::openapi::{Info, Server};
+use utoipa::openapi::{Info, OpenApiVersion, Server, Tag};
 
 use super::openapi::channel::CollectorHandle;
 use super::security::{SecurityRequirement, SecurityScheme};
@@ -21,6 +21,7 @@ use super::{ApiClient, ApiClientError};
 /// - **Host**: 127.0.0.1 (localhost)
 /// - **Port**: 80 (standard HTTP port)
 /// - **Base path**: None (requests go to root path)
+/// - **OpenAPI version**: [`OpenApiVersion::Version32`]
 /// - **OpenAPI info**: None (no metadata)
 /// - **Servers**: Empty list
 ///
@@ -67,8 +68,10 @@ pub struct ApiClientBuilder {
     host: String,
     port: u16,
     base_path: Option<PathAndQuery>,
+    openapi_version: OpenApiVersion,
     info: Option<Info>,
     servers: Vec<Server>,
+    tags: Vec<Tag>,
     authentication: Option<super::Authentication>,
     security_schemes: IndexMap<String, SecurityScheme>,
     default_security: Vec<SecurityRequirement>,
@@ -114,8 +117,10 @@ impl ApiClientBuilder {
             host,
             port,
             base_path,
+            openapi_version,
             info,
             servers,
+            tags,
             authentication,
             security_schemes,
             default_security,
@@ -142,8 +147,10 @@ impl ApiClientBuilder {
             client,
             base_uri,
             base_path,
+            openapi_version,
             info,
             servers,
+            tags,
             collector_handle,
             authentication,
             security_schemes,
@@ -188,6 +195,21 @@ impl ApiClientBuilder {
         Ok(self)
     }
 
+    /// Sets the OpenAPI version of the generated specification.
+    ///
+    /// Defaults to [`OpenApiVersion::Version32`]. Use [`OpenApiVersion::Version31`]
+    /// when the consumers of the specification do not support the latest version yet.
+    /// With [`OpenApiVersion::Version31`], the data that this version cannot carry is
+    /// converted when an equivalent exists (for example a `querystring` parameter becomes
+    /// a form-style `query` parameter), otherwise dropped with a warning (for example a
+    /// server `name` or a tag `kind`).
+    ///
+    /// Warnings are emitted with `tracing`: install a subscriber to see them.
+    pub fn with_openapi_version(mut self, openapi_version: OpenApiVersion) -> Self {
+        self.openapi_version = openapi_version;
+        self
+    }
+
     /// Sets the OpenAPI info metadata (title, version, description, etc.).
     ///
     /// Use [`with_info_simple()`](Self::with_info_simple) for basic cases.
@@ -203,8 +225,68 @@ impl ApiClientBuilder {
     }
 
     /// Adds a server to the OpenAPI specification. Use [`add_server_simple()`](Self::add_server_simple) for convenience.
+    ///
+    /// Use [`ServerBuilder`](crate::ServerBuilder) to set every server field, including its `name`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, ServerBuilder};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .add_server(
+    ///         ServerBuilder::new()
+    ///             .url("https://api.example.com")
+    ///             .name(Some("production"))
+    ///             .description(Some("Production server"))
+    ///             .build(),
+    ///     )
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn add_server(mut self, server: Server) -> Self {
         self.servers.push(server);
+        self
+    }
+
+    /// Declares a tag with its metadata (summary, description, parent, kind, ...).
+    ///
+    /// Tags used by the operations are added automatically. A declared tag replaces
+    /// the automatic tag with the same name, and a declared tag that no operation
+    /// uses is still written in the specification. Tags are sorted by name.
+    ///
+    /// When a tag names a `parent` that is neither declared nor used, a plain tag
+    /// with that name is added and a warning is logged.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use clawspec_core::{ApiClient, TagBuilder};
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ApiClient::builder()
+    ///     .add_tag(
+    ///         TagBuilder::new()
+    ///             .name("users")
+    ///             .summary(Some("Users"))
+    ///             .description(Some("User management"))
+    ///             .kind(Some("nav"))
+    ///             .build(),
+    ///     )
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_tag(mut self, tag: Tag) -> Self {
+        self.tags.push(tag);
+        self
+    }
+
+    /// Declares several tags. See [`add_tag()`](Self::add_tag).
+    pub fn with_tags(mut self, tags: impl IntoIterator<Item = Tag>) -> Self {
+        self.tags.extend(tags);
         self
     }
 
@@ -426,8 +508,10 @@ impl Default for ApiClientBuilder {
             host: IpAddr::V4(Ipv4Addr::LOCALHOST).to_string(),
             port: 80,
             base_path: None,
+            openapi_version: OpenApiVersion::Version32,
             info: None,
             servers: Vec::new(),
+            tags: Vec::new(),
             authentication: None,
             security_schemes: IndexMap::new(),
             default_security: Vec::new(),
@@ -713,12 +797,17 @@ mod tests {
             .build()
             .expect("should build client");
 
-        let scheme = client.security_schemes.get("bearerAuth").unwrap();
+        let scheme = client
+            .security_schemes
+            .get("bearerAuth")
+            .expect("should have bearerAuth scheme");
         assert!(matches!(
             scheme,
             SecurityScheme::Bearer {
                 format: Some(f),
-                description: Some(d)
+                description: Some(d),
+                deprecated: false,
+                ..
             } if f == "JWT" && d == "JWT token from /auth/login"
         ));
     }
@@ -743,5 +832,63 @@ mod tests {
         // Check that default security is present
         let security = openapi.security.expect("should have security");
         assert!(!security.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_generate_latest_openapi_version_by_default() {
+        let mut client = ApiClientBuilder::default()
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        assert_eq!(openapi.openapi, OpenApiVersion::Version32);
+    }
+
+    #[tokio::test]
+    async fn should_generate_configured_openapi_version() {
+        let mut client = ApiClientBuilder::default()
+            .with_openapi_version(OpenApiVersion::Version31)
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        assert_eq!(openapi.openapi, OpenApiVersion::Version31);
+    }
+
+    fn named_server() -> Server {
+        ServerBuilder::new()
+            .url("https://api.example.com")
+            .name(Some("prod"))
+            .build()
+    }
+
+    #[tokio::test]
+    async fn should_keep_server_name_by_default() {
+        let mut client = ApiClientBuilder::default()
+            .add_server(named_server())
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        let servers = openapi.servers.expect("should have servers");
+        assert_eq!(servers[0].name.as_deref(), Some("prod"));
+    }
+
+    #[tokio::test]
+    async fn should_drop_server_name_with_openapi_31() {
+        let mut client = ApiClientBuilder::default()
+            .with_openapi_version(OpenApiVersion::Version31)
+            .add_server(named_server())
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        let servers = openapi.servers.expect("should have servers");
+        assert_eq!(servers[0].url, "https://api.example.com");
+        assert_eq!(servers[0].name, None);
     }
 }

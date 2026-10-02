@@ -16,10 +16,11 @@ Clawspec automatically generates OpenAPI documentation by observing HTTP client 
 - 🔒 **Type Safety** - Leverage Rust's type system for accurate schemas
 - 🚀 **Zero Runtime Overhead** - Documentation generation only runs during tests
 - 🛠️ **Framework Agnostic** - Works with any async HTTP server
-- 📝 **OpenAPI 3.1 Compliant** - Generate standard-compliant specifications
+- 📝 **OpenAPI Compliant** - Generate standard-compliant specifications
 - 🔐 **Authentication Support** - Bearer, Basic, and API Key authentication
 - 🍪 **Cookie Support** - Full cookie parameter handling and documentation
-- 📋 **Parameter Styles** - Complete OpenAPI 3.1.0 parameter style support
+- 📋 **Parameter Styles** - Complete OpenAPI parameter style support
+- 📡 **Streaming Responses** - JSON Lines, NDJSON, JSON text sequences, and server-sent events (finite streams)
 
 ## Quick Start
 
@@ -141,7 +142,7 @@ The main HTTP client that captures request/response schemas:
 - **Flexible parameter handling** (path, query, headers, cookies)
 - **Authentication support** (Bearer, Basic, API Key)
 - **Status code validation** with ranges and specific codes
-- **OpenAPI 3.1.0 parameter styles** support
+- **OpenAPI parameter styles** support
 
 ### TestClient
 
@@ -300,6 +301,27 @@ let response = client
     .with_cookies(cookies)
     .await?;
 ```
+
+Cookies are sent in one `Cookie` header, with array values comma-joined whatever the `ParamValue` style, and documented with `style: cookie` and `explode: false`.
+
+### Whole Query String
+
+Describe the whole query string with one type. It is form-encoded and documented as a single `querystring` parameter:
+
+```rust
+#[derive(Serialize, ToSchema)]
+struct ListOptions {
+    search: Option<String>,
+    limit: Option<u32>,
+}
+
+let response = client
+    .get("/users")?
+    .with_querystring(&ListOptions { search: Some("alice".into()), limit: Some(10) })?
+    .await?;
+```
+
+A call cannot combine `with_query` and `with_querystring`.
 
 ## Integration Examples
 
