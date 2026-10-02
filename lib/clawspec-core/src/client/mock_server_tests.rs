@@ -956,10 +956,9 @@ mod operation_tests {
             .expect("should have POST");
 
         assert!(post_op.request_body.is_some());
-        let request_body = post_op
-            .request_body
-            .as_ref()
-            .expect("should have request body");
+        let Some(utoipa::openapi::RefOr::T(request_body)) = post_op.request_body.as_ref() else {
+            panic!("should have an inline request body");
+        };
         assert!(request_body.content.contains_key("application/json"));
     }
 
@@ -1054,7 +1053,13 @@ mod operation_tests {
             .expect("should have GET");
 
         let params = get_op.parameters.as_ref().expect("should have parameters");
-        let param_names: Vec<_> = params.iter().map(|p| p.name.as_str()).collect();
+        let param_names = params
+            .iter()
+            .filter_map(|param| match param {
+                utoipa::openapi::RefOr::T(param) => Some(param.name.as_str()),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
+            .collect::<Vec<_>>();
         assert!(param_names.contains(&"limit"));
         assert!(param_names.contains(&"offset"));
     }

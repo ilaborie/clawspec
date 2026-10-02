@@ -1,10 +1,10 @@
 use headers::ContentType;
 use indexmap::IndexMap;
 use tracing::error;
-use utoipa::openapi::Content;
 use utoipa::openapi::path::{Operation, Parameter};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::security::SecurityRequirement as UtoipaSecurityRequirement;
+use utoipa::openapi::{Content, RefOr};
 
 use super::collectors::normalize_content_type;
 use super::result::CallResult;
@@ -163,19 +163,20 @@ pub(super) fn merge_operation(
         return None;
     }
 
-    let operation = Operation::builder()
+    let mut operation = Operation::builder()
         .tags(merge_tags(current.tags, new.tags))
         .description(current.description.or(new.description))
         .operation_id(Some(id))
         // external_docs
-        .parameters(merge_parameters(current.parameters, new.parameters))
-        .request_body(merge_request_body(current.request_body, new.request_body))
         .deprecated(current.deprecated.or(new.deprecated))
         .securities(merge_security(current.security, new.security))
         // TODO servers - https://github.com/ilaborie/clawspec/issues/23
         // extension
-        .responses(merge_responses(current.responses, new.responses));
-    Some(operation.build())
+        .responses(merge_responses(current.responses, new.responses))
+        .build();
+    operation.parameters = merge_parameters(current.parameters, new.parameters);
+    operation.request_body = merge_request_body(current.request_body, new.request_body);
+    Some(operation)
 }
 
 /// Merges two OpenAPI request bodies, combining their content types and metadata.
@@ -203,7 +204,8 @@ pub(super) fn merge_operation(
 ///
 /// # Returns
 ///
-/// `Some(RequestBody)` with merged content, or `None` if both are None
+/// `Some(RequestBody)` with merged content, or `None` if both are None.
+/// A `$ref` request body is not merged: the current one wins, else the new one.
 ///
 /// # Example
 ///
@@ -213,30 +215,17 @@ pub(super) fn merge_operation(
 /// // Result: POST /users accepts both JSON and form data
 /// ```
 fn merge_request_body(
-    current: Option<RequestBody>,
-    new: Option<RequestBody>,
-) -> Option<RequestBody> {
+    current: Option<RefOr<RequestBody>>,
+    new: Option<RefOr<RequestBody>>,
+) -> Option<RefOr<RequestBody>> {
     match (current, new) {
-        (Some(current), Some(new)) => {
-            // Optimized: Avoid cloning content by moving and extending
-            let mut merged_content = current.content;
-            merged_content.extend(new.content);
-
-            let mut merged_builder = RequestBody::builder();
-            for (content_type, content) in merged_content {
-                merged_builder = merged_builder.content(content_type, content);
-            }
-
-            let merged = merged_builder
-                .description(current.description.or(new.description))
-                .required(current.required.or(new.required))
-                .build();
-
-            Some(merged)
+        (Some(RefOr::T(mut current)), Some(RefOr::T(new))) => {
+            current.content.extend(new.content);
+            current.description = current.description.or(new.description);
+            current.required = current.required.or(new.required);
+            Some(RefOr::T(current))
         }
-        (Some(current), None) => Some(current),
-        (None, Some(new)) => Some(new),
-        (None, None) => None,
+        (current, new) => current.or(new),
     }
 }
 
@@ -286,7 +275,7 @@ fn merge_security(
 ///
 /// # Merge Strategy
 ///
-/// - **Parameter Identity**: Parameters are identified by name
+/// - **Parameter Identity**: Parameters are identified by name, `$ref` parameters by location
 /// - **New Parameters**: Added to the result if not already present
 /// - **Existing Parameters**: Preserved (current parameter wins over new)
 /// - **Parameter Order**: Determined by insertion order in IndexMap
@@ -303,7 +292,7 @@ fn merge_security(
 ///
 /// # Returns
 ///
-/// `Some(Vec<Parameter>)` with merged parameters, or `Some(empty_vec)` if both are None
+/// `Some(Vec<RefOr<Parameter>>)` with merged parameters, or `Some(empty_vec)` if both are None
 ///
 /// # Example
 ///
@@ -313,20 +302,28 @@ fn merge_security(
 /// // Result: GET /users supports limit, offset, and sort parameters
 /// ```
 fn merge_parameters(
-    current: Option<Vec<Parameter>>,
-    new: Option<Vec<Parameter>>,
-) -> Option<Vec<Parameter>> {
+    current: Option<Vec<RefOr<Parameter>>>,
+    new: Option<Vec<RefOr<Parameter>>>,
+) -> Option<Vec<RefOr<Parameter>>> {
     let mut result = IndexMap::new();
-    // Optimized: Avoid cloning parameter names by using references for lookup
     for param in new.unwrap_or_default() {
-        result.insert(param.name.clone(), param);
+        result.insert(parameter_key(&param).to_owned(), param);
     }
     for param in current.unwrap_or_default() {
-        result.entry(param.name.clone()).or_insert(param);
+        result
+            .entry(parameter_key(&param).to_owned())
+            .or_insert(param);
     }
 
     let result = result.into_values().collect();
     Some(result)
+}
+
+fn parameter_key(param: &RefOr<Parameter>) -> &str {
+    match param {
+        RefOr::T(param) => &param.name,
+        RefOr::Ref(reference) => &reference.ref_location,
+    }
 }
 
 fn merge_responses(

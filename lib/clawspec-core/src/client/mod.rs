@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::mem;
 
 use http::{Method, Uri};
-use utoipa::openapi::{Components, Info, OpenApi, Paths, Server, Tag};
+use utoipa::openapi::{Components, Info, OpenApi, OpenApiVersion, Paths, Server, Tag};
 
 mod builder;
 use crate::client::openapi::channel::{CollectorHandle, CollectorMessage};
@@ -97,6 +97,7 @@ pub struct ApiClient {
     client: reqwest::Client,
     base_uri: Uri,
     base_path: String,
+    openapi_version: OpenApiVersion,
     info: Option<Info>,
     servers: Vec<Server>,
     collector_handle: CollectorHandle,
@@ -128,7 +129,7 @@ impl ApiClient {
     /// Generates a complete OpenAPI specification from collected request/response data.
     ///
     /// This method aggregates all the information collected during API calls and produces
-    /// a comprehensive OpenAPI 3.1 specification including paths, components, schemas,
+    /// a comprehensive OpenAPI specification including paths, components, schemas,
     /// operation metadata, and server information.
     ///
     /// # Features
@@ -202,7 +203,7 @@ impl ApiClient {
     /// - Schema processing is cached to avoid redundant work
     /// - Tags are computed on-demand from operation metadata
     pub async fn collected_openapi(&mut self) -> OpenApi {
-        let mut builder = OpenApi::builder();
+        let mut builder = OpenApi::builder().openapi(self.openapi_version.clone());
 
         // Add API info if configured
         if let Some(ref info) = self.info {

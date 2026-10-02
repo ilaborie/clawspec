@@ -25,7 +25,7 @@ use crate::client::openapi::schema::Schemas;
 /// # OpenAPI Integration
 ///
 /// Cookies are automatically documented in the OpenAPI specification with `in: cookie` parameter type.
-/// This follows the OpenAPI 3.1.0 specification for cookie parameters.
+/// This follows the OpenAPI specification for cookie parameters.
 #[derive(Debug, Clone, Default)]
 pub struct CallCookies {
     cookies: IndexMap<String, ResolvedParamValue>,
@@ -160,13 +160,13 @@ impl CallCookies {
 
     /// Converts cookies to OpenAPI Parameter objects.
     ///
-    /// According to the OpenAPI 3.1.0 specification, cookies are represented as parameters
+    /// According to the OpenAPI specification, cookies are represented as parameters
     /// with `in: cookie`. This method generates the appropriate Parameter objects for
     /// inclusion in the OpenAPI specification.
     ///
     /// # OpenAPI Specification
     ///
-    /// From the OpenAPI 3.1.0 specification:
+    /// From the OpenAPI specification:
     /// - Parameter location: `in: cookie`
     /// - Cookies are typically optional parameters
     /// - Cookie values are serialized as simple strings

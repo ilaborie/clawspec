@@ -7,11 +7,11 @@ use super::{ParamStyle, ParamValue};
 use crate::client::error::ApiClientError;
 use crate::client::openapi::schema::Schemas;
 
-/// A collection of query parameters for HTTP requests with OpenAPI 3.1 support.
+/// A collection of query parameters for HTTP requests with OpenAPI support.
 ///
 /// `CallQuery` provides a type-safe way to build and serialize query parameters
 /// for HTTP requests. It supports different parameter styles as defined by the
-/// OpenAPI 3.1 specification and automatically generates OpenAPI parameter schemas.
+/// OpenAPI specification and automatically generates OpenAPI parameter schemas.
 ///
 /// # Examples
 ///

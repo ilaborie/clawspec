@@ -16,10 +16,10 @@ Clawspec automatically generates OpenAPI documentation by observing HTTP client 
 - 🔒 **Type Safety** - Leverage Rust's type system for accurate schemas
 - 🚀 **Zero Runtime Overhead** - Documentation generation only runs during tests
 - 🛠️ **Framework Agnostic** - Works with any async HTTP server
-- 📝 **OpenAPI 3.1 Compliant** - Generate standard-compliant specifications
+- 📝 **OpenAPI Compliant** - Generate standard-compliant specifications
 - 🔐 **Authentication Support** - Bearer, Basic, and API Key authentication
 - 🍪 **Cookie Support** - Full cookie parameter handling and documentation
-- 📋 **Parameter Styles** - Complete OpenAPI 3.1.0 parameter style support
+- 📋 **Parameter Styles** - Complete OpenAPI parameter style support
 
 ## Quick Start
 
@@ -141,7 +141,7 @@ The main HTTP client that captures request/response schemas:
 - **Flexible parameter handling** (path, query, headers, cookies)
 - **Authentication support** (Bearer, Basic, API Key)
 - **Status code validation** with ranges and specific codes
-- **OpenAPI 3.1.0 parameter styles** support
+- **OpenAPI parameter styles** support
 
 ### TestClient
 

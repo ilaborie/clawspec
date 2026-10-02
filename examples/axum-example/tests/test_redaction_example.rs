@@ -97,6 +97,7 @@ async fn test_redacted_example_appears_in_openapi_response(
     let json_content = response
         .content
         .get("application/json")
+        .map(common::inline)
         .expect("should have application/json content");
 
     // Verify that the example contains the redacted values
@@ -302,6 +303,7 @@ async fn test_wildcard_redaction_in_array(#[future] app: TestApp) -> anyhow::Res
     let json_content = response
         .content
         .get("application/json")
+        .map(common::inline)
         .expect("should have application/json content");
 
     // Verify the example exists and contains redacted values
@@ -449,6 +451,7 @@ async fn test_closure_based_redaction_with_index(#[future] app: TestApp) -> anyh
     let json_content = response
         .content
         .get("application/json")
+        .map(common::inline)
         .expect("should have application/json content");
 
     // Verify the example exists and contains closure-generated values
@@ -534,6 +537,7 @@ async fn test_non_redacted_response_has_no_example(#[future] app: TestApp) -> an
     let json_content = response
         .content
         .get("application/json")
+        .map(common::inline)
         .expect("should have application/json content");
 
     // Non-redacted responses should NOT have an example

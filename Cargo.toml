@@ -18,7 +18,7 @@ serde-saphyr =  "1.0.1"
 encoding_rs_io = "0.1.2"
 serde_urlencoded = "0.7.1"
 
-utoipa = "5.5.0"
+utoipa = "6.0.0"
 
 tokio = "1.53.1"
 axum = "0.8.9"

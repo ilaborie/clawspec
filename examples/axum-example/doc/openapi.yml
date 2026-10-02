@@ -1,4 +1,4 @@
-openapi: 3.1.0
+openapi: 3.2.0
 info:
   title: Bird Observation API
   description: A comprehensive API for managing bird observations with support for multiple content types, file uploads, and bulk operations. This API demonstrates RESTful design patterns and provides comprehensive CRUD operations for bird observation data.
@@ -590,8 +590,8 @@ components:
           - 'null'
         position:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/LngLat'
+          - type: 'null'
     TestClientError:
       type: object
       required:

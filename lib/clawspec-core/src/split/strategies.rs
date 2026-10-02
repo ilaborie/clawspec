@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use utoipa::openapi::path::{Operation, PathItem};
-use utoipa::openapi::{Components, OpenApi, Ref, RefOr};
+use utoipa::openapi::path::{Operation, Parameter, PathItem};
+use utoipa::openapi::{Components, Content, OpenApi, Ref, RefOr};
 
 use super::{Fragment, OpenApiSplitter, SplitResult};
 
@@ -86,9 +86,13 @@ impl SplitSchemasByTag {
                 }
 
                 // Collect schema references from request body
-                if let Some(ref request_body) = operation.request_body {
+                if let Some(RefOr::T(ref request_body)) = operation.request_body {
                     for content in request_body.content.values() {
-                        if let Some(ref schema) = content.schema {
+                        if let RefOr::T(Content {
+                            schema: Some(ref schema),
+                            ..
+                        }) = *content
+                        {
                             self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
                         }
                     }
@@ -98,7 +102,11 @@ impl SplitSchemasByTag {
                 for response in operation.responses.responses.values() {
                     if let RefOr::T(resp) = response {
                         for content in resp.content.values() {
-                            if let Some(ref schema) = content.schema {
+                            if let RefOr::T(Content {
+                                schema: Some(ref schema),
+                                ..
+                            }) = *content
+                            {
                                 self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
                             }
                         }
@@ -108,7 +116,11 @@ impl SplitSchemasByTag {
                 // Collect schema references from parameters
                 if let Some(ref parameters) = operation.parameters {
                     for param in parameters {
-                        if let Some(ref schema) = param.schema {
+                        if let RefOr::T(Parameter {
+                            schema: Some(ref schema),
+                            ..
+                        }) = *param
+                        {
                             self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
                         }
                     }
@@ -805,12 +817,12 @@ mod tests {
         let mut security_schemes = BTreeMap::new();
         security_schemes.insert(
             "bearer_auth".to_string(),
-            SecurityScheme::Http(
+            RefOr::T(SecurityScheme::Http(
                 HttpBuilder::new()
                     .scheme(HttpAuthScheme::Bearer)
                     .bearer_format("JWT")
                     .build(),
-            ),
+            )),
         );
 
         if let Some(ref mut components) = spec_with_security.components {
