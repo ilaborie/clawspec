@@ -659,7 +659,7 @@ where
     /// - Status codes and error responses
     /// - Server information and metadata
     ///
-    /// The specification follows OpenAPI 3.1 format and can be used with various
+    /// The specification follows the OpenAPI format and can be used with various
     /// tools for documentation generation, client generation, and API validation.
     pub async fn write_openapi(mut self, path: impl AsRef<Path>) -> Result<(), TestAppError> {
         let path = path.as_ref();

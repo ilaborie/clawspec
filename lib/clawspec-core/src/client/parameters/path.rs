@@ -34,7 +34,7 @@ fn encode_path_param_value(value: &str) -> String {
 /// A parameterized HTTP path with type-safe parameter substitution.
 ///
 /// `CallPath` represents an HTTP path template with named parameters that can be
-/// substituted with typed values. It supports OpenAPI 3.1 parameter styles and
+/// substituted with typed values. It supports OpenAPI parameter styles and
 /// automatic schema generation.
 ///
 /// # Examples
@@ -294,6 +294,7 @@ mod tests {
                                 extensions: None,
                                 content_encoding: "",
                                 content_media_type: "",
+                                content_schema: None,
                             },
                         ),
                     ),

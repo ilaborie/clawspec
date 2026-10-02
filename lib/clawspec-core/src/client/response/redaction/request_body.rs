@@ -666,8 +666,13 @@ mod tests {
             "GET" => path_item.get.as_ref(),
             _ => None,
         }?;
-        let request_body = operation.request_body.as_ref()?;
-        let content = request_body.content.get("application/json")?;
+        let utoipa::openapi::RefOr::T(request_body) = operation.request_body.as_ref()? else {
+            return None;
+        };
+        let utoipa::openapi::RefOr::T(content) = request_body.content.get("application/json")?
+        else {
+            return None;
+        };
         content.example.clone()
     }
 

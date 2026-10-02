@@ -91,12 +91,12 @@ impl<T: Serialize> Fragment<T> {
 ///
 /// // Write fragments to files
 /// for fragment in &result.fragments {
-///     let yaml = serde_yaml::to_string(&fragment.content)?;
+///     let yaml = fragment.to_yaml()?;
 ///     std::fs::write(&fragment.path, yaml)?;
 /// }
 ///
 /// // Write main spec
-/// let main_yaml = serde_yaml::to_string(&result.main)?;
+/// let main_yaml = result.main_to_yaml()?;
 /// std::fs::write("openapi.yaml", main_yaml)?;
 /// ```
 #[derive(Debug, Clone)]

@@ -106,7 +106,7 @@
 //!
 //! ## Parameter Styles
 //!
-//! The library supports OpenAPI 3.1.0 parameter styles. Use [`ParamStyle`] for advanced serialization:
+//! The library supports OpenAPI parameter styles. Use [`ParamStyle`] for advanced serialization:
 //!
 //! ```rust
 //! use clawspec_core::{CallPath, CallQuery, ParamValue, ParamStyle};
@@ -575,7 +575,9 @@ pub use self::client::{
 //   use http::StatusCode;
 
 /// OpenAPI types re-exported from utoipa for convenience.
-pub use utoipa::openapi::{Info, InfoBuilder, OpenApi, Paths, Server, ServerBuilder};
+pub use utoipa::openapi::{
+    Info, InfoBuilder, OpenApi, OpenApiVersion, Paths, Server, ServerBuilder,
+};
 
 /// The `ToSchema` derive macro for generating OpenAPI schemas.
 /// Types used in JSON request/response bodies should derive this trait.
