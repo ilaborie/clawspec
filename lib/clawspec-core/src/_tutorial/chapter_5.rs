@@ -54,8 +54,9 @@
 //! ```
 //!
 //! A declared tag replaces the automatic tag with the same name, and stays in the
-//! specification even when no operation uses it. A `parent` that is not declared
-//! is added as a plain tag. Tags are sorted by name.
+//! specification even when no operation uses it. A parent that is neither declared
+//! nor used by an operation is added as a plain tag, with a warning. Tags are sorted
+//! by name.
 //!
 //! ## Operation Summaries and Descriptions
 //!
@@ -105,6 +106,27 @@
 //! # #[cfg(not(feature = "redaction"))]
 //! # fn main() {}
 //! ```
+//!
+//! ## OpenAPI Version
+//!
+//! The generated specification targets the latest OpenAPI version by default.
+//! Select the previous version when the consumers of the specification do not support
+//! the latest one yet:
+//!
+//! ```rust,no_run
+//! use clawspec_core::{ApiClient, OpenApiVersion};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let client = ApiClient::builder()
+//!     .with_openapi_version(OpenApiVersion::Version31)
+//!     .build()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The data that the previous version cannot carry is converted when an equivalent
+//! exists, otherwise dropped with a warning. Warnings are emitted with `tracing`:
+//! install a subscriber (for example `tracing-subscriber`) in your tests to see them.
 //!
 //! ## API Info Configuration
 //!

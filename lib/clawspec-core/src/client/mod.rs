@@ -360,7 +360,7 @@ impl ApiClient {
     /// Creates a `QUERY` call: a safe, idempotent request that carries its criteria in the body.
     ///
     /// The operation is documented under the path item `query` field.
-    /// Use [`ApiClient::call`] for any other method, a custom method is documented
+    /// Use [`ApiClient::call`] for any other method: a custom method is documented
     /// under `additionalOperations` with its name in uppercase.
     ///
     /// # Example

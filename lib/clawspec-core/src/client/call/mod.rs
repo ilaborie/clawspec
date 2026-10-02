@@ -45,6 +45,7 @@ mod tests;
 /// ## OpenAPI Metadata
 /// - [`with_operation_id(id)`](Self::with_operation_id) - Set operation ID
 /// - [`with_tags(tags)`](Self::with_tags) - Set operation tags (or use automatic tagging)
+/// - [`with_summary(summary)`](Self::with_summary) - Set operation summary
 /// - [`with_description(desc)`](Self::with_description) - Set operation description (or use automatic description)
 ///
 /// ## Response Descriptions (requires `redaction` feature)

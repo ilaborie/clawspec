@@ -199,8 +199,12 @@ impl ApiClientBuilder {
     ///
     /// Defaults to [`OpenApiVersion::Version32`]. Use [`OpenApiVersion::Version31`]
     /// when the consumers of the specification do not support the latest version yet.
-    /// With [`OpenApiVersion::Version31`], the data that this version cannot carry
-    /// (for example a server `name` or a tag `kind`) is dropped with a warning.
+    /// With [`OpenApiVersion::Version31`], the data that this version cannot carry is
+    /// converted when an equivalent exists (for example a `querystring` parameter becomes
+    /// a form-style `query` parameter), otherwise dropped with a warning (for example a
+    /// server `name` or a tag `kind`).
+    ///
+    /// Warnings are emitted with `tracing`: install a subscriber to see them.
     pub fn with_openapi_version(mut self, openapi_version: OpenApiVersion) -> Self {
         self.openapi_version = openapi_version;
         self
