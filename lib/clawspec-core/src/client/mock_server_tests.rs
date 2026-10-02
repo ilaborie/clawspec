@@ -1616,47 +1616,38 @@ mod security_tests {
 
         let uri: http::Uri = mock_server.uri().parse().expect("valid URI");
 
-        let flows = OAuth2Flows {
-            authorization_code: Some(OAuth2Flow {
-                authorization_url: Some("https://auth.example.com/authorize".to_string()),
-                token_url: "https://auth.example.com/token".to_string(),
-                refresh_url: Some("https://auth.example.com/refresh".to_string()),
-                scopes: [("read".to_string(), "Read access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-            client_credentials: Some(OAuth2Flow {
-                authorization_url: None,
-                token_url: "https://auth.example.com/token".to_string(),
-                refresh_url: None,
-                scopes: [("api".to_string(), "API access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-            implicit: Some(OAuth2ImplicitFlow {
-                authorization_url: "https://auth.example.com/authorize".to_string(),
-                refresh_url: Some("https://auth.example.com/refresh".to_string()),
-                scopes: [("implicit".to_string(), "Implicit access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-            password: Some(OAuth2Flow {
-                authorization_url: None,
-                token_url: "https://auth.example.com/token".to_string(),
-                refresh_url: Some("https://auth.example.com/refresh".to_string()),
-                scopes: [("password".to_string(), "Password access".to_string())]
-                    .into_iter()
-                    .collect(),
-            }),
-            device_authorization: Some(
+        let flows = OAuth2Flows::default()
+            .with_authorization_code(
+                OAuth2Flow::new("https://auth.example.com/token", [("read", "Read access")])
+                    .with_authorization_url("https://auth.example.com/authorize")
+                    .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_client_credentials(OAuth2Flow::new(
+                "https://auth.example.com/token",
+                [("api", "API access")],
+            ))
+            .with_implicit(
+                OAuth2ImplicitFlow::new(
+                    "https://auth.example.com/authorize",
+                    [("implicit", "Implicit access")],
+                )
+                .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_password(
+                OAuth2Flow::new(
+                    "https://auth.example.com/token",
+                    [("password", "Password access")],
+                )
+                .with_refresh_url("https://auth.example.com/refresh"),
+            )
+            .with_device_authorization(
                 OAuth2DeviceAuthorizationFlow::new(
                     "https://auth.example.com/device",
                     "https://auth.example.com/token",
                     [("device", "Device access")],
                 )
                 .with_refresh_url("https://auth.example.com/refresh"),
-            ),
-        };
+            );
 
         let mut client = ApiClient::builder()
             .with_host(uri.host().expect("should have host"))

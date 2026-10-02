@@ -803,6 +803,7 @@ mod tests {
                 format: Some(f),
                 description: Some(d),
                 deprecated: false,
+                ..
             } if f == "JWT" && d == "JWT token from /auth/login"
         ));
     }
