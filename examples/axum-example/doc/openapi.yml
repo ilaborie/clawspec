@@ -211,6 +211,22 @@ paths:
                   retry:
                     type: integer
                     minimum: 0
+              examples:
+                first-items:
+                  summary: First items of the stream
+                  serializedValue: |+
+                    event: observation
+                    id: 019aaaaa-0000-7000-8000-000000000113
+                    data: {"observation_id":"019aaaaa-0000-7000-8000-000000000113","name":"Admiral, indian red"}
+
+                    event: observation
+                    id: 019aaaaa-0000-7000-8000-000000000238
+                    data: {"observation_id":"019aaaaa-0000-7000-8000-000000000238","name":"African buffalo"}
+
+                    event: observation
+                    id: 019aaaaa-0000-7000-8000-000000000645
+                    data: {"observation_id":"019aaaaa-0000-7000-8000-000000000645","name":"African bush squirrel"}
+
       security:
       - bearerAuth: []
   /api/observations/export:
@@ -229,6 +245,13 @@ paths:
             application/x-ndjson:
               itemSchema:
                 $ref: '#/components/schemas/Observation'
+              examples:
+                first-items:
+                  summary: First items of the stream
+                  serializedValue: |
+                    {"id":"019aaaaa-0000-7000-8000-000000000113","created_at":"2024-01-01T00:00:00Z","name":"Admiral, indian red","position":{"lng":-74.4088,"lat":6.477755},"color":"#52adeb","notes":"Phasellus sit amet erat. Nulla tempus. Vivamus in felis eu sapien cursus vestibulum.\n\nProin eu mi. Nulla ac enim. In tempor, turpis nec euismod scelerisque, quam turpis adipiscing lorem, vitae mattis nibh ligula nec sem."}
+                    {"id":"019aaaaa-0000-7000-8000-000000000238","created_at":"2024-01-14T00:00:00Z","name":"African buffalo","position":{"lng":108.7231,"lat":-7.1554},"color":"#7426bf","notes":"Integer tincidunt ante vel ipsum. Praesent blandit lacinia erat. Vestibulum sed magna at nunc commodo placerat.\n\nPraesent blandit. Nam nulla. Integer pede justo, lacinia eget, tincidunt eget, tempus vel, pede.\n\nMorbi porttitor lorem id ligula. Suspendisse ornare consequat lectus. In est risus, auctor sed, tristique in, tempus sit amet, sem."}
+                    {"id":"019aaaaa-0000-7000-8000-000000000645","created_at":"2024-01-01T00:00:00Z","name":"African bush squirrel","position":{"lng":-1.0634024,"lat":11.66503},"color":"#be6b0a","notes":"In congue. Etiam justo. Etiam pretium iaculis justo."}
       security:
       - bearerAuth: []
   /api/observations/import:

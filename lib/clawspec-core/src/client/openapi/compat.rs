@@ -1,6 +1,9 @@
 //! Compatibility pass that strips data the older OpenAPI output cannot carry.
 
+use std::collections::BTreeMap;
+
 use tracing::{debug, warn};
+use utoipa::openapi::example::Example;
 use utoipa::openapi::path::{Operation, Parameter, ParameterIn, ParameterStyle, PathItem};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::response::Response;
@@ -63,6 +66,7 @@ pub(in crate::client) fn downgrade_to_31(openapi: &mut OpenApi) {
         }
         drop_parameters_item_fields(components.parameters.values_mut(), "components.parameters");
         drop_headers_item_fields(&mut components.headers, "components.headers");
+        downgrade_examples(&mut components.examples, "components.examples");
         if !std::mem::take(&mut components.media_types).is_empty() {
             warn!(
                 location = "components",
@@ -276,7 +280,9 @@ fn drop_headers_item_fields<'a>(
 ) {
     for (name, header) in headers {
         if let RefOr::T(header) = header {
-            drop_content_item_fields(&mut header.content, &format!("{location}.{name}"));
+            let location = format!("{location}.{name}");
+            drop_content_item_fields(&mut header.content, &location);
+            downgrade_examples(&mut header.examples, &format!("{location}.examples"));
         }
     }
 }
@@ -293,8 +299,31 @@ fn drop_content_item_fields<'a>(
             if !std::mem::take(&mut content.prefix_encoding).is_empty() {
                 warn!(%location, field = "prefixEncoding", "dropping field not supported by OpenAPI 3.1");
             }
+            downgrade_examples(&mut content.examples, &format!("{location}.examples"));
         }
     }
+}
+
+fn downgrade_examples(examples: &mut BTreeMap<String, RefOr<Example>>, location: &str) {
+    for (name, example) in examples {
+        if let RefOr::T(example) = example {
+            downgrade_example(example, &format!("{location}.{name}"));
+        }
+    }
+}
+
+fn downgrade_example(example: &mut Example, location: &str) {
+    if example.value.is_none() {
+        if let Some(data_value) = example.data_value.take() {
+            debug!(%location, "moving example dataValue into value");
+            example.value = Some(data_value);
+        } else if let Some(serialized_value) = example.serialized_value.take() {
+            debug!(%location, "moving example serializedValue into value as a string");
+            example.value = Some(serde_json::Value::String(serialized_value));
+        }
+    }
+    drop_field(&mut example.data_value, location, "dataValue");
+    drop_field(&mut example.serialized_value, location, "serializedValue");
 }
 
 fn remove_empty_path_items(paths: &mut Paths) {
@@ -311,6 +340,7 @@ fn remove_empty_path_items(paths: &mut Paths) {
 mod tests {
     use insta::assert_snapshot;
     use utoipa::openapi::encoding::Encoding;
+    use utoipa::openapi::example::ExampleBuilder;
     use utoipa::openapi::path::{
         HttpMethod, OperationBuilder, ParameterBuilder, ParameterIn, PathItemBuilder,
     };
@@ -691,6 +721,75 @@ mod tests {
               description: Stream
               content:
                 application/x-ndjson: {}
+        "#);
+    }
+
+    #[test]
+    fn should_move_example_data_into_value() {
+        let example = |data_value: Option<serde_json::Value>, serialized_value: Option<&str>| {
+            ExampleBuilder::new()
+                .data_value(data_value)
+                .serialized_value(serialized_value)
+        };
+        let content = Content::builder()
+            .examples_from_iter([
+                (
+                    "serialized",
+                    example(None, Some("{\"id\":1}\n{\"id\":2}\n")),
+                ),
+                (
+                    "both",
+                    example(Some(serde_json::json!({"id": 1})), Some("{\"id\":1}")),
+                ),
+            ])
+            .build();
+        let operation = OperationBuilder::new()
+            .response(
+                "200",
+                ResponseBuilder::new()
+                    .description("Items")
+                    .content("application/jsonl", content),
+            )
+            .build();
+        let mut openapi = openapi(
+            PathsBuilder::new()
+                .path("/items", PathItem::new(HttpMethod::Get, operation))
+                .build(),
+        );
+        openapi.components = Some(
+            ComponentsBuilder::new()
+                .example("Shared", example(None, Some("data: 1\n\n")))
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r#"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths:
+          /items:
+            get:
+              responses:
+                "200":
+                  description: Items
+                  content:
+                    application/jsonl:
+                      examples:
+                        both:
+                          value:
+                            id: 1
+                        serialized:
+                          value: |
+                            {"id":1}
+                            {"id":2}
+        components:
+          examples:
+            Shared:
+              value: |+
+                data: 1
         "#);
     }
 
