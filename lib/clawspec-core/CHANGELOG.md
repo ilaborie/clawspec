@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.4...clawspec-core-v0.5.0) - 2026-10-02
+
+### Added
+
+- *(clawspec-core)* [**breaking**] support utoipa 6 and generate OpenAPI 3.2 by default ([#172](https://github.com/ilaborie/clawspec/pull/172))
+
+### Other
+
+- *(deps)* bump serde-saphyr to 1.0, base64 to 0.23, jsonptr to 0.8 ([#161](https://github.com/ilaborie/clawspec/pull/161))
+
 ## [0.4.4](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.3...clawspec-core-v0.4.4) - 2026-07-18
 
 ### Added
