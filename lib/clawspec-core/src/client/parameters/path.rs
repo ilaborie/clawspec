@@ -34,7 +34,7 @@ fn encode_path_param_value(value: &str) -> String {
 /// A parameterized HTTP path with type-safe parameter substitution.
 ///
 /// `CallPath` represents an HTTP path template with named parameters that can be
-/// substituted with typed values. It supports OpenAPI 3.1 parameter styles and
+/// substituted with typed values. It supports OpenAPI parameter styles and
 /// automatic schema generation.
 ///
 /// # Examples
@@ -254,58 +254,21 @@ mod tests {
         let path =
             CallPath::from("/breed/{breed}/images").add_param("breed", ParamValue::new("hound"));
 
-        insta::assert_debug_snapshot!(path, @r#"
-        CallPath {
-            path: "/breed/{breed}/images",
-            args: {
-                "breed": ResolvedParamValue {
-                    value: String("hound"),
-                    schema: T(
-                        Object(
-                            Object {
-                                schema_type: Type(
-                                    String,
-                                ),
-                                title: None,
-                                format: None,
-                                description: None,
-                                default: None,
-                                enum_values: None,
-                                required: [],
-                                properties: {},
-                                additional_properties: None,
-                                property_names: None,
-                                deprecated: None,
-                                example: None,
-                                examples: [],
-                                write_only: None,
-                                read_only: None,
-                                xml: None,
-                                multiple_of: None,
-                                maximum: None,
-                                minimum: None,
-                                exclusive_maximum: None,
-                                exclusive_minimum: None,
-                                max_length: None,
-                                min_length: None,
-                                pattern: None,
-                                max_properties: None,
-                                min_properties: None,
-                                extensions: None,
-                                content_encoding: "",
-                                content_media_type: "",
-                            },
-                        ),
-                    ),
-                    style: Default,
-                },
-            },
-            schemas: Schemas(
-                [
-                    "&str",
-                ],
-            ),
-        }
+        assert_eq!(path.path, "/breed/{breed}/images");
+        let breed = path
+            .args
+            .get("breed")
+            .expect("should have the breed argument");
+        assert_eq!(breed.value, serde_json::json!("hound"));
+        assert_eq!(breed.style, ParamStyle::Default);
+        let yaml = serde_saphyr::to_string(&breed.schema).expect("should serialize to YAML");
+        insta::assert_snapshot!(yaml, @"type: string");
+        insta::assert_debug_snapshot!(path.schemas, @r#"
+        Schemas(
+            [
+                "&str",
+            ],
+        )
         "#);
 
         let path_resolved = PathResolved::try_from(path).expect("full resolve");

@@ -243,7 +243,7 @@
 //! let spec = client.collected_openapi().await;
 //! println!("{}", spec.to_pretty_json()?);
 //!
-//! // Or output as YAML (requires "yaml" feature, see Chapter 1)
+//! // Or output as YAML (see Chapter 1)
 //! // use clawspec_core::ToYaml;
 //! // println!("{}", spec.to_yaml()?);
 //! # Ok(())
@@ -258,7 +258,7 @@
 //! - Use `.with_description()` to document operations
 //! - Configure API info and servers at the client builder level
 //! - Use `register_schemas!` for nested or error schemas
-//! - For YAML output, enable the `yaml` feature (see [Chapter 1][super::chapter_1])
+//! - For YAML output, use the `ToYaml` trait (see [Chapter 1][super::chapter_1])
 //!
 //! Next: [Chapter 6: Redaction][super::chapter_6] - Creating stable examples with
 //! dynamic value redaction.

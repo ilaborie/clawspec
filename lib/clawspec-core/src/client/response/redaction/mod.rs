@@ -1010,10 +1010,18 @@ mod tests {
             _ => None,
         }?;
         let response = operation.responses.responses.get(status_code)?;
-        let utoipa::openapi::RefOr::T(response) = response else {
-            return None;
+        let response = match response {
+            utoipa::openapi::RefOr::T(response) => response,
+            utoipa::openapi::RefOr::Ref(reference) => {
+                panic!("unexpected $ref response: {}", reference.ref_location)
+            }
         };
-        let content = response.content.get("application/json")?;
+        let content = match response.content.get("application/json")? {
+            utoipa::openapi::RefOr::T(content) => content,
+            utoipa::openapi::RefOr::Ref(reference) => {
+                panic!("unexpected $ref content: {}", reference.ref_location)
+            }
+        };
         content.example.clone()
     }
 

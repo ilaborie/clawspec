@@ -1,4 +1,5 @@
 use std::any::{TypeId, type_name};
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
@@ -17,6 +18,39 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     ])
 });
 
+/// Provides the OpenAPI schemas of a type to the schema collection.
+///
+/// Every schema collected by the client goes through this trait. It is implemented
+/// for every `ToSchema` type.
+// TODO: Support schemars as an alternative schema provider - https://github.com/ilaborie/clawspec/issues/143
+pub(crate) trait SchemaSource: 'static {
+    /// The schema name, used as the component key for non-primitive types.
+    fn schema_name() -> Cow<'static, str>;
+
+    /// The schema of the type itself.
+    fn root_schema() -> RefOr<Schema>;
+
+    /// Appends the `(name, schema)` pairs reachable from the type's fields or variants.
+    fn nested_schemas(schemas: &mut Vec<(String, RefOr<Schema>)>);
+}
+
+impl<T> SchemaSource for T
+where
+    T: ToSchema + 'static,
+{
+    fn schema_name() -> Cow<'static, str> {
+        T::name()
+    }
+
+    fn root_schema() -> RefOr<Schema> {
+        T::schema()
+    }
+
+    fn nested_schemas(schemas: &mut Vec<(String, RefOr<Schema>)>) {
+        T::schemas(schemas);
+    }
+}
+
 /// Computes a schema reference locally without accessing shared state.
 ///
 /// This enables fire-and-forget schema registration via channels by allowing
@@ -26,11 +60,11 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 /// - Complex types are referenced (return `RefOr::Ref`)
 pub(in crate::client) fn compute_schema_ref<T>() -> RefOr<Schema>
 where
-    T: ToSchema + 'static,
+    T: SchemaSource,
 {
-    let name = T::name();
+    let name = T::schema_name();
     if PRIMITIVE_TYPES.contains(name.as_ref()) {
-        T::schema()
+        T::root_schema()
     } else {
         RefOr::Ref(Ref::from_schema_name(name.as_ref()))
     }
@@ -114,7 +148,7 @@ impl Schemas {
 
     fn add_type<T>(&mut self) -> &mut SchemaEntry
     where
-        T: ToSchema + 'static,
+        T: SchemaSource,
     {
         let id = TypeId::of::<T>();
         if !self.entries.contains_key(&id) {
@@ -129,7 +163,7 @@ impl Schemas {
 
     pub(in crate::client) fn add<T>(&mut self) -> RefOr<Schema>
     where
-        T: ToSchema + 'static,
+        T: SchemaSource,
     {
         let type_id = TypeId::of::<T>();
         let _ = self.add_type::<T>();
@@ -150,7 +184,7 @@ impl Schemas {
         example: impl Into<serde_json::Value>,
     ) -> RefOr<Schema>
     where
-        T: ToSchema + 'static,
+        T: SchemaSource,
     {
         let example = example.into();
         let type_id = TypeId::of::<T>();
@@ -460,18 +494,18 @@ pub(in crate::client) struct SchemaEntry {
 impl SchemaEntry {
     pub(crate) fn of<T>() -> Self
     where
-        T: ToSchema + 'static,
+        T: SchemaSource,
     {
         let id = TypeId::of::<T>();
-        let name = T::name();
+        let name = T::schema_name();
         let type_name = type_name::<T>();
         let mut nested = Vec::new();
-        T::schemas(&mut nested);
+        T::nested_schemas(&mut nested);
         Self {
             id,
             type_name: type_name.to_string(),
             name: name.to_string(),
-            schema: T::schema(),
+            schema: T::root_schema(),
             examples: IndexSet::default(),
             nested,
         }
@@ -957,15 +991,8 @@ mod tests {
 
         // Test schema reference creation
         let schema_ref: RefOr<Schema> = RefOr::Ref(Ref::from_schema_name("TestType"));
-        insta::assert_debug_snapshot!(schema_ref, @r##"
-        Ref(
-            Ref {
-                ref_location: "#/components/schemas/TestType",
-                description: "",
-                summary: "",
-            },
-        )
-        "##);
+        let yaml = serde_saphyr::to_string(&schema_ref).expect("should serialize to YAML");
+        insta::assert_snapshot!(yaml, @r##"$ref: "#/components/schemas/TestType""##);
     }
 
     #[test]

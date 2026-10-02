@@ -106,7 +106,7 @@
 //!
 //! ## Parameter Styles
 //!
-//! The library supports OpenAPI 3.1.0 parameter styles. Use [`ParamStyle`] for advanced serialization:
+//! The library supports OpenAPI parameter styles. Use [`ParamStyle`] for advanced serialization:
 //!
 //! ```rust
 //! use clawspec_core::{CallPath, CallQuery, ParamValue, ParamStyle};
@@ -475,13 +475,10 @@
 //!
 //! ## YAML Serialization
 //!
-//! *Requires the `yaml` feature.*
-//!
 //! The library provides YAML serialization support using [serde-saphyr](https://github.com/saphyr-rs/serde_saphyr),
 //! the modern replacement for the deprecated `serde_yaml` crate.
 //!
-#![cfg_attr(feature = "yaml", doc = "```rust")]
-#![cfg_attr(not(feature = "yaml"), doc = "```rust,ignore")]
+//! ```rust
 //! use clawspec_core::{ApiClient, ToYaml};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -529,14 +526,8 @@
     feature = "redaction",
     doc = "- [`ValueRedactionBuilder`] - Builder for redacting arbitrary JSON values (e.g., OpenAPI specs)"
 )]
-#![cfg_attr(
-    feature = "yaml",
-    doc = "- [`ToYaml`] - Extension trait for YAML serialization"
-)]
-#![cfg_attr(
-    feature = "yaml",
-    doc = "- [`YamlError`] - Error type for YAML serialization"
-)]
+//! - [`ToYaml`] - Extension trait for YAML serialization
+//! - [`YamlError`] - Error type for YAML serialization
 //!
 //! ## Re-exports
 //!
@@ -550,8 +541,6 @@ mod client;
 
 pub mod split;
 
-#[cfg(feature = "yaml")]
-#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 mod yaml;
 
 pub mod test_client;
@@ -575,7 +564,9 @@ pub use self::client::{
 //   use http::StatusCode;
 
 /// OpenAPI types re-exported from utoipa for convenience.
-pub use utoipa::openapi::{Info, InfoBuilder, OpenApi, Paths, Server, ServerBuilder};
+pub use utoipa::openapi::{
+    Info, InfoBuilder, OpenApi, OpenApiVersion, Paths, Server, ServerBuilder,
+};
 
 /// The `ToSchema` derive macro for generating OpenAPI schemas.
 /// Types used in JSON request/response bodies should derive this trait.
@@ -593,8 +584,6 @@ pub use self::client::{
 #[cfg(feature = "oauth2")]
 pub use self::client::{OAuth2Config, OAuth2ConfigBuilder, OAuth2Error, OAuth2Token};
 
-#[cfg(feature = "yaml")]
-#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 pub use self::yaml::{ToYaml, YamlError};
 
 // Convenience macro re-exports are handled by the macro_rules! definitions below

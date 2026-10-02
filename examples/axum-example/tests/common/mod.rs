@@ -2,6 +2,7 @@
 
 use rstest::fixture;
 use tracing::info;
+use utoipa::openapi::RefOr;
 
 mod test_app;
 pub use self::test_app::*;
@@ -37,5 +38,18 @@ pub async fn app() -> TestApp {
         Err(error) => {
             panic!("fail to start test app: {error:?}");
         }
+    }
+}
+
+/// Unwraps an inline item of the specification.
+///
+/// # Panics
+///
+/// Panics when the item is a `$ref`.
+#[allow(dead_code)]
+pub fn inline<T>(item: &RefOr<T>) -> &T {
+    match item {
+        RefOr::T(item) => item,
+        RefOr::Ref(reference) => panic!("expected inline item, got {}", reference.ref_location),
     }
 }

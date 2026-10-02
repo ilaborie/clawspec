@@ -60,7 +60,7 @@ use std::time::Duration;
 use backon::{ExponentialBuilder, Retryable};
 use tracing::{debug, error};
 
-use crate::ApiClient;
+use crate::{ApiClient, ToYaml};
 
 mod error;
 pub use self::error::*;
@@ -659,7 +659,7 @@ where
     /// - Status codes and error responses
     /// - Server information and metadata
     ///
-    /// The specification follows OpenAPI 3.1 format and can be used with various
+    /// The specification follows the OpenAPI format and can be used with various
     /// tools for documentation generation, client generation, and API validation.
     pub async fn write_openapi(mut self, path: impl AsRef<Path>) -> Result<(), TestAppError> {
         let path = path.as_ref();
@@ -671,9 +671,7 @@ where
 
         let ext = path.extension().unwrap_or_default();
         let contents = if ext == "yml" || ext == "yaml" {
-            openapi.to_yaml().map_err(|err| TestAppError::YamlError {
-                error: format!("{err:#?}"),
-            })?
+            openapi.to_yaml()?
         } else {
             serde_json::to_string_pretty(&openapi)?
         };

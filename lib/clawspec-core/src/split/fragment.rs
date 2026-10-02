@@ -50,8 +50,6 @@ impl<T: Serialize> Fragment<T> {
 
     /// Serializes the fragment content to a YAML string.
     ///
-    /// *Requires the `yaml` feature.*
-    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -65,8 +63,6 @@ impl<T: Serialize> Fragment<T> {
     /// # Errors
     ///
     /// Returns a [`YamlError`](crate::YamlError) if serialization fails.
-    #[cfg(feature = "yaml")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     pub fn to_yaml(&self) -> Result<String, crate::YamlError> {
         crate::ToYaml::to_yaml(&self.content)
     }
@@ -91,12 +87,12 @@ impl<T: Serialize> Fragment<T> {
 ///
 /// // Write fragments to files
 /// for fragment in &result.fragments {
-///     let yaml = serde_yaml::to_string(&fragment.content)?;
+///     let yaml = fragment.to_yaml()?;
 ///     std::fs::write(&fragment.path, yaml)?;
 /// }
 ///
 /// // Write main spec
-/// let main_yaml = serde_yaml::to_string(&result.main)?;
+/// let main_yaml = result.main_to_yaml()?;
 /// std::fs::write("openapi.yaml", main_yaml)?;
 /// ```
 #[derive(Debug, Clone)]
@@ -134,8 +130,6 @@ impl<T: Serialize> SplitResult<T> {
 
     /// Serializes the main OpenAPI specification to a YAML string.
     ///
-    /// *Requires the `yaml` feature.*
-    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -149,8 +143,6 @@ impl<T: Serialize> SplitResult<T> {
     /// # Errors
     ///
     /// Returns a [`YamlError`](crate::YamlError) if serialization fails.
-    #[cfg(feature = "yaml")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     pub fn main_to_yaml(&self) -> Result<String, crate::YamlError> {
         crate::ToYaml::to_yaml(&self.main)
     }
@@ -191,7 +183,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "yaml"))]
+#[cfg(test)]
 mod yaml_tests {
     use super::*;
     use utoipa::openapi::{Components, InfoBuilder, OpenApiBuilder};

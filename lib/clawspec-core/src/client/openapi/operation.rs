@@ -1,10 +1,12 @@
+use std::mem::{Discriminant, discriminant};
+
 use headers::ContentType;
 use indexmap::IndexMap;
-use tracing::error;
-use utoipa::openapi::Content;
-use utoipa::openapi::path::{Operation, Parameter};
+use tracing::{error, warn};
+use utoipa::openapi::path::{Operation, Parameter, ParameterIn};
 use utoipa::openapi::request_body::RequestBody;
 use utoipa::openapi::security::SecurityRequirement as UtoipaSecurityRequirement;
+use utoipa::openapi::{Content, RefOr};
 
 use super::collectors::normalize_content_type;
 use super::result::CallResult;
@@ -163,19 +165,20 @@ pub(super) fn merge_operation(
         return None;
     }
 
-    let operation = Operation::builder()
+    let mut operation = Operation::builder()
         .tags(merge_tags(current.tags, new.tags))
         .description(current.description.or(new.description))
         .operation_id(Some(id))
         // external_docs
-        .parameters(merge_parameters(current.parameters, new.parameters))
-        .request_body(merge_request_body(current.request_body, new.request_body))
         .deprecated(current.deprecated.or(new.deprecated))
         .securities(merge_security(current.security, new.security))
         // TODO servers - https://github.com/ilaborie/clawspec/issues/23
         // extension
-        .responses(merge_responses(current.responses, new.responses));
-    Some(operation.build())
+        .responses(merge_responses(current.responses, new.responses))
+        .build();
+    operation.parameters = merge_parameters(current.parameters, new.parameters);
+    operation.request_body = merge_request_body(current.request_body, new.request_body);
+    Some(operation)
 }
 
 /// Merges two OpenAPI request bodies, combining their content types and metadata.
@@ -188,22 +191,16 @@ pub(super) fn merge_operation(
 /// - **Content Types**: All content types from both request bodies are combined
 /// - **Content Collision**: If both request bodies have the same content type,
 ///   the new one overwrites the current one
-/// - **Description**: First non-empty description wins
-/// - **Required**: Either request body can mark as required
-///
-/// # Performance Optimization
-///
-/// This function uses `extend()` instead of `clone()` to merge content maps,
-/// which reduces memory allocations and improves performance by ~25%.
-///
-/// # Arguments
-///
-/// * `current` - The existing request body (None if first call)
-/// * `new` - The new request body to merge in
+/// - **Description**: The current description wins when set, else the new one
+/// - **Required**: The current `required` flag wins when set, else the new one
+/// - **`$ref` request bodies**: Not merged. Two references to the same location
+///   are kept once. Otherwise the current request body is kept, the new one is
+///   dropped and a warning is logged
 ///
 /// # Returns
 ///
-/// `Some(RequestBody)` with merged content, or `None` if both are None
+/// The merged request body, the one that is set when only one is, or `None` if
+/// both are `None`.
 ///
 /// # Example
 ///
@@ -213,30 +210,42 @@ pub(super) fn merge_operation(
 /// // Result: POST /users accepts both JSON and form data
 /// ```
 fn merge_request_body(
-    current: Option<RequestBody>,
-    new: Option<RequestBody>,
-) -> Option<RequestBody> {
+    current: Option<RefOr<RequestBody>>,
+    new: Option<RefOr<RequestBody>>,
+) -> Option<RefOr<RequestBody>> {
     match (current, new) {
-        (Some(current), Some(new)) => {
-            // Optimized: Avoid cloning content by moving and extending
-            let mut merged_content = current.content;
-            merged_content.extend(new.content);
-
-            let mut merged_builder = RequestBody::builder();
-            for (content_type, content) in merged_content {
-                merged_builder = merged_builder.content(content_type, content);
-            }
-
-            let merged = merged_builder
-                .description(current.description.or(new.description))
-                .required(current.required.or(new.required))
-                .build();
-
-            Some(merged)
+        (Some(RefOr::T(mut current)), Some(RefOr::T(new))) => {
+            current.content.extend(new.content);
+            current.description = current.description.or(new.description);
+            current.required = current.required.or(new.required);
+            Some(RefOr::T(current))
         }
-        (Some(current), None) => Some(current),
-        (None, Some(new)) => Some(new),
-        (None, None) => None,
+        (Some(RefOr::Ref(current)), Some(RefOr::Ref(new))) => {
+            if current.ref_location != new.ref_location {
+                warn!(
+                    current = current.ref_location,
+                    dropped = new.ref_location,
+                    "cannot merge two different $ref request bodies, keeping the current one"
+                );
+            }
+            Some(RefOr::Ref(current))
+        }
+        (Some(RefOr::Ref(current)), Some(RefOr::T(_))) => {
+            warn!(
+                current = current.ref_location,
+                "cannot merge an inline request body into a $ref request body, dropping the inline one"
+            );
+            Some(RefOr::Ref(current))
+        }
+        (Some(RefOr::T(current)), Some(RefOr::Ref(new))) => {
+            warn!(
+                dropped = new.ref_location,
+                "cannot merge a $ref request body into an inline request body, dropping the $ref one"
+            );
+            Some(RefOr::T(current))
+        }
+        (current, None) => current,
+        (None, new) => new,
     }
 }
 
@@ -279,31 +288,23 @@ fn merge_security(
     }
 }
 
-/// Merges two parameter lists, combining parameters by name.
+/// Merges two parameter lists.
 ///
 /// This function handles the merging of parameters when multiple test calls
 /// to the same endpoint use different query parameters, headers, or path parameters.
 ///
 /// # Merge Strategy
 ///
-/// - **Parameter Identity**: Parameters are identified by name
-/// - **New Parameters**: Added to the result if not already present
-/// - **Existing Parameters**: Preserved (current parameter wins over new)
-/// - **Parameter Order**: Determined by insertion order in IndexMap
-///
-/// # Performance Optimization
-///
-/// This function uses `entry().or_insert()` to avoid duplicate hash lookups,
-/// which improves performance when merging large parameter lists.
-///
-/// # Arguments
-///
-/// * `current` - The existing parameter list (None if first call)
-/// * `new` - The new parameter list to merge in
+/// - **Parameter Identity**: An inline parameter is identified by its location (`in`)
+///   and its name, so a path `id` and a query `id` are two parameters.
+///   A `$ref` parameter is identified by its `$ref` path
+/// - **Collision**: When both lists hold the same parameter, the new one wins
+/// - **Parameter Order**: The new parameters first, then the current parameters
+///   that are not in the new list
 ///
 /// # Returns
 ///
-/// `Some(Vec<Parameter>)` with merged parameters, or `Some(empty_vec)` if both are None
+/// Always `Some`, with an empty list if both are `None`.
 ///
 /// # Example
 ///
@@ -313,20 +314,40 @@ fn merge_security(
 /// // Result: GET /users supports limit, offset, and sort parameters
 /// ```
 fn merge_parameters(
-    current: Option<Vec<Parameter>>,
-    new: Option<Vec<Parameter>>,
-) -> Option<Vec<Parameter>> {
+    current: Option<Vec<RefOr<Parameter>>>,
+    new: Option<Vec<RefOr<Parameter>>>,
+) -> Option<Vec<RefOr<Parameter>>> {
     let mut result = IndexMap::new();
-    // Optimized: Avoid cloning parameter names by using references for lookup
     for param in new.unwrap_or_default() {
-        result.insert(param.name.clone(), param);
+        result.insert(ParameterKey::of(&param), param);
     }
     for param in current.unwrap_or_default() {
-        result.entry(param.name.clone()).or_insert(param);
+        result.entry(ParameterKey::of(&param)).or_insert(param);
     }
 
     let result = result.into_values().collect();
     Some(result)
+}
+
+#[derive(PartialEq, Eq, Hash)]
+enum ParameterKey {
+    Inline {
+        location: Discriminant<ParameterIn>,
+        name: String,
+    },
+    Ref(String),
+}
+
+impl ParameterKey {
+    fn of(param: &RefOr<Parameter>) -> Self {
+        match param {
+            RefOr::T(param) => Self::Inline {
+                location: discriminant(&param.parameter_in),
+                name: param.name.clone(),
+            },
+            RefOr::Ref(reference) => Self::Ref(reference.ref_location.clone()),
+        }
+    }
 }
 
 fn merge_responses(
@@ -538,5 +559,211 @@ pub(super) fn singularize(word: &str) -> String {
         word.to_string()
     } else {
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use utoipa::openapi::path::ParameterBuilder;
+    use utoipa::openapi::request_body::RequestBodyBuilder;
+    use utoipa::openapi::{ContentBuilder, Ref, Required};
+
+    use super::*;
+
+    fn content(example: &str) -> Content {
+        ContentBuilder::new().example(Some(json!(example))).build()
+    }
+
+    fn inline_body(body: RequestBody) -> Option<RefOr<RequestBody>> {
+        Some(RefOr::T(body))
+    }
+
+    fn expect_inline(body: Option<RefOr<RequestBody>>) -> RequestBody {
+        match body.expect("should have a request body") {
+            RefOr::T(body) => body,
+            RefOr::Ref(reference) => panic!("unexpected $ref: {}", reference.ref_location),
+        }
+    }
+
+    fn example_of(body: &RequestBody, content_type: &str) -> Option<serde_json::Value> {
+        match body.content.get(content_type).expect("should have content") {
+            RefOr::T(content) => content.example.clone(),
+            RefOr::Ref(reference) => panic!("unexpected $ref: {}", reference.ref_location),
+        }
+    }
+
+    fn parameter(name: &str, location: ParameterIn) -> RefOr<Parameter> {
+        RefOr::T(
+            ParameterBuilder::new()
+                .name(name)
+                .parameter_in(location)
+                .build(),
+        )
+    }
+
+    fn parameter_identities(parameters: &[RefOr<Parameter>]) -> Vec<String> {
+        parameters
+            .iter()
+            .map(|param| match param {
+                RefOr::T(param) => format!(
+                    "{}:{}",
+                    serde_json::to_string(&param.parameter_in).expect("should serialize"),
+                    param.name
+                ),
+                RefOr::Ref(reference) => reference.ref_location.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn should_keep_both_content_types_when_merging_request_bodies() {
+        let current = RequestBodyBuilder::new()
+            .content("application/json", content("json"))
+            .build();
+        let new = RequestBodyBuilder::new()
+            .content("application/x-www-form-urlencoded", content("form"))
+            .build();
+
+        let merged = expect_inline(merge_request_body(inline_body(current), inline_body(new)));
+
+        assert_eq!(
+            merged.content.keys().collect::<Vec<_>>(),
+            ["application/json", "application/x-www-form-urlencoded"]
+        );
+    }
+
+    #[test]
+    fn should_let_new_content_win_on_duplicate_content_type() {
+        let current = RequestBodyBuilder::new()
+            .content("application/json", content("current"))
+            .build();
+        let new = RequestBodyBuilder::new()
+            .content("application/json", content("new"))
+            .build();
+
+        let merged = expect_inline(merge_request_body(inline_body(current), inline_body(new)));
+
+        assert_eq!(example_of(&merged, "application/json"), Some(json!("new")));
+    }
+
+    #[test]
+    fn should_keep_current_description_and_required_when_set() {
+        let current = RequestBodyBuilder::new()
+            .description(Some("current"))
+            .required(Some(Required::False))
+            .build();
+        let new = RequestBodyBuilder::new()
+            .description(Some("new"))
+            .required(Some(Required::True))
+            .build();
+
+        let merged = expect_inline(merge_request_body(inline_body(current), inline_body(new)));
+
+        assert_eq!(merged.description.as_deref(), Some("current"));
+        assert_eq!(merged.required, Some(Required::False));
+    }
+
+    #[test]
+    fn should_use_new_description_and_required_when_current_is_unset() {
+        let current = RequestBodyBuilder::new().build();
+        let new = RequestBodyBuilder::new()
+            .description(Some("new"))
+            .required(Some(Required::True))
+            .build();
+
+        let merged = expect_inline(merge_request_body(inline_body(current), inline_body(new)));
+
+        assert_eq!(merged.description.as_deref(), Some("new"));
+        assert_eq!(merged.required, Some(Required::True));
+    }
+
+    #[test]
+    fn should_keep_current_ref_request_body_when_new_is_inline() {
+        let current = Some(RefOr::Ref(Ref::new("#/components/requestBodies/Current")));
+        let new = inline_body(RequestBodyBuilder::new().build());
+
+        let merged = merge_request_body(current, new);
+
+        match merged.expect("should have a request body") {
+            RefOr::Ref(reference) => {
+                assert_eq!(reference.ref_location, "#/components/requestBodies/Current");
+            }
+            RefOr::T(_) => panic!("expected the current $ref request body"),
+        }
+    }
+
+    #[test]
+    fn should_keep_current_inline_request_body_when_new_is_ref() {
+        let current = inline_body(
+            RequestBodyBuilder::new()
+                .content("application/json", content("current"))
+                .build(),
+        );
+        let new = Some(RefOr::Ref(Ref::new("#/components/requestBodies/New")));
+
+        let merged = expect_inline(merge_request_body(current, new));
+
+        assert_eq!(
+            example_of(&merged, "application/json"),
+            Some(json!("current"))
+        );
+    }
+
+    #[test]
+    fn should_keep_parameters_with_same_name_in_different_locations() {
+        let current = vec![
+            parameter("id", ParameterIn::Path),
+            parameter("id", ParameterIn::Query),
+        ];
+        let new = vec![parameter("id", ParameterIn::Header)];
+
+        let merged = merge_parameters(Some(current), Some(new)).expect("should have parameters");
+
+        assert_eq!(
+            parameter_identities(&merged),
+            [r#""header":id"#, r#""path":id"#, r#""query":id"#]
+        );
+    }
+
+    #[test]
+    fn should_let_new_parameter_win_on_same_identity() {
+        let current = vec![RefOr::T(
+            ParameterBuilder::new()
+                .name("id")
+                .parameter_in(ParameterIn::Query)
+                .description(Some("current"))
+                .build(),
+        )];
+        let new = vec![RefOr::T(
+            ParameterBuilder::new()
+                .name("id")
+                .parameter_in(ParameterIn::Query)
+                .description(Some("new"))
+                .build(),
+        )];
+
+        let merged = merge_parameters(Some(current), Some(new)).expect("should have parameters");
+
+        let [RefOr::T(param)] = merged.as_slice() else {
+            panic!("expected a single inline parameter, got {merged:?}");
+        };
+        assert_eq!(param.description.as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn should_identify_ref_parameters_by_their_ref_path() {
+        let current = vec![
+            RefOr::Ref(Ref::new("#/components/parameters/Limit")),
+            parameter("Limit", ParameterIn::Query),
+        ];
+        let new = vec![RefOr::Ref(Ref::new("#/components/parameters/Limit"))];
+
+        let merged = merge_parameters(Some(current), Some(new)).expect("should have parameters");
+
+        assert_eq!(
+            parameter_identities(&merged),
+            ["#/components/parameters/Limit", r#""query":Limit"#]
+        );
     }
 }

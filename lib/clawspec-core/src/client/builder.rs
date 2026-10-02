@@ -4,7 +4,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use http::Uri;
 use http::uri::{PathAndQuery, Scheme};
 use indexmap::IndexMap;
-use utoipa::openapi::{Info, Server};
+use utoipa::openapi::{Info, OpenApiVersion, Server};
 
 use super::openapi::channel::CollectorHandle;
 use super::security::{SecurityRequirement, SecurityScheme};
@@ -21,6 +21,7 @@ use super::{ApiClient, ApiClientError};
 /// - **Host**: 127.0.0.1 (localhost)
 /// - **Port**: 80 (standard HTTP port)
 /// - **Base path**: None (requests go to root path)
+/// - **OpenAPI version**: [`OpenApiVersion::Version32`]
 /// - **OpenAPI info**: None (no metadata)
 /// - **Servers**: Empty list
 ///
@@ -67,6 +68,7 @@ pub struct ApiClientBuilder {
     host: String,
     port: u16,
     base_path: Option<PathAndQuery>,
+    openapi_version: OpenApiVersion,
     info: Option<Info>,
     servers: Vec<Server>,
     authentication: Option<super::Authentication>,
@@ -114,6 +116,7 @@ impl ApiClientBuilder {
             host,
             port,
             base_path,
+            openapi_version,
             info,
             servers,
             authentication,
@@ -142,6 +145,7 @@ impl ApiClientBuilder {
             client,
             base_uri,
             base_path,
+            openapi_version,
             info,
             servers,
             collector_handle,
@@ -186,6 +190,16 @@ impl ApiClientBuilder {
             })?;
         self.base_path = Some(base_path);
         Ok(self)
+    }
+
+    /// Sets the OpenAPI version of the generated specification.
+    ///
+    /// Defaults to [`OpenApiVersion::Version32`]. Use [`OpenApiVersion::Version31`]
+    /// when the consumers of the specification only accept that version.
+    /// Only the `openapi` field changes; the collected content is identical.
+    pub fn with_openapi_version(mut self, openapi_version: OpenApiVersion) -> Self {
+        self.openapi_version = openapi_version;
+        self
     }
 
     /// Sets the OpenAPI info metadata (title, version, description, etc.).
@@ -426,6 +440,7 @@ impl Default for ApiClientBuilder {
             host: IpAddr::V4(Ipv4Addr::LOCALHOST).to_string(),
             port: 80,
             base_path: None,
+            openapi_version: OpenApiVersion::Version32,
             info: None,
             servers: Vec::new(),
             authentication: None,
@@ -743,5 +758,28 @@ mod tests {
         // Check that default security is present
         let security = openapi.security.expect("should have security");
         assert!(!security.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_generate_version_32_by_default() {
+        let mut client = ApiClientBuilder::default()
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        assert_eq!(openapi.openapi, OpenApiVersion::Version32);
+    }
+
+    #[tokio::test]
+    async fn should_generate_configured_openapi_version() {
+        let mut client = ApiClientBuilder::default()
+            .with_openapi_version(OpenApiVersion::Version31)
+            .build()
+            .expect("should build client");
+
+        let openapi = client.collected_openapi().await;
+
+        assert_eq!(openapi.openapi, OpenApiVersion::Version31);
     }
 }

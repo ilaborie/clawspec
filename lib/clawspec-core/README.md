@@ -16,10 +16,10 @@ Clawspec automatically generates OpenAPI documentation by observing HTTP client 
 - 🔒 **Type Safety** - Leverage Rust's type system for accurate schemas
 - 🚀 **Zero Runtime Overhead** - Documentation generation only runs during tests
 - 🛠️ **Framework Agnostic** - Works with any async HTTP server
-- 📝 **OpenAPI 3.1 Compliant** - Generate standard-compliant specifications
+- 📝 **OpenAPI Compliant** - Generate standard-compliant specifications
 - 🔐 **Authentication Support** - Bearer, Basic, and API Key authentication
 - 🍪 **Cookie Support** - Full cookie parameter handling and documentation
-- 📋 **Parameter Styles** - Complete OpenAPI 3.1.0 parameter style support
+- 📋 **Parameter Styles** - Complete OpenAPI parameter style support
 
 ## Quick Start
 
@@ -63,7 +63,6 @@ async fn test_user_api() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate OpenAPI specification
     let spec = client.collected_openapi().await;
-    // Requires the `yaml` feature: clawspec-core = { version = "0.4", features = ["yaml"] }
     use clawspec_core::ToYaml;
     let yaml = spec.to_yaml()?;
     std::fs::write("openapi.yml", yaml)?;
@@ -78,12 +77,12 @@ Clawspec provides optional feature flags:
 
 | Feature | Description |
 |---------|-------------|
-| `yaml` | YAML serialization via the `ToYaml` trait |
+| `yaml` | No-op, kept for compatibility: YAML serialization via the `ToYaml` trait is always available |
 | `redaction` | Redact dynamic values (UUIDs, timestamps) for stable OpenAPI examples |
 | `oauth2` | OAuth2 authentication support |
 
 ```toml
-clawspec-core = { version = "0.4", features = ["yaml", "redaction"] }
+clawspec-core = { version = "0.4", features = ["redaction"] }
 ```
 
 ### Test Server Example with TestClient
@@ -141,7 +140,7 @@ The main HTTP client that captures request/response schemas:
 - **Flexible parameter handling** (path, query, headers, cookies)
 - **Authentication support** (Bearer, Basic, API Key)
 - **Status code validation** with ranges and specific codes
-- **OpenAPI 3.1.0 parameter styles** support
+- **OpenAPI parameter styles** support
 
 ### TestClient
 

@@ -666,8 +666,18 @@ mod tests {
             "GET" => path_item.get.as_ref(),
             _ => None,
         }?;
-        let request_body = operation.request_body.as_ref()?;
-        let content = request_body.content.get("application/json")?;
+        let request_body = match operation.request_body.as_ref()? {
+            utoipa::openapi::RefOr::T(request_body) => request_body,
+            utoipa::openapi::RefOr::Ref(reference) => {
+                panic!("unexpected $ref request body: {}", reference.ref_location)
+            }
+        };
+        let content = match request_body.content.get("application/json")? {
+            utoipa::openapi::RefOr::T(content) => content,
+            utoipa::openapi::RefOr::Ref(reference) => {
+                panic!("unexpected $ref content: {}", reference.ref_location)
+            }
+        };
         content.example.clone()
     }
 

@@ -7,6 +7,7 @@ use super::{CallQuery, ParamStyle, ParamValue};
 
 #[cfg(test)]
 mod tests {
+    use indexmap::IndexMap;
     use utoipa::openapi::path::ParameterStyle;
 
     use crate::client::ApiClientError;
@@ -48,29 +49,26 @@ mod tests {
         let parameters: Vec<_> = query.to_parameters().collect();
         assert_eq!(parameters.len(), 7);
 
-        // Create a summary for snapshot testing
-        let param_summary: Vec<_> = parameters
+        let param_styles = parameters
             .iter()
-            .map(|p| {
-                format!(
-                    "{}: {:?}",
-                    p.name,
-                    p.style.as_ref().unwrap_or(&ParameterStyle::Form)
+            .map(|param| {
+                (
+                    param.name.as_str(),
+                    param.style.as_ref().unwrap_or(&ParameterStyle::Form),
                 )
             })
-            .collect();
+            .collect::<IndexMap<_, _>>();
+        let yaml = serde_saphyr::to_string(&param_styles).expect("should serialize to YAML");
 
-        insta::assert_debug_snapshot!(param_summary, @r#"
-        [
-            "search: Form",
-            "page: Form",
-            "per_page: Form",
-            "active: Form",
-            "tags: Form",
-            "categories: SpaceDelimited",
-            "include_fields: PipeDelimited",
-        ]
-        "#);
+        insta::assert_snapshot!(yaml, @"
+        search: form
+        page: form
+        per_page: form
+        active: form
+        tags: form
+        categories: spaceDelimited
+        include_fields: pipeDelimited
+        ");
     }
 
     #[test]

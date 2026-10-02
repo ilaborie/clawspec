@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use crate::ApiClientError;
+use crate::{ApiClientError, YamlError};
 
 /// Error types for test client operations.
 ///
@@ -47,12 +47,9 @@ pub enum TestAppError {
     /// YAML serialization failed.
     ///
     /// This occurs specifically when generating OpenAPI specifications
-    /// in YAML format. Contains the detailed error message.
-    #[display("YAML serialization error: {error}")]
-    YamlError {
-        /// Detailed error message from the YAML serializer.
-        error: String,
-    },
+    /// in YAML format.
+    #[display("YAML serialization error: {_0}")]
+    YamlError(YamlError),
 
     /// Server failed to become healthy within the timeout period.
     ///
@@ -87,14 +84,6 @@ mod tests {
 
     #[test]
     fn test_test_app_error_display() {
-        let yaml_error = TestAppError::YamlError {
-            error: "Invalid YAML format".to_string(),
-        };
-        assert_eq!(
-            format!("{yaml_error}"),
-            "YAML serialization error: Invalid YAML format"
-        );
-
         let unhealthy_error = TestAppError::UnhealthyServer {
             timeout: Duration::from_secs(5),
         };
@@ -106,13 +95,6 @@ mod tests {
 
     #[test]
     fn test_test_app_error_debug() {
-        let yaml_error = TestAppError::YamlError {
-            error: "Invalid YAML format".to_string(),
-        };
-        let debug_str = format!("{yaml_error:?}");
-        assert!(debug_str.contains("YamlError"));
-        assert!(debug_str.contains("Invalid YAML format"));
-
         let unhealthy_error = TestAppError::UnhealthyServer {
             timeout: Duration::from_secs(10),
         };
@@ -182,21 +164,6 @@ mod tests {
     }
 
     #[test]
-    fn test_yaml_error_creation() {
-        let error_msg = "YAML serialization failed";
-        let yaml_error = TestAppError::YamlError {
-            error: error_msg.to_string(),
-        };
-
-        match yaml_error {
-            TestAppError::YamlError { error } => {
-                assert_eq!(error, error_msg);
-            }
-            other => panic!("Expected YamlError, got: {other:?}"),
-        }
-    }
-
-    #[test]
     fn test_unhealthy_server_error_creation() {
         let timeout = Duration::from_millis(2500);
         let unhealthy_error = TestAppError::UnhealthyServer { timeout };
@@ -231,10 +198,9 @@ mod tests {
         {
         }
 
-        let yaml_error = TestAppError::YamlError {
-            error: "test".to_string(),
-        };
-        assert_error_traits(yaml_error);
+        assert_error_traits(TestAppError::UnhealthyServer {
+            timeout: Duration::from_secs(1),
+        });
     }
 
     #[test]

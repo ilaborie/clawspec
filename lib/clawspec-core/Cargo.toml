@@ -18,11 +18,12 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = []
 oauth2 = ["dep:oauth2", "dep:thiserror"]
 redaction = ["dep:jsonptr", "dep:serde_json_path"]
-yaml = ["dep:serde-saphyr", "dep:encoding_rs_io"]
+# No-op, kept for compatibility: YAML serialization is always available
+yaml = []
 
 [dependencies]
 
-utoipa = { workspace = true, features = ["debug", "yaml"] }
+utoipa = { workspace = true, features = ["debug"] }
 
 tokio = { workspace = true , features = ["sync"]}
 
@@ -53,16 +54,16 @@ oauth2 = { workspace = true, optional = true }
 # Floor pin only: oauth2 under-constrains thiserror (RequestTokenError From impl needs >=1.0.50 on rustc 1.89)
 thiserror = { workspace = true, optional = true }
 serde_json_path = { workspace = true, optional = true }
-serde-saphyr = { workspace = true, optional = true }
-# Floor pin only: serde-saphyr under-constrains encoding_rs_io (needs bom_override, >=0.1.2)
-encoding_rs_io = { workspace = true, optional = true }
+serde-saphyr = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt"]}
 tokio = { workspace = true, features = ["full"]}
 insta = { workspace = true }
-serde-saphyr = { workspace = true}
+serde-saphyr = { workspace = true, features = ["deserialize"] }
+# Floor pin only: serde-saphyr under-constrains encoding_rs_io (needs bom_override, >=0.1.2)
+encoding_rs_io = { workspace = true }
 criterion = { workspace = true }
 wiremock = { workspace = true }
 # Force minimum versions for minimal-versions CI (annotate-snippets has incorrect anstyle dep)

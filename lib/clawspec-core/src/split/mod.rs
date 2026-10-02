@@ -15,10 +15,9 @@
 //!
 //! # Example
 //!
-//! ## With the `yaml` feature (recommended)
+//! ## With the fragment helpers
 //!
-#![cfg_attr(feature = "yaml", doc = "```rust,ignore")]
-#![cfg_attr(not(feature = "yaml"), doc = "```rust,ignore")]
+//! ```rust,ignore
 //! use clawspec_core::split::{OpenApiSplitter, SplitSchemasByTag};
 //! use std::path::PathBuf;
 //!
@@ -41,8 +40,7 @@
 //!
 //! ## Using ToYaml trait directly
 //!
-#![cfg_attr(feature = "yaml", doc = "```rust,ignore")]
-#![cfg_attr(not(feature = "yaml"), doc = "```rust,ignore")]
+//! ```rust,ignore
 //! use clawspec_core::{ToYaml, split::{OpenApiSplitter, SplitSchemasByTag}};
 //!
 //! let result = splitter.split(spec);
