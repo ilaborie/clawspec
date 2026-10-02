@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::mem;
 
 use http::{Method, Uri};
@@ -44,6 +44,7 @@ mod call_parameters;
 
 mod openapi;
 // CallResult, RawResult, and RawBody are public API, but CalledOperation and Collectors are internal
+pub(crate) use self::openapi::iter_operations;
 pub use self::openapi::{CallResult, RawBody, RawResult};
 
 mod error;
@@ -123,7 +124,11 @@ impl ApiClient {
         }
         mem::drop(collectors);
 
-        builder.build()
+        let mut paths = builder.build();
+        if self.openapi_version == OpenApiVersion::Version31 {
+            openapi::downgrade_paths_to_31(&mut paths);
+        }
+        paths
     }
 
     /// Generates a complete OpenAPI specification from collected request/response data.
@@ -215,8 +220,9 @@ impl ApiClient {
             builder = builder.servers(Some(self.servers.clone()));
         }
 
-        // Add paths
-        builder = builder.paths(self.collected_paths().await);
+        let paths = self.collected_paths().await;
+        let tags = compute_tags(&paths, &[]);
+        builder = builder.paths(paths);
 
         // Add components with schemas and security schemes
         let collectors = self.collector_handle.get_collectors().await;
@@ -228,9 +234,6 @@ impl ApiClient {
         }
 
         let components = components_builder.build();
-
-        // Compute tags from all operations
-        let tags = self.compute_tags(&collectors).await;
         mem::drop(collectors);
 
         let builder = builder.components(Some(components));
@@ -254,24 +257,11 @@ impl ApiClient {
             builder.security(Some(security))
         };
 
-        builder.build()
-    }
-
-    /// Computes the list of unique tags from all collected operations.
-    async fn compute_tags(&self, collectors: &openapi::Collectors) -> Vec<Tag> {
-        let mut tag_names = BTreeSet::new();
-
-        // Collect all unique tag names from operations
-        for operation in collectors.operations() {
-            if let Some(tags) = operation.tags() {
-                for tag in tags {
-                    tag_names.insert(tag.clone());
-                }
-            }
+        let mut openapi = builder.build();
+        if self.openapi_version == OpenApiVersion::Version31 {
+            openapi::downgrade_to_31(&mut openapi);
         }
-
-        // Convert to Tag objects
-        tag_names.into_iter().map(Tag::new).collect()
+        openapi
     }
 
     /// Manually registers a type in the schema collection.
@@ -359,5 +349,63 @@ impl ApiClient {
 
     pub fn patch(&self, path: impl Into<CallPath>) -> Result<ApiCall, ApiClientError> {
         self.call(Method::PATCH, path.into())
+    }
+}
+
+fn compute_tags(paths: &Paths, declared: &[Tag]) -> Vec<Tag> {
+    let mut tags = paths
+        .paths
+        .values()
+        .flat_map(iter_operations)
+        .flat_map(|operation| operation.tags.iter().flatten())
+        .map(|name| (name.clone(), Tag::new(name)))
+        .collect::<BTreeMap<_, _>>();
+    tags.extend(declared.iter().map(|tag| (tag.name.clone(), tag.clone())));
+    tags.into_values().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use utoipa::openapi::path::{HttpMethod, OperationBuilder, PathItem};
+    use utoipa::openapi::tag::TagBuilder;
+
+    use super::*;
+
+    fn tagged_path_item(tag: &str) -> PathItem {
+        PathItem::new(HttpMethod::Get, OperationBuilder::new().tag(tag).build())
+    }
+
+    #[test]
+    fn should_compute_sorted_tags_from_all_operations() {
+        let mut items = tagged_path_item("users");
+        items.query = Some(OperationBuilder::new().tag("search").build());
+        items.additional_operations.insert(
+            "PURGE".to_string(),
+            OperationBuilder::new().tag("cache").build(),
+        );
+        let paths = Paths::builder()
+            .path("/items", items)
+            .path("/users", tagged_path_item("users"))
+            .build();
+
+        let tags = compute_tags(&paths, &[]);
+
+        let names = tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>();
+        assert_eq!(names, ["cache", "search", "users"]);
+    }
+
+    #[test]
+    fn should_prefer_declared_tags() {
+        let paths = Paths::builder()
+            .path("/users", tagged_path_item("users"))
+            .build();
+        let declared = TagBuilder::new()
+            .name("users")
+            .description(Some("User management"))
+            .build();
+
+        let tags = compute_tags(&paths, std::slice::from_ref(&declared));
+
+        assert_eq!(tags, [declared]);
     }
 }

@@ -121,14 +121,6 @@ impl Collectors {
         self.schemas.schema_vec()
     }
 
-    /// Returns an iterator over collected operations.
-    ///
-    /// This method provides access to all operations that have been collected
-    /// during API calls, which is useful for tag computation and analysis.
-    pub(in crate::client) fn operations(&self) -> impl Iterator<Item = &CalledOperation> {
-        self.operations.values().flatten()
-    }
-
     /// Registers a response for an operation (used by channel-based collection).
     ///
     /// This method records a response with an optional schema and description.
