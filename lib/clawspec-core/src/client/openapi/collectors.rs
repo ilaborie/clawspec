@@ -2,6 +2,7 @@ use headers::ContentType;
 use http::{Method, StatusCode};
 use indexmap::IndexMap;
 use tracing::warn;
+use utoipa::openapi::path::Operation;
 use utoipa::openapi::{Content, PathItem, RefOr, Response, ResponseBuilder, Schema};
 
 use super::operation::{CalledOperation, merge_operation};
@@ -184,40 +185,58 @@ impl Collectors {
     }
 
     pub(in crate::client) fn as_map(&mut self, base_path: &str) -> IndexMap<String, PathItem> {
-        /// Merges an operation into the appropriate field of a PathItem based on HTTP method.
-        macro_rules! merge_into {
-            ($item:expr, $field:ident, $operation_id:expr, $operation:expr) => {{ $item.$field = merge_operation($operation_id, $item.$field.clone(), $operation) }};
-        }
-
         let mut result = IndexMap::<String, PathItem>::new();
         for (operation_id, calls) in &self.operations {
             debug_assert!(!calls.is_empty(), "having at least a call");
             let path = format!("{base_path}/{}", calls[0].path.trim_start_matches('/'));
             let item = result.entry(path.clone()).or_default();
             for call in calls {
-                match &call.method {
-                    &Method::GET => merge_into!(item, get, operation_id, call.operation.clone()),
-                    &Method::PUT => merge_into!(item, put, operation_id, call.operation.clone()),
-                    &Method::POST => merge_into!(item, post, operation_id, call.operation.clone()),
-                    &Method::DELETE => {
-                        merge_into!(item, delete, operation_id, call.operation.clone())
-                    }
-                    &Method::OPTIONS => {
-                        merge_into!(item, options, operation_id, call.operation.clone())
-                    }
-                    &Method::HEAD => merge_into!(item, head, operation_id, call.operation.clone()),
-                    &Method::PATCH => {
-                        merge_into!(item, patch, operation_id, call.operation.clone())
-                    }
-                    &Method::TRACE => {
-                        merge_into!(item, trace, operation_id, call.operation.clone())
-                    }
-                    method => warn!(%method, "unsupported method"),
-                }
+                merge_call_operation(item, &call.method, operation_id, call.operation.clone());
             }
         }
         result
     }
+}
+
+fn merge_call_operation(
+    item: &mut PathItem,
+    method: &Method,
+    operation_id: &str,
+    operation: Operation,
+) {
+    if let Some(slot) = fixed_operation_mut(item, method) {
+        *slot = merge_operation(operation_id, slot.take(), operation);
+        return;
+    }
+
+    let key = method.as_str();
+    let current = item.additional_operations.remove(key);
+    if let Some(merged) = merge_operation(operation_id, current, operation) {
+        item.additional_operations.insert(key.to_string(), merged);
+    }
+}
+
+fn fixed_operation_mut<'a>(
+    item: &'a mut PathItem,
+    method: &Method,
+) -> Option<&'a mut Option<Operation>> {
+    let name = method.as_str();
+    let slot = match name.to_ascii_lowercase().as_str() {
+        "get" => &mut item.get,
+        "put" => &mut item.put,
+        "post" => &mut item.post,
+        "delete" => &mut item.delete,
+        "options" => &mut item.options,
+        "head" => &mut item.head,
+        "patch" => &mut item.patch,
+        "trace" => &mut item.trace,
+        "query" => &mut item.query,
+        _ => return None,
+    };
+    if name.bytes().any(|byte| byte.is_ascii_lowercase()) {
+        warn!(method = %name, "non-canonical HTTP method case, use the uppercase method name");
+    }
+    Some(slot)
 }
 
 #[cfg(test)]
@@ -267,6 +286,19 @@ mod operation_metadata_tests {
         assert_eq!(
             generate_description(&Method::PATCH, "/users/{id}"),
             Some("Partially update user by ID".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_description_query_method() {
+        let query = Method::from_bytes(b"QUERY").expect("QUERY should be a valid method");
+        assert_eq!(
+            generate_description(&query, "/users"),
+            Some("Query users".to_string())
+        );
+        assert_eq!(
+            generate_description(&query, "/users/{id}"),
+            Some("Query user by ID".to_string())
         );
     }
 
@@ -470,5 +502,78 @@ mod operation_metadata_tests {
         );
         let normalized = normalize_content_type(&content_type);
         assert_eq!(normalized, "application/xml");
+    }
+}
+
+#[cfg(test)]
+mod method_mapping_tests {
+    use super::*;
+
+    fn operation(operation_id: &str) -> Operation {
+        Operation::builder()
+            .operation_id(Some(operation_id))
+            .build()
+    }
+
+    fn method(name: &str) -> Method {
+        Method::from_bytes(name.as_bytes()).expect("method should be valid")
+    }
+
+    #[test]
+    fn should_map_query_method_to_query_field() {
+        let mut item = PathItem::default();
+
+        merge_call_operation(
+            &mut item,
+            &method("QUERY"),
+            "query-items",
+            operation("query-items"),
+        );
+
+        assert!(item.query.is_some());
+        assert!(item.additional_operations.is_empty());
+    }
+
+    #[test]
+    fn should_map_non_canonical_fixed_method_to_fixed_field() {
+        let mut item = PathItem::default();
+
+        merge_call_operation(
+            &mut item,
+            &method("get"),
+            "get-items",
+            operation("get-items"),
+        );
+        merge_call_operation(
+            &mut item,
+            &method("query"),
+            "query-items",
+            operation("query-items"),
+        );
+
+        assert!(item.get.is_some());
+        assert!(item.query.is_some());
+        assert!(item.additional_operations.is_empty());
+    }
+
+    #[test]
+    fn should_map_custom_method_to_additional_operations() {
+        let mut item = PathItem::default();
+
+        merge_call_operation(
+            &mut item,
+            &method("PURGE"),
+            "purge-items",
+            operation("purge-items"),
+        );
+        merge_call_operation(
+            &mut item,
+            &method("PURGE"),
+            "purge-items",
+            operation("purge-items"),
+        );
+
+        let keys = item.additional_operations.keys().collect::<Vec<_>>();
+        assert_eq!(keys, ["PURGE"]);
     }
 }

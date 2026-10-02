@@ -8,7 +8,7 @@ use tracing::info;
 
 use axum_example::extractors::ExtractorError;
 use axum_example::observations::domain::{
-    LngLat, Observation, PartialObservation, PatchObservation,
+    LngLat, Observation, PartialObservation, PatchObservation, SearchObservations,
 };
 use axum_example::observations::{FlatObservation, ImportResponse, ListOption, UploadResponse};
 
@@ -38,6 +38,7 @@ async fn should_generate_openapi(#[future] app: TestApp) -> anyhow::Result<()> {
     test_error_cases(&mut app).await?;
     Box::pin(demonstrate_tags_and_metadata(&mut app)).await?;
     demonstrate_security(&mut app).await?;
+    demonstrate_query_search(&mut app).await?;
     // Call redaction demo LAST so its example appears in the generated OpenAPI
     demonstrate_redaction(&mut app).await?;
 
@@ -300,6 +301,29 @@ async fn test_error_cases(app: &mut TestApp) -> anyhow::Result<()> {
         .await?
         .as_json::<TestClientError>()
         .await?;
+
+    Ok(())
+}
+
+#[tracing::instrument(skip(app))]
+async fn demonstrate_query_search(app: &mut TestApp) -> anyhow::Result<()> {
+    info!("Demonstrating a QUERY search with criteria in the request body");
+
+    let criteria = SearchObservations {
+        name: Some("gull".to_string()),
+        color: None,
+    };
+    let found = app
+        .query("/observations")?
+        .json(&criteria)?
+        .await
+        .context("should search observations with QUERY")?
+        .as_json::<ListObservations>()
+        .await?;
+    anyhow::ensure!(
+        !found.observations.is_empty(),
+        "should find observations matching the criteria"
+    );
 
     Ok(())
 }

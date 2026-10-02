@@ -350,6 +350,42 @@ impl ApiClient {
     pub fn patch(&self, path: impl Into<CallPath>) -> Result<ApiCall, ApiClientError> {
         self.call(Method::PATCH, path.into())
     }
+
+    /// Creates a `QUERY` call: a safe, idempotent request that carries its criteria in the body.
+    ///
+    /// The operation is documented under the path item `query` field.
+    /// Use [`ApiClient::call`] for any other method, a custom method is documented
+    /// under `additionalOperations`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use clawspec_core::ApiClient;
+    /// # use serde::{Deserialize, Serialize};
+    /// # use utoipa::ToSchema;
+    /// # #[derive(Serialize, ToSchema)]
+    /// # struct UserSearch { name: String }
+    /// # #[derive(Deserialize, ToSchema)]
+    /// # struct User { id: u32, name: String }
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = ApiClient::builder().build()?;
+    ///
+    /// let criteria = UserSearch { name: "Alice".to_string() };
+    /// let users = client
+    ///     .query("/users")?
+    ///     .json(&criteria)?
+    ///     .await?
+    ///     .as_json::<Vec<User>>()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn query(&self, path: impl Into<CallPath>) -> Result<ApiCall, ApiClientError> {
+        let method = Method::from_bytes(b"QUERY").map_err(http::Error::from)?;
+        self.call(method, path.into())
+    }
 }
 
 fn compute_tags(paths: &Paths, declared: &[Tag]) -> Vec<Tag> {
