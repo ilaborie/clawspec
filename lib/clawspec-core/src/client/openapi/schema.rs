@@ -10,13 +10,53 @@ use indexmap::{IndexMap, IndexSet};
 use utoipa::ToSchema;
 use utoipa::openapi::{Ref, RefOr, Schema};
 
-/// Set of primitive type names that should be inlined rather than referenced
-static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+/// Schema names that are inlined rather than referenced as a component.
+///
+/// Besides primitives, this lists the generic containers utoipa implements `ToSchema` for.
+/// Their name is the bare container name (`Vec`, `Option`, ...) whatever the element type, and
+/// their schema embeds the element schema, so they are never a meaningful component.
+static INLINED_SCHEMA_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     HashSet::from([
-        "bool", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
-        "usize", "f32", "f64", "String", "str", "binary",
+        "bool",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "i128",
+        "isize",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "u128",
+        "usize",
+        "f32",
+        "f64",
+        "char",
+        "String",
+        "str",
+        "binary",
+        "Vec",
+        "LinkedList",
+        "Option",
+        "HashMap",
+        "BTreeMap",
+        "HashSet",
+        "BTreeSet",
+        "IndexMap",
+        "IndexSet",
+        "Box",
+        "Cow",
+        "RefCell",
+        "Rc",
+        "Arc",
     ])
 });
+
+/// Slices (`[T]`, `&[T]`) get a name ending with `]` from utoipa's default `ToSchema::name()`.
+fn is_inlined_schema_name(name: &str) -> bool {
+    INLINED_SCHEMA_NAMES.contains(name) || name.ends_with(']')
+}
 
 /// Provides the OpenAPI schemas of a type to the schema collection.
 ///
@@ -55,14 +95,14 @@ where
 /// This enables fire-and-forget schema registration via channels by allowing
 /// callers to compute the schema reference before sending the message.
 ///
-/// - Primitive types are inlined (return `RefOr::T`)
-/// - Complex types are referenced (return `RefOr::Ref`)
+/// - Primitive and container types are inlined (return `RefOr::T`)
+/// - Named types are referenced (return `RefOr::Ref`)
 pub(in crate::client) fn compute_schema_ref<T>() -> RefOr<Schema>
 where
     T: SchemaSource,
 {
     let name = T::schema_name();
-    if PRIMITIVE_TYPES.contains(name.as_ref()) {
+    if is_inlined_schema_name(name.as_ref()) {
         T::root_schema()
     } else {
         RefOr::Ref(Ref::from_schema_name(name.as_ref()))
@@ -544,12 +584,12 @@ impl SchemaEntry {
         self.examples.insert(example);
     }
 
-    /// Determines if this schema should be inlined (for primitives) or referenced (for complex types)
+    /// Determines if this schema should be inlined (primitives and containers) or referenced
+    /// (named types).
+    ///
+    /// Wrapper types like `ParamValue<T>` delegate `name()` to `T`, so they follow `T`.
     fn should_inline_schema(&self) -> bool {
-        // Check if the schema name (from T::name()) is a primitive type
-        // This works for both direct primitives and wrapper types like DisplayArg<T>
-        // since DisplayArg<T> delegates T::name() to the inner type
-        PRIMITIVE_TYPES.contains(self.name.as_str())
+        is_inlined_schema_name(&self.name)
     }
 }
 
@@ -613,6 +653,110 @@ mod tests {
             HashSet::from(["Root", "Mid", "Leaf"]),
             "expected root and all transitively nested types to be captured"
         );
+    }
+
+    #[derive(Debug, ToSchema, Serialize)]
+    struct Leaf {
+        value: i32,
+    }
+
+    #[derive(Debug, ToSchema, Serialize)]
+    struct Named {
+        leaf: Leaf,
+    }
+
+    fn added_schema_and_components<T: SchemaSource>() -> String {
+        let mut schemas = Schemas::default();
+        let schema = schemas.add::<T>();
+        let components = schemas
+            .schema_vec()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>();
+        serde_saphyr::to_string(&serde_json::json!({ "schema": schema, "components": components }))
+            .expect("should serialize to YAML")
+    }
+
+    #[test]
+    fn test_schemas_add_inlines_vec_of_named_type() {
+        insta::assert_snapshot!(added_schema_and_components::<Vec<Named>>(), @r##"
+        components:
+        - Leaf
+        schema:
+          items:
+            properties:
+              leaf:
+                $ref: "#/components/schemas/Leaf"
+            required:
+            - leaf
+            type: object
+          type: array
+        "##);
+    }
+
+    #[test]
+    fn test_schemas_add_inlines_vec_of_primitive() {
+        insta::assert_snapshot!(added_schema_and_components::<Vec<i32>>(), @"
+        components: []
+        schema:
+          items:
+            format: int32
+            type: integer
+          type: array
+        ");
+    }
+
+    #[test]
+    fn test_schemas_add_inlines_option_of_named_type() {
+        insta::assert_snapshot!(added_schema_and_components::<Option<Named>>(), @r##"
+        components:
+        - Leaf
+        schema:
+          oneOf:
+          - type: "null"
+          - properties:
+              leaf:
+                $ref: "#/components/schemas/Leaf"
+            required:
+            - leaf
+            type: object
+        "##);
+    }
+
+    #[test]
+    fn test_schemas_add_inlines_map_of_named_type() {
+        insta::assert_snapshot!(
+            added_schema_and_components::<std::collections::HashMap<String, Named>>(),
+            @r##"
+        components:
+        - Leaf
+        schema:
+          additionalProperties:
+            properties:
+              leaf:
+                $ref: "#/components/schemas/Leaf"
+            required:
+            - leaf
+            type: object
+          propertyNames:
+            type: string
+          type: object
+        "##
+        );
+    }
+
+    #[test]
+    fn test_compute_schema_ref_inlines_containers_and_references_named_types() {
+        assert!(matches!(
+            compute_schema_ref::<Vec<Named>>(),
+            RefOr::T(Schema::Array(_))
+        ));
+        assert!(matches!(compute_schema_ref::<Box<Named>>(), RefOr::T(_)));
+        assert!(matches!(
+            compute_schema_ref::<&[Named]>(),
+            RefOr::T(Schema::Array(_))
+        ));
+        assert!(matches!(compute_schema_ref::<Named>(), RefOr::Ref(_)));
     }
 
     #[test]
