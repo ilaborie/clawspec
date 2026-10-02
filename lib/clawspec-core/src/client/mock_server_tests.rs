@@ -2887,6 +2887,93 @@ mod querystring_tests {
         "##);
     }
 
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    struct PageFilter {
+        page: u32,
+    }
+
+    async fn mock_list_users() -> MockServer {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&mock_server)
+            .await;
+        mock_server
+    }
+
+    async fn list_users_with_user_filter(client: &mut ApiClient) {
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&UserFilter {
+                search: "alice".to_string(),
+                limit: None,
+                offset: None,
+            })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+    }
+
+    #[tokio::test]
+    async fn should_keep_first_querystring_across_calls() {
+        let mock_server = mock_list_users().await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        list_users_with_user_filter(&mut client).await;
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&PageFilter { page: 2 })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        assert_snapshot!(parameters_yaml(&mut client, "/users").await, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
+    #[tokio::test]
+    async fn should_drop_later_query_parameters_after_querystring() {
+        let mock_server = mock_list_users().await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        list_users_with_user_filter(&mut client).await;
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_query(CallQuery::new().add_param("page", 1))
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        assert_snapshot!(parameters_yaml(&mut client, "/users").await, @r##"
+        - name: UserFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/UserFilter"
+        "##);
+    }
+
     async fn get_with_cookies(version: OpenApiVersion) -> String {
         let mock_server = MockServer::start().await;
         Mock::given(method("GET"))
