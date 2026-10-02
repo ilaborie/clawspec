@@ -6,8 +6,8 @@
 use std::fs;
 
 use anyhow::Context;
-use clawspec_core::register_schemas;
 use clawspec_core::split::{ExtractSchemasByPredicate, OpenApiSplitExt, SplitSchemasByTag};
+use clawspec_core::{ToYaml, register_schemas};
 
 use axum_example::extractors::ExtractorError;
 use axum_example::observations::domain::{
@@ -84,7 +84,7 @@ async fn test_split_by_predicate_extracts_error_schemas() -> anyhow::Result<()> 
         panic!("ExtractorError should be an external reference in main spec");
     }
 
-    // Demonstrate serialization using utoipa's yaml feature
+    // Demonstrate serialization using the ToYaml trait
     let main_yaml = result.main.to_yaml()?;
     let errors_yaml = serde_json::to_string_pretty(&fragment.content)?;
 

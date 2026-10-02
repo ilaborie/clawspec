@@ -102,14 +102,7 @@
 //!
 //! ### YAML Output
 //!
-//! To output YAML instead of JSON, enable the `yaml` feature in your `Cargo.toml`:
-//!
-//! ```toml
-//! [dependencies]
-//! clawspec-core = { version = "...", features = ["yaml"] }
-//! ```
-//!
-//! Then use the [`ToYaml`][crate::ToYaml] trait:
+//! To output YAML instead of JSON, use the [`ToYaml`][crate::ToYaml] trait:
 //!
 //! ```rust,ignore
 //! use clawspec_core::ToYaml;

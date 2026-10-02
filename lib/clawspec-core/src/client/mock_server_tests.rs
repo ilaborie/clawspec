@@ -1055,9 +1055,11 @@ mod operation_tests {
         let params = get_op.parameters.as_ref().expect("should have parameters");
         let param_names = params
             .iter()
-            .filter_map(|param| match param {
-                utoipa::openapi::RefOr::T(param) => Some(param.name.as_str()),
-                utoipa::openapi::RefOr::Ref(_) => None,
+            .map(|param| match param {
+                utoipa::openapi::RefOr::T(param) => param.name.as_str(),
+                utoipa::openapi::RefOr::Ref(reference) => {
+                    panic!("unexpected $ref parameter: {}", reference.ref_location)
+                }
             })
             .collect::<Vec<_>>();
         assert!(param_names.contains(&"limit"));

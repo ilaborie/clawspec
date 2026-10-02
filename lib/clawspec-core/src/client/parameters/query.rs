@@ -468,26 +468,25 @@ mod tests {
             );
 
         let parameters: Vec<_> = query.to_parameters().collect();
-        let debug_params: Vec<_> = parameters
+        let param_styles = parameters
             .iter()
-            .map(|p| {
-                format!(
-                    "{}({:?})",
-                    p.name,
-                    p.style
+            .map(|param| {
+                (
+                    param.name.as_str(),
+                    param
+                        .style
                         .as_ref()
-                        .unwrap_or(&utoipa::openapi::path::ParameterStyle::Form)
+                        .unwrap_or(&utoipa::openapi::path::ParameterStyle::Form),
                 )
             })
-            .collect();
+            .collect::<IndexMap<_, _>>();
+        let yaml = serde_saphyr::to_string(&param_styles).expect("should serialize to YAML");
 
-        insta::assert_debug_snapshot!(debug_params, @r#"
-        [
-            "q(Form)",
-            "filters(SpaceDelimited)",
-            "sort(PipeDelimited)",
-        ]
-        "#);
+        insta::assert_snapshot!(yaml, @"
+        q: form
+        filters: spaceDelimited
+        sort: pipeDelimited
+        ");
     }
 
     #[test]

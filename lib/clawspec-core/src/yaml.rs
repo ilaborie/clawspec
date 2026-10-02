@@ -1,7 +1,7 @@
 //! YAML serialization support using serde-saphyr.
 //!
 //! This module provides YAML serialization capabilities for OpenAPI specifications
-//! and split results. It is only available when the `yaml` feature is enabled.
+//! and split results.
 //!
 //! # Example
 //!
@@ -72,13 +72,13 @@ mod tests {
 
         let yaml = spec.to_yaml().expect("should serialize to YAML");
 
-        assert_snapshot!(yaml, @r"
-        openapi: 3.1.0
+        assert_snapshot!(yaml, @r#"
+        openapi: "3.1.0"
         info:
           title: Test API
-          version: 1.0.0
+          version: "1.0.0"
         paths: {}
-        ");
+        "#);
     }
 
     #[test]

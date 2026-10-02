@@ -63,7 +63,6 @@ async fn test_user_api() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate OpenAPI specification
     let spec = client.collected_openapi().await;
-    // Requires the `yaml` feature: clawspec-core = { version = "0.4", features = ["yaml"] }
     use clawspec_core::ToYaml;
     let yaml = spec.to_yaml()?;
     std::fs::write("openapi.yml", yaml)?;
@@ -78,12 +77,12 @@ Clawspec provides optional feature flags:
 
 | Feature | Description |
 |---------|-------------|
-| `yaml` | YAML serialization via the `ToYaml` trait |
+| `yaml` | No-op, kept for compatibility: YAML serialization via the `ToYaml` trait is always available |
 | `redaction` | Redact dynamic values (UUIDs, timestamps) for stable OpenAPI examples |
 | `oauth2` | OAuth2 authentication support |
 
 ```toml
-clawspec-core = { version = "0.4", features = ["yaml", "redaction"] }
+clawspec-core = { version = "0.4", features = ["redaction"] }
 ```
 
 ### Test Server Example with TestClient

@@ -14,7 +14,7 @@ use tracing::info;
 use utoipa::openapi::{ContactBuilder, InfoBuilder, ServerBuilder};
 
 use clawspec_core::test_client::{HealthStatus, TestClient, TestServer, TestServerConfig};
-use clawspec_core::{ApiClient, ApiKeyLocation, SecurityRequirement, SecurityScheme};
+use clawspec_core::{ApiClient, ApiKeyLocation, SecurityRequirement, SecurityScheme, ToYaml};
 
 use axum_example::launch;
 

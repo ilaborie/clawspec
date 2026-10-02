@@ -195,7 +195,8 @@ impl ApiClientBuilder {
     /// Sets the OpenAPI version of the generated specification.
     ///
     /// Defaults to [`OpenApiVersion::Version32`]. Use [`OpenApiVersion::Version31`]
-    /// when the consumers of the specification do not support the latest version yet.
+    /// when the consumers of the specification only accept that version.
+    /// Only the `openapi` field changes; the collected content is identical.
     pub fn with_openapi_version(mut self, openapi_version: OpenApiVersion) -> Self {
         self.openapi_version = openapi_version;
         self
@@ -760,7 +761,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_generate_latest_openapi_version_by_default() {
+    async fn should_generate_version_32_by_default() {
         let mut client = ApiClientBuilder::default()
             .build()
             .expect("should build client");

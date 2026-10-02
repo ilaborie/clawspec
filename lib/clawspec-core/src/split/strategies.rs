@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use tracing::warn;
 use utoipa::openapi::path::{Operation, Parameter, PathItem};
 use utoipa::openapi::{Components, Content, OpenApi, Ref, RefOr};
 
@@ -74,10 +75,13 @@ impl SplitSchemasByTag {
     }
 
     /// Analyzes which tags reference which schemas.
+    ///
+    /// `$ref` request bodies, responses, parameters and media types are resolved
+    /// against the components of the specification.
     fn analyze_schema_usage(&self, spec: &OpenApi) -> BTreeMap<String, BTreeSet<String>> {
         let mut schema_to_tags: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let components = spec.components.as_ref();
 
-        // Iterate through all paths and operations
         for path_item in spec.paths.paths.values() {
             for operation in iter_operations(path_item) {
                 let tags = operation.tags.clone().unwrap_or_default();
@@ -85,50 +89,73 @@ impl SplitSchemasByTag {
                     continue;
                 }
 
-                // Collect schema references from request body
-                if let Some(RefOr::T(ref request_body)) = operation.request_body {
-                    for content in request_body.content.values() {
-                        if let RefOr::T(Content {
-                            schema: Some(ref schema),
-                            ..
-                        }) = *content
-                        {
-                            self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
-                        }
-                    }
+                if let Some(request_body) = operation.request_body.as_ref().and_then(|body| {
+                    resolve(
+                        body,
+                        "requestBodies",
+                        components.map(|comps| &comps.request_bodies),
+                    )
+                }) {
+                    self.collect_content_refs(
+                        request_body.content.values(),
+                        components,
+                        &tags,
+                        &mut schema_to_tags,
+                    );
                 }
 
-                // Collect schema references from responses
                 for response in operation.responses.responses.values() {
-                    if let RefOr::T(resp) = response {
-                        for content in resp.content.values() {
-                            if let RefOr::T(Content {
-                                schema: Some(ref schema),
-                                ..
-                            }) = *content
-                            {
-                                self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
-                            }
-                        }
+                    if let Some(response) = resolve(
+                        response,
+                        "responses",
+                        components.map(|comps| &comps.responses),
+                    ) {
+                        self.collect_content_refs(
+                            response.content.values(),
+                            components,
+                            &tags,
+                            &mut schema_to_tags,
+                        );
                     }
                 }
 
-                // Collect schema references from parameters
-                if let Some(ref parameters) = operation.parameters {
-                    for param in parameters {
-                        if let RefOr::T(Parameter {
-                            schema: Some(ref schema),
-                            ..
-                        }) = *param
-                        {
-                            self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
-                        }
+                for param in operation.parameters.iter().flatten() {
+                    if let Some(Parameter {
+                        schema: Some(schema),
+                        ..
+                    }) = resolve(
+                        param,
+                        "parameters",
+                        components.map(|comps| &comps.parameters),
+                    ) {
+                        self.collect_schema_refs(schema, &tags, &mut schema_to_tags);
                     }
                 }
             }
         }
 
         schema_to_tags
+    }
+
+    fn collect_content_refs<'a>(
+        &self,
+        contents: impl Iterator<Item = &'a RefOr<Content>>,
+        components: Option<&Components>,
+        tags: &[String],
+        schema_to_tags: &mut BTreeMap<String, BTreeSet<String>>,
+    ) {
+        for content in contents {
+            if let Some(Content {
+                schema: Some(schema),
+                ..
+            }) = resolve(
+                content,
+                "mediaTypes",
+                components.map(|comps| &comps.media_types),
+            ) {
+                self.collect_schema_refs(schema, tags, schema_to_tags);
+            }
+        }
     }
 
     /// Collects schema references from a schema, adding tag associations.
@@ -347,6 +374,43 @@ where
         result.add_fragment(Fragment::new(self.target_file.clone(), extracted));
         result
     }
+}
+
+/// Resolves a `$ref` against a section of the components, following chained references.
+///
+/// Logs a warning and returns `None` when the reference cannot be resolved.
+fn resolve<'a, T>(
+    item: &'a RefOr<T>,
+    section: &str,
+    entries: Option<&'a BTreeMap<String, RefOr<T>>>,
+) -> Option<&'a T> {
+    let prefix = format!("#/components/{section}/");
+    let max_hops = entries.map_or(0, BTreeMap::len);
+    let mut current = item;
+    for _ in 0..=max_hops {
+        match current {
+            RefOr::T(value) => return Some(value),
+            RefOr::Ref(reference) => {
+                let target = reference
+                    .ref_location
+                    .strip_prefix(prefix.as_str())
+                    .and_then(|name| entries?.get(name));
+                let Some(target) = target else {
+                    warn!(
+                        ref_location = reference.ref_location,
+                        "cannot resolve $ref in the components, its schemas are not analyzed"
+                    );
+                    return None;
+                };
+                current = target;
+            }
+        }
+    }
+    warn!(
+        section,
+        "cyclic $ref in the components, its schemas are not analyzed"
+    );
+    None
 }
 
 /// Extracts the schema name from a $ref string.
@@ -1036,6 +1100,120 @@ mod tests {
                 .map(|t| t.contains("users"))
                 .unwrap_or(false)
         );
+    }
+
+    #[test]
+    fn should_resolve_ref_request_bodies_parameters_and_responses() {
+        use utoipa::openapi::path::{ParameterBuilder, ParameterIn};
+        use utoipa::openapi::request_body::RequestBodyBuilder;
+
+        let string_schema = || {
+            RefOr::T(
+                ObjectBuilder::new()
+                    .schema_type(utoipa::openapi::Type::String)
+                    .build()
+                    .into(),
+            )
+        };
+        let schema_ref = |name: &str| {
+            ContentBuilder::new()
+                .schema(Some(RefOr::Ref(Ref::from_schema_name(name))))
+                .build()
+        };
+
+        let mut components = Components::new();
+        for name in ["CreateUser", "UserId", "User", "Shared"] {
+            components.schemas.insert(name.to_string(), string_schema());
+        }
+        components.request_bodies.insert(
+            "CreateUserBody".to_string(),
+            RefOr::T(
+                RequestBodyBuilder::new()
+                    .content("application/json", schema_ref("CreateUser"))
+                    .build(),
+            ),
+        );
+        components.request_bodies.insert(
+            "AliasBody".to_string(),
+            RefOr::Ref(Ref::new("#/components/requestBodies/CreateUserBody")),
+        );
+        components.parameters.insert(
+            "UserIdParam".to_string(),
+            RefOr::T(
+                ParameterBuilder::new()
+                    .name("id")
+                    .parameter_in(ParameterIn::Path)
+                    .schema(Some(RefOr::Ref(Ref::from_schema_name("UserId"))))
+                    .build(),
+            ),
+        );
+        components.responses.insert(
+            "UserResponse".to_string(),
+            RefOr::T(
+                ResponseBuilder::new()
+                    .description("OK")
+                    .content("application/json", schema_ref("User"))
+                    .build(),
+            ),
+        );
+        components
+            .media_types
+            .insert("SharedMedia".to_string(), RefOr::T(schema_ref("Shared")));
+
+        let mut update_user = OperationBuilder::new()
+            .tags(Some(vec!["users".to_string()]))
+            .request_body_ref(Some(Ref::new("#/components/requestBodies/AliasBody")))
+            .response(
+                "200",
+                RefOr::Ref(Ref::new("#/components/responses/UserResponse")),
+            )
+            .response(
+                "400",
+                ResponseBuilder::new()
+                    .description("Bad request")
+                    .content_ref(
+                        "application/json",
+                        Ref::new("#/components/mediaTypes/SharedMedia"),
+                    )
+                    .build(),
+            )
+            .build();
+        update_user.parameters = Some(vec![
+            RefOr::Ref(Ref::new("#/components/parameters/UserIdParam")),
+            RefOr::Ref(Ref::new("#/components/parameters/Missing")),
+        ]);
+
+        let mut paths = utoipa::openapi::Paths::new();
+        paths.paths.insert(
+            "/users/{id}".to_string(),
+            PathItemBuilder::new()
+                .operation(utoipa::openapi::HttpMethod::Put, update_user)
+                .build(),
+        );
+
+        let spec = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components))
+            .build();
+
+        let usage = SplitSchemasByTag::new("common.yaml").analyze_schema_usage(&spec);
+
+        insta::assert_debug_snapshot!(usage, @r#"
+        {
+            "CreateUser": {
+                "users",
+            },
+            "Shared": {
+                "users",
+            },
+            "User": {
+                "users",
+            },
+            "UserId": {
+                "users",
+            },
+        }
+        "#);
     }
 
     #[test]

@@ -75,14 +75,12 @@ async fn test_redacted_request_body_appears_in_openapi(
         .as_ref()
         .expect("should have POST operation");
 
-    // Find the request body
     let request_body = post_operation
         .request_body
         .as_ref()
         .map(common::inline)
         .expect("should have request body");
 
-    // Get the application/json content
     let json_content = request_body
         .content
         .get("application/json")
@@ -188,7 +186,6 @@ async fn test_full_request_and_response_redaction(#[future] app: TestApp) -> any
         .as_ref()
         .expect("should have POST operation");
 
-    // Check request body example
     let request_body = post_operation
         .request_body
         .as_ref()
@@ -306,14 +303,12 @@ async fn test_request_body_example_from_regular_json(#[future] app: TestApp) -> 
         .as_ref()
         .expect("should have POST operation");
 
-    // Find the request body
     let request_body = post_operation
         .request_body
         .as_ref()
         .map(common::inline)
         .expect("should have request body");
 
-    // Get the application/json content
     let json_content = request_body
         .content
         .get("application/json")

@@ -1,12 +1,15 @@
-openapi: 3.2.0
+openapi: "3.2.0"
 info:
   title: Bird Observation API
-  description: A comprehensive API for managing bird observations with support for multiple content types, file uploads, and bulk operations. This API demonstrates RESTful design patterns and provides comprehensive CRUD operations for bird observation data.
+  description: >-
+    A comprehensive API for managing bird observations with support for multiple
+    content types, file uploads, and bulk operations. This API demonstrates RESTful
+    design patterns and provides comprehensive CRUD operations for bird observation data.
   contact:
     name: Bird Observation Team
     url: https://birdwatch.example.com/support
     email: api-support@birdwatch.example.com
-  version: 1.0.0
+  version: "1.0.0"
 servers:
 - url: https://api.birdwatch.example.com/api
   description: Production server
@@ -19,7 +22,7 @@ paths:
       operationId: get-health
       parameters: []
       responses:
-        '200':
+        "200":
           description: Status code 200
           content:
             application/json: {}
@@ -72,12 +75,12 @@ paths:
         schema:
           type: string
       responses:
-        '200':
+        "200":
           description: Status code 200
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ListObservations'
+                $ref: "#/components/schemas/ListObservations"
       security:
       - apiKey: []
     post:
@@ -100,7 +103,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PartialObservation'
+              $ref: "#/components/schemas/PartialObservation"
             example:
               color: rainbow
               name: Redaction Demo Bird
@@ -114,7 +117,7 @@ paths:
               format: binary
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/FlatObservation'
+              $ref: "#/components/schemas/FlatObservation"
             example:
               color: orange
               lat: 3.5
@@ -126,33 +129,33 @@ paths:
               type: string
               format: binary
       responses:
-        '201':
+        "201":
           description: Status code 201
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Observation'
+                $ref: "#/components/schemas/Observation"
               example:
                 color: rainbow
-                created_at: 2024-01-01T00:00:00Z
+                created_at: "2024-01-01T00:00:00Z"
                 id: 019aaaaa-0000-7000-8000-000000000000
                 name: Redaction Demo Bird
                 notes: This observation demonstrates the redaction feature
                 position:
                   lat: 0.0
                   lng: 0.0
-        '400':
+        "400":
           description: Status code 400
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TestClientError'
-        '415':
+                $ref: "#/components/schemas/TestClientError"
+        "415":
           description: Status code 415
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TestClientError'
+                $ref: "#/components/schemas/TestClientError"
       security:
       - bearerAuth: []
   /api/observations/import:
@@ -172,12 +175,12 @@ paths:
               type: string
               format: binary
       responses:
-        '201':
+        "201":
           description: Status code 201
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ImportResponse'
+                $ref: "#/components/schemas/ImportResponse"
       security:
       - bearerAuth: []
   /api/observations/upload:
@@ -196,15 +199,15 @@ paths:
               type: string
               format: binary
       responses:
-        '201':
+        "201":
           description: Status code 201
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadResponse'
+                $ref: "#/components/schemas/UploadResponse"
       security:
       - bearerAuth: []
-  /api/observations/{observation_id}:
+  "/api/observations/{observation_id}":
     get:
       tags:
       - observations
@@ -215,14 +218,14 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ObservationId'
+          $ref: "#/components/schemas/ObservationId"
       responses:
-        '200':
+        "200":
           description: Status code 200
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Observation'
+                $ref: "#/components/schemas/Observation"
       security:
       - bearerAuth: []
     put:
@@ -236,12 +239,12 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ObservationId'
+          $ref: "#/components/schemas/ObservationId"
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PartialObservation'
+              $ref: "#/components/schemas/PartialObservation"
             example:
               color: rainbow
               name: Updated Metadata Demo
@@ -250,7 +253,7 @@ paths:
                 lat: -90.0
                 lng: 45.0
       responses:
-        '200':
+        "200":
           description: Status code 200
       security:
       - bearerAuth: []
@@ -264,9 +267,9 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ObservationId'
+          $ref: "#/components/schemas/ObservationId"
       responses:
-        '200':
+        "200":
           description: Status code 200
           content:
             application/json: {}
@@ -282,22 +285,22 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/ObservationId'
+          $ref: "#/components/schemas/ObservationId"
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchObservation'
+              $ref: "#/components/schemas/PatchObservation"
             example:
               color: red
               name: Partially Updated Parrot
       responses:
-        '200':
+        "200":
           description: Status code 200
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Observation'
+                $ref: "#/components/schemas/Observation"
       security:
       - bearerAuth: []
 components:
@@ -319,7 +322,7 @@ components:
               location:
                 type:
                 - string
-                - 'null'
+                - "null"
                 description: Location where the error occurred (e.g., "body", "`field_name`")
               message:
                 type: string
@@ -343,7 +346,7 @@ components:
               element:
                 type:
                 - string
-                - 'null'
+                - "null"
                 description: XML element where the error occurred
               message:
                 type: string
@@ -367,7 +370,7 @@ components:
               field:
                 type:
                 - string
-                - 'null'
+                - "null"
                 description: Form field that caused the error
               message:
                 type: string
@@ -394,7 +397,7 @@ components:
               part:
                 type:
                 - string
-                - 'null'
+                - "null"
                 description: Multipart section that caused the error
           type:
             type: string
@@ -469,13 +472,13 @@ components:
             - BadRequest
       description: |-
         Custom error type for extractors that provides structured error responses.
-
+        
         This enum represents different types of extraction failures that can occur
         when processing HTTP requests. Each variant corresponds to a specific error
         scenario and provides appropriate HTTP status codes and error details.
     FlatObservation:
       allOf:
-      - $ref: '#/components/schemas/LngLat'
+      - $ref: "#/components/schemas/LngLat"
       - type: object
         required:
         - name
@@ -483,14 +486,16 @@ components:
           color:
             type:
             - string
-            - 'null'
+            - "null"
           name:
             type: string
           notes:
             type:
             - string
-            - 'null'
-      description: Flattened observation structure for form data that doesn't support nested objects.
+            - "null"
+      description: >-
+        Flattened observation structure for form data that doesn't support nested
+        objects.
     ImportResponse:
       type: object
       required:
@@ -505,14 +510,14 @@ components:
         created_ids:
           type: array
           items:
-            $ref: '#/components/schemas/ObservationId'
+            $ref: "#/components/schemas/ObservationId"
         error_count:
           type: integer
           minimum: 0
         errors:
           type:
           - array
-          - 'null'
+          - "null"
           items:
             type: string
         imported:
@@ -526,7 +531,7 @@ components:
         observations:
           type: array
           items:
-            $ref: '#/components/schemas/Observation'
+            $ref: "#/components/schemas/Observation"
     LngLat:
       type: object
       required:
@@ -541,7 +546,7 @@ components:
           format: double
     Observation:
       allOf:
-      - $ref: '#/components/schemas/PartialObservation'
+      - $ref: "#/components/schemas/PartialObservation"
       - type: object
         required:
         - id
@@ -549,9 +554,9 @@ components:
         properties:
           created_at:
             type: string
-            example: 2024-01-01T00:00:00Z
+            example: "2024-01-01T00:00:00Z"
           id:
-            $ref: '#/components/schemas/ObservationId'
+            $ref: "#/components/schemas/ObservationId"
     ObservationId:
       type: string
       format: uuid
@@ -564,34 +569,34 @@ components:
         color:
           type:
           - string
-          - 'null'
+          - "null"
         name:
           type: string
         notes:
           type:
           - string
-          - 'null'
+          - "null"
         position:
-          $ref: '#/components/schemas/LngLat'
+          $ref: "#/components/schemas/LngLat"
     PatchObservation:
       type: object
       properties:
         color:
           type:
           - string
-          - 'null'
+          - "null"
         name:
           type:
           - string
-          - 'null'
+          - "null"
         notes:
           type:
           - string
-          - 'null'
+          - "null"
         position:
           oneOf:
-          - $ref: '#/components/schemas/LngLat'
-          - type: 'null'
+          - $ref: "#/components/schemas/LngLat"
+          - type: "null"
     TestClientError:
       type: object
       required:
@@ -600,7 +605,7 @@ components:
       - error
       properties:
         error:
-          $ref: '#/components/schemas/ExtractorError'
+          $ref: "#/components/schemas/ExtractorError"
         status:
           type: integer
           format: int32
@@ -617,14 +622,14 @@ components:
         created_ids:
           type: array
           items:
-            $ref: '#/components/schemas/ObservationId'
+            $ref: "#/components/schemas/ObservationId"
         error_count:
           type: integer
           minimum: 0
         errors:
           type:
           - array
-          - 'null'
+          - "null"
           items:
             type: string
         uploaded:

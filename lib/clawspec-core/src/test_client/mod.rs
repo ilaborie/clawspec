@@ -60,7 +60,7 @@ use std::time::Duration;
 use backon::{ExponentialBuilder, Retryable};
 use tracing::{debug, error};
 
-use crate::ApiClient;
+use crate::{ApiClient, ToYaml};
 
 mod error;
 pub use self::error::*;
@@ -671,9 +671,7 @@ where
 
         let ext = path.extension().unwrap_or_default();
         let contents = if ext == "yml" || ext == "yaml" {
-            openapi.to_yaml().map_err(|err| TestAppError::YamlError {
-                error: format!("{err:#?}"),
-            })?
+            openapi.to_yaml()?
         } else {
             serde_json::to_string_pretty(&openapi)?
         };

@@ -160,22 +160,16 @@ impl CallCookies {
 
     /// Converts cookies to OpenAPI Parameter objects.
     ///
-    /// According to the OpenAPI specification, cookies are represented as parameters
-    /// with `in: cookie`. This method generates the appropriate Parameter objects for
-    /// inclusion in the OpenAPI specification.
+    /// According to the OpenAPI Specification, cookies are parameters with `in: cookie`.
+    /// This method generates the Parameter objects for the generated document.
     ///
-    /// # OpenAPI Specification
-    ///
-    /// From the OpenAPI specification:
-    /// - Parameter location: `in: cookie`
-    /// - Cookies are typically optional parameters
-    /// - Cookie values are serialized as simple strings
+    /// Parameters are emitted with `in: cookie` and `required: false`.
     pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         self.cookies.iter().map(|(name, resolved)| {
             ParameterBuilder::new()
                 .name(name)
                 .parameter_in(ParameterIn::Cookie)
-                .required(Required::False) // Cookies are typically optional
+                .required(Required::False)
                 .schema(Some(resolved.schema.clone()))
                 .build()
         })

@@ -20,10 +20,11 @@ static PRIMITIVE_TYPES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 
 /// Provides the OpenAPI schemas of a type to the schema collection.
 ///
-/// Every schema collected by the client goes through this trait, so that an
-/// alternative schema provider can be plugged in without touching the collection.
+/// Every schema collected by the client goes through this trait. It is implemented
+/// for every `ToSchema` type.
+// TODO: Support schemars as an alternative schema provider - https://github.com/ilaborie/clawspec/issues/143
 pub(crate) trait SchemaSource: 'static {
-    /// The component name of the schema.
+    /// The schema name, used as the component key for non-primitive types.
     fn schema_name() -> Cow<'static, str>;
 
     /// The schema of the type itself.
@@ -990,19 +991,8 @@ mod tests {
 
         // Test schema reference creation
         let schema_ref: RefOr<Schema> = RefOr::Ref(Ref::from_schema_name("TestType"));
-        insta::assert_debug_snapshot!(schema_ref, @r##"
-        Ref(
-            Ref {
-                ref_location: "#/components/schemas/TestType",
-                description: "",
-                summary: "",
-                read_only: None,
-                write_only: None,
-                default: None,
-                title: None,
-            },
-        )
-        "##);
+        let yaml = serde_saphyr::to_string(&schema_ref).expect("should serialize to YAML");
+        insta::assert_snapshot!(yaml, @r##"$ref: "#/components/schemas/TestType""##);
     }
 
     #[test]
