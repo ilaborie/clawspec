@@ -2476,7 +2476,7 @@ mod sequential_response_tests {
                 id: 1
                 data: {"id":1,"name":"Alice",
                 data: "email":"alice@example.com"}
-                
+
                 retry: 5000
                 data: {"id":2,"name":"Bob","email":"bob@example.com"}
         "##);
@@ -2498,7 +2498,7 @@ mod sequential_response_tests {
                 id: 1
                 data: {"id":1,"name":"Alice",
                 data: "email":"alice@example.com"}
-                
+
                 retry: 5000
                 data: {"id":2,"name":"Bob","email":"bob@example.com"}
         "#);
@@ -2638,10 +2638,10 @@ mod sequential_response_tests {
               serializedValue: |+
                 id: 1
                 data: {"id":1,"name":"u1","email":"u1@example.com"}
-                
+
                 id: 2
                 data: {"id":2,"name":"u2","email":"u2@example.com"}
-                
+
                 id: 3
                 data: {"id":3,"name":"u3","email":"u3@example.com"}
         "##);
@@ -2653,10 +2653,10 @@ mod sequential_response_tests {
               value: |+
                 id: 1
                 data: {"id":1,"name":"u1","email":"u1@example.com"}
-                
+
                 id: 2
                 data: {"id":2,"name":"u2","email":"u2@example.com"}
-                
+
                 id: 3
                 data: {"id":3,"name":"u3","email":"u3@example.com"}
         "#);
@@ -2778,7 +2778,7 @@ mod sequential_response_tests {
               summary: First items of the stream
               value: |+
                 data: {"id":1,"name":"Alice","email":"alice@example.com"}
-                
+
                 data: {"id":2,"name":"Bob","email":"bob@example.com"}
         "#);
     }
