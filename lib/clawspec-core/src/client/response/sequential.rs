@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use headers::ContentType;
 use mime::Mime;
 use serde::de::DeserializeOwned;
@@ -28,8 +30,8 @@ pub struct SseEvent<T> {
     ///
     /// It is not carried over to the next events, unlike the last event ID of a browser.
     pub id: Option<String>,
-    /// The `retry` field of this event in milliseconds, if valid.
-    pub retry: Option<u64>,
+    /// The reconnection time set by the `retry` field of this event, if valid.
+    pub retry: Option<Duration>,
 }
 
 impl<T> SseEvent<T> {
@@ -40,9 +42,14 @@ impl<T> SseEvent<T> {
     /// # Example
     ///
     /// ```rust
+    /// use std::time::Duration;
+    ///
     /// use clawspec_core::SseEvent;
     ///
-    /// let event = SseEvent::new("hello").with_event("greeting").with_id("1").with_retry(3000);
+    /// let event = SseEvent::new("hello")
+    ///     .with_event("greeting")
+    ///     .with_id("1")
+    ///     .with_retry(Duration::from_secs(3));
     /// assert_eq!(event.event.as_deref(), Some("greeting"));
     /// ```
     pub fn new(data: T) -> Self {
@@ -66,25 +73,32 @@ impl<T> SseEvent<T> {
         self
     }
 
-    /// Sets the reconnection time in milliseconds.
-    pub fn with_retry(mut self, retry: u64) -> Self {
+    /// Sets the reconnection time.
+    pub fn with_retry(mut self, retry: Duration) -> Self {
         self.retry = Some(retry);
         self
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::client) enum SequentialKind {
+pub(in crate::client) enum JsonSequenceKind {
     JsonLines,
     JsonSeq,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::client) enum SequentialKind {
+    Json(JsonSequenceKind),
     EventStream,
 }
 
 pub(in crate::client) fn sequential_kind(content_type: &ContentType) -> Option<SequentialKind> {
     let mime = Mime::from(content_type.clone());
     match mime.essence_str() {
-        "application/jsonl" | "application/x-ndjson" => Some(SequentialKind::JsonLines),
-        "application/json-seq" => Some(SequentialKind::JsonSeq),
+        "application/jsonl" | "application/x-ndjson" => {
+            Some(SequentialKind::Json(JsonSequenceKind::JsonLines))
+        }
+        "application/json-seq" => Some(SequentialKind::Json(JsonSequenceKind::JsonSeq)),
         EVENT_STREAM_MEDIA_TYPE => Some(SequentialKind::EventStream),
         _ => None,
     }
@@ -99,21 +113,15 @@ pub(in crate::client) struct ParsedStream<T> {
 }
 
 pub(in crate::client) fn parse_json_sequence<T>(
-    kind: SequentialKind,
+    kind: JsonSequenceKind,
     body: &str,
 ) -> Result<ParsedStream<T>, ApiClientError>
 where
     T: DeserializeOwned,
 {
     let (records, separator) = match kind {
-        SequentialKind::JsonLines => (json_lines_records(body), "\n"),
-        SequentialKind::JsonSeq => (json_seq_records(body), ""),
-        SequentialKind::EventStream => {
-            return Err(ApiClientError::UnexpectedOutputType {
-                expected: JSON_SEQUENCE_MEDIA_TYPES.to_string(),
-                actual: EVENT_STREAM_MEDIA_TYPE.to_string(),
-            });
-        }
+        JsonSequenceKind::JsonLines => (json_lines_records(body), "\n"),
+        JsonSequenceKind::JsonSeq => (json_seq_records(body), ""),
     };
     let items = records
         .iter()
@@ -130,7 +138,7 @@ pub(in crate::client) fn parse_sse<T>(
 where
     T: DeserializeOwned,
 {
-    let raw_events = parse_event_stream(body);
+    let raw_events = parse_event_stream(body)?;
     let example = stream_example(raw_events.iter().map(|raw| raw.raw), "");
     let items = raw_events
         .into_iter()
@@ -245,7 +253,7 @@ struct RawSseEvent<'a> {
     event: Option<String>,
     data: String,
     id: Option<String>,
-    retry: Option<u64>,
+    retry: Option<Duration>,
 }
 
 #[derive(Debug, Default)]
@@ -253,7 +261,7 @@ struct SseEventBuffer {
     event: Option<String>,
     data: Option<String>,
     id: Option<String>,
-    retry: Option<u64>,
+    retry: Option<Duration>,
 }
 
 impl SseEventBuffer {
@@ -280,7 +288,9 @@ impl SseEventBuffer {
             },
             "id" if !value.contains('\0') => self.id = Some(value.to_string()),
             "retry" if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => {
-                self.retry = value.parse().ok();
+                if let Ok(millis) = value.parse() {
+                    self.retry = Some(Duration::from_millis(millis));
+                }
             }
             _ => {}
         }
@@ -293,12 +303,14 @@ impl SseEventBuffer {
             id,
             retry,
         } = std::mem::take(self);
-        let data = data.filter(|data| {
-            if data.is_empty() {
-                debug!("skipping server-sent event with empty data");
+        let data = data.filter(|data| !data.is_empty());
+        if data.is_none() {
+            if event.is_some() || id.is_some() {
+                warn!(?event, ?id, "skipping server-sent event without data");
+            } else {
+                debug!("skipping server-sent event without data");
             }
-            !data.is_empty()
-        });
+        }
         data.map(|data| RawSseEvent {
             raw,
             event,
@@ -309,7 +321,7 @@ impl SseEventBuffer {
     }
 }
 
-fn parse_event_stream(body: &str) -> Vec<RawSseEvent<'_>> {
+fn parse_event_stream(body: &str) -> Result<Vec<RawSseEvent<'_>>, ApiClientError> {
     let body = body.strip_prefix(BYTE_ORDER_MARK).unwrap_or(body);
     let mut events = Vec::new();
     let mut buffer = SseEventBuffer::default();
@@ -337,13 +349,12 @@ fn parse_event_stream(body: &str) -> Vec<RawSseEvent<'_>> {
             .chars()
             .take(UNTERMINATED_PREVIEW_CHARS)
             .collect::<String>();
-        warn!(
-            bytes = unterminated.len(),
-            %preview,
-            "discarding unterminated server-sent event at the end of the stream"
-        );
+        return Err(ApiClientError::UnterminatedEventStream {
+            bytes: unterminated.len(),
+            preview,
+        });
     }
-    events
+    Ok(events)
 }
 
 #[cfg(test)]
@@ -378,9 +389,9 @@ mod tests {
         assert_eq!(
             kinds,
             [
-                Some(SequentialKind::JsonLines),
-                Some(SequentialKind::JsonLines),
-                Some(SequentialKind::JsonSeq),
+                Some(SequentialKind::Json(JsonSequenceKind::JsonLines)),
+                Some(SequentialKind::Json(JsonSequenceKind::JsonLines)),
+                Some(SequentialKind::Json(JsonSequenceKind::JsonSeq)),
                 Some(SequentialKind::EventStream),
                 None,
             ]
@@ -391,7 +402,7 @@ mod tests {
     fn should_parse_json_lines_skipping_blank_lines() {
         let body = "{\"id\":1,\"name\":\"a\"}\r\n\n   \n{\"id\":2,\"name\":\"b\"}";
 
-        let items = parse_json_sequence::<Item>(SequentialKind::JsonLines, body)
+        let items = parse_json_sequence::<Item>(JsonSequenceKind::JsonLines, body)
             .expect("should parse JSON lines")
             .items;
 
@@ -413,7 +424,7 @@ mod tests {
     fn should_parse_json_seq_with_record_separators_and_line_feeds() {
         let body = "\u{1e}{\"id\":1,\"name\":\"a\"}\n\u{1e}{\"id\":2,\n\"name\":\"b\"}\n\u{1e}\n";
 
-        let items = parse_json_sequence::<Item>(SequentialKind::JsonSeq, body)
+        let items = parse_json_sequence::<Item>(JsonSequenceKind::JsonSeq, body)
             .expect("should parse JSON text sequence")
             .items;
 
@@ -439,7 +450,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let error = parse_json_sequence::<Item>(SequentialKind::JsonLines, &body)
+        let error = parse_json_sequence::<Item>(JsonSequenceKind::JsonLines, &body)
             .expect_err("should fail on the fourth item");
 
         let ApiClientError::JsonError { path, body, .. } = error else {
@@ -477,7 +488,7 @@ mod tests {
             })
             .with_event("created")
             .with_id("42")
-            .with_retry(3000)]
+            .with_retry(Duration::from_secs(3))]
         );
     }
 
@@ -485,7 +496,7 @@ mod tests {
     fn should_strip_bom_and_handle_all_line_endings() {
         let body = "\u{feff}data: 1\r\n\r\ndata: 2\r\rdata: 3\n\n";
 
-        let events = parse_event_stream(body);
+        let events = parse_event_stream(body).expect("should parse event stream");
 
         assert_debug_snapshot!(events.iter().map(|event| event.data.as_str()).collect::<Vec<_>>(), @r#"
         [
@@ -500,7 +511,7 @@ mod tests {
     fn should_ignore_comments() {
         let body = ": keep-alive\n\n: comment\ndata: 1\n: another\n\n";
 
-        let events = parse_event_stream(body);
+        let events = parse_event_stream(body).expect("should parse event stream");
 
         assert_debug_snapshot!(events, @r#"
         [
@@ -519,7 +530,7 @@ mod tests {
     fn should_strip_only_one_leading_space() {
         let body = "data:no-space\ndata:  two-spaces\nevent:  spaced\n\n";
 
-        let events = parse_event_stream(body);
+        let events = parse_event_stream(body).expect("should parse event stream");
 
         assert_debug_snapshot!(events, @r#"
         [
@@ -540,7 +551,7 @@ mod tests {
     fn should_treat_line_without_colon_as_field_with_empty_value() {
         let body = "data\ndata\n\nevent\ndata: x\n\n";
 
-        let events = parse_event_stream(body);
+        let events = parse_event_stream(body).expect("should parse event stream");
 
         assert_debug_snapshot!(events, @r#"
         [
@@ -583,7 +594,7 @@ mod tests {
         let body =
             "id: a\0b\nretry: 12a\nretry: -5\nretry:\ndata: 1\n\nid: ok\nretry: 0010\ndata: 2\n\n";
 
-        let events = parse_event_stream(body);
+        let events = parse_event_stream(body).expect("should parse event stream");
 
         assert_debug_snapshot!(events, @r#"
         [
@@ -602,7 +613,7 @@ mod tests {
                     "ok",
                 ),
                 retry: Some(
-                    10,
+                    10ms,
                 ),
             },
         ]
@@ -613,7 +624,7 @@ mod tests {
     fn should_not_dispatch_block_without_data() {
         let body = "event: ping\nid: 1\n\ndata: 2\n\n";
 
-        let events = parse_event_stream(body);
+        let events = parse_event_stream(body).expect("should parse event stream");
 
         assert_debug_snapshot!(events, @r#"
         [
@@ -632,7 +643,7 @@ mod tests {
     fn should_skip_events_with_empty_data() {
         let body = "data: 1\n\nevent: ping\ndata:\n\ndata: \n\ndata: 2\n\n";
 
-        let events = parse_event_stream(body);
+        let events = parse_event_stream(body).expect("should parse event stream");
 
         assert_debug_snapshot!(events, @r#"
         [
@@ -672,7 +683,7 @@ mod tests {
     fn should_report_truncated_json_seq_record() {
         let body = "\u{1e}{\"id\":0,\"name\":\"a\"}\n\u{1e}{\"id\":1";
 
-        let error = parse_json_sequence::<Item>(SequentialKind::JsonSeq, body)
+        let error = parse_json_sequence::<Item>(JsonSequenceKind::JsonSeq, body)
             .expect_err("should fail on the truncated record");
 
         let ApiClientError::JsonError { path, body, .. } = error else {
@@ -683,13 +694,62 @@ mod tests {
     }
 
     #[test]
-    fn should_discard_unterminated_last_event() {
+    fn should_reject_unterminated_last_event() {
         let body = "data: 1\n\ndata: 2\n";
 
-        let events = parse_event_stream(body);
+        let error = parse_sse::<u32>(body).expect_err("should reject the truncated stream");
 
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].data, "1");
+        assert_debug_snapshot!(error, @r#"
+        UnterminatedEventStream {
+            bytes: 8,
+            preview: "data: 2\n",
+        }
+        "#);
+    }
+
+    #[test]
+    fn should_reject_stream_ending_mid_line() {
+        let body = "data: 1\n\ndata: {\"id\":";
+
+        let error = parse_event_stream(body).expect_err("should reject the truncated stream");
+
+        assert_debug_snapshot!(error, @r#"
+        UnterminatedEventStream {
+            bytes: 12,
+            preview: "data: {\"id\":",
+        }
+        "#);
+    }
+
+    #[test]
+    fn should_ignore_retry_overflowing_u64() {
+        let body = "retry: 1500\nretry: 18446744073709551616\ndata: 1\n\nretry: 99999999999999999999\ndata: 2\n\n";
+
+        let events = parse_sse::<u32>(body)
+            .expect("should parse event stream")
+            .items;
+
+        assert_eq!(
+            events,
+            [
+                SseEvent::new(1).with_retry(Duration::from_millis(1500)),
+                SseEvent::new(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn should_keep_bare_id_as_empty_string() {
+        let body = "id:\ndata: 1\n\nid\ndata: 2\n\n";
+
+        let events = parse_sse::<u32>(body)
+            .expect("should parse event stream")
+            .items;
+
+        assert_eq!(
+            events,
+            [SseEvent::new(1).with_id(""), SseEvent::new(2).with_id("")]
+        );
     }
 
     #[test]
@@ -699,7 +759,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\r\n\r\n");
 
-        let parsed = parse_json_sequence::<Item>(SequentialKind::JsonLines, &body)
+        let parsed = parse_json_sequence::<Item>(JsonSequenceKind::JsonLines, &body)
             .expect("should parse JSON lines");
 
         assert_eq!(parsed.items.len(), 5);
@@ -718,7 +778,7 @@ mod tests {
             .into_iter()
             .map(|record| record.raw)
             .collect::<Vec<_>>();
-        let parsed = parse_json_sequence::<Item>(SequentialKind::JsonSeq, body)
+        let parsed = parse_json_sequence::<Item>(JsonSequenceKind::JsonSeq, body)
             .expect("should parse JSON text sequence");
 
         assert_debug_snapshot!(records, @r#"
@@ -741,6 +801,7 @@ mod tests {
         let body = ": keep-alive\r\n\r\nevent: a\r\n: inside\r\ndata: {\r\ndata: \"id\": 1, \"name\": \"a\"}\r\n\r\ndata: 2\n\n";
 
         let raw_blocks = parse_event_stream(body)
+            .expect("should parse event stream")
             .into_iter()
             .map(|event| event.raw)
             .collect::<Vec<_>>();
@@ -771,7 +832,7 @@ mod tests {
 
     #[test]
     fn should_not_record_example_for_empty_stream() {
-        let sequence = parse_json_sequence::<Item>(SequentialKind::JsonLines, "\n\n")
+        let sequence = parse_json_sequence::<Item>(JsonSequenceKind::JsonLines, "\n\n")
             .expect("should parse empty JSON lines");
         let events = parse_sse::<Item>(": only a comment\n\n").expect("should parse empty stream");
 

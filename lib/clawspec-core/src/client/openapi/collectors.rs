@@ -590,24 +590,39 @@ mod method_mapping_tests {
     }
 
     #[test]
-    fn should_map_custom_method_to_additional_operations() {
+    fn should_merge_custom_method_operations() {
         let mut item = PathItem::default();
+        let summarized = |summary: &str, tag: &str| {
+            let mut operation = operation("purge-items");
+            operation.summary = Some(summary.to_string());
+            operation.tags = Some(vec![tag.to_string()]);
+            operation
+        };
 
         merge_call_operation(
             &mut item,
             &method("PURGE"),
             "purge-items",
-            operation("purge-items"),
+            summarized("Purge items", "cache"),
         );
         merge_call_operation(
             &mut item,
             &method("PURGE"),
             "purge-items",
-            operation("purge-items"),
+            summarized("Other summary", "admin"),
         );
 
         let keys = item.additional_operations.keys().collect::<Vec<_>>();
         assert_eq!(keys, ["PURGE"]);
+        let merged = item
+            .additional_operations
+            .get("PURGE")
+            .expect("should have the PURGE operation");
+        assert_eq!(merged.summary.as_deref(), Some("Purge items"));
+        assert_eq!(
+            merged.tags.as_deref(),
+            Some(["admin".to_string(), "cache".to_string()].as_slice())
+        );
     }
 
     #[test]

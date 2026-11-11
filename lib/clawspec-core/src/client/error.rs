@@ -8,6 +8,7 @@ use super::response::output::Output;
 /// This enum covers all possible error conditions from network issues to data validation failures.
 /// All variants implement `std::error::Error` and provide detailed context for debugging.
 #[derive(Debug, derive_more::Error, derive_more::Display, derive_more::From)]
+#[non_exhaustive]
 pub enum ApiClientError {
     /// HTTP client error from the underlying reqwest library.
     ///
@@ -222,6 +223,19 @@ pub enum ApiClientError {
         expected: String,
         /// The actual output type received.
         actual: String,
+    },
+
+    /// The event stream ended inside an event.
+    ///
+    /// Occurs when the last server-sent event is not terminated by a blank line,
+    /// e.g. when the server closes the stream mid-event.
+    #[display("Event stream ended inside an event ({bytes} pending bytes): {preview:?}")]
+    #[from(skip)]
+    UnterminatedEventStream {
+        /// The number of pending bytes after the last complete event.
+        bytes: usize,
+        /// The start of the pending bytes.
+        preview: String,
     },
 
     /// OAuth2 authentication error.

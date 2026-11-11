@@ -1514,7 +1514,8 @@ mod client_tests {
 mod security_tests {
     use super::*;
     use crate::client::security::{
-        OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow,
+        OAuth2AuthorizationCodeFlow, OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows,
+        OAuth2ImplicitFlow,
     };
 
     #[tokio::test]
@@ -1618,38 +1619,40 @@ mod security_tests {
 
         let uri: http::Uri = mock_server.uri().parse().expect("valid URI");
 
-        let flows = OAuth2Flows::default()
-            .with_authorization_code(
-                OAuth2Flow::new("https://auth.example.com/token", [("read", "Read access")])
-                    .with_authorization_url("https://auth.example.com/authorize")
-                    .with_refresh_url("https://auth.example.com/refresh"),
-            )
-            .with_client_credentials(OAuth2Flow::new(
+        let flows = OAuth2Flows::client_credentials(
+            "https://auth.example.com/token",
+            [("api", "API access")],
+        )
+        .with_authorization_code(
+            OAuth2AuthorizationCodeFlow::new(
+                "https://auth.example.com/authorize",
                 "https://auth.example.com/token",
-                [("api", "API access")],
-            ))
-            .with_implicit(
-                OAuth2ImplicitFlow::new(
-                    "https://auth.example.com/authorize",
-                    [("implicit", "Implicit access")],
-                )
-                .with_refresh_url("https://auth.example.com/refresh"),
+                [("read", "Read access")],
             )
-            .with_password(
-                OAuth2Flow::new(
-                    "https://auth.example.com/token",
-                    [("password", "Password access")],
-                )
-                .with_refresh_url("https://auth.example.com/refresh"),
+            .with_refresh_url("https://auth.example.com/refresh"),
+        )
+        .with_implicit(
+            OAuth2ImplicitFlow::new(
+                "https://auth.example.com/authorize",
+                [("implicit", "Implicit access")],
             )
-            .with_device_authorization(
-                OAuth2DeviceAuthorizationFlow::new(
-                    "https://auth.example.com/device",
-                    "https://auth.example.com/token",
-                    [("device", "Device access")],
-                )
-                .with_refresh_url("https://auth.example.com/refresh"),
-            );
+            .with_refresh_url("https://auth.example.com/refresh"),
+        )
+        .with_password(
+            OAuth2Flow::new(
+                "https://auth.example.com/token",
+                [("password", "Password access")],
+            )
+            .with_refresh_url("https://auth.example.com/refresh"),
+        )
+        .with_device_authorization(
+            OAuth2DeviceAuthorizationFlow::new(
+                "https://auth.example.com/device",
+                "https://auth.example.com/token",
+                [("device", "Device access")],
+            )
+            .with_refresh_url("https://auth.example.com/refresh"),
+        );
 
         let mut client = ApiClient::builder()
             .with_host(uri.host().expect("should have host"))
@@ -1716,7 +1719,11 @@ mod security_tests {
             } if d == "OIDC auth"
         ));
 
-        let oauth2 = SecurityScheme::oauth2(OAuth2Flows::default()).with_description("OAuth2 auth");
+        let oauth2 = SecurityScheme::oauth2(OAuth2Flows::client_credentials(
+            "https://auth.example.com/token",
+            [("api", "API access")],
+        ))
+        .with_description("OAuth2 auth");
         assert!(matches!(
             oauth2,
             SecurityScheme::OAuth2 {
@@ -2067,7 +2074,21 @@ mod extra_method_tests {
                   schema:
                     type: array
                     items:
-                      $ref: "#/components/schemas/User"
+                      type: object
+                      description: Test user type for JSON responses.
+                      required:
+                      - id
+                      - name
+                      - email
+                      properties:
+                        email:
+                          type: string
+                        id:
+                          type: integer
+                          format: int32
+                          minimum: 0
+                        name:
+                          type: string
         "##
         );
         let component_names = openapi
@@ -2076,7 +2097,7 @@ mod extra_method_tests {
             .flat_map(|components| components.schemas.keys())
             .map(String::as_str)
             .collect::<Vec<_>>();
-        assert_eq!(component_names, ["User", "UserSearch"]);
+        assert_eq!(component_names, ["UserSearch"]);
         let tags = openapi
             .tags
             .iter()
@@ -2173,7 +2194,7 @@ mod metadata_tests {
             .expect("should have GET /users");
         assert_snapshot!(
             serde_saphyr::to_string(operation).expect("should serialize to YAML"),
-            @r##"
+            @r#"
         tags:
         - users
         summary: List users
@@ -2188,8 +2209,22 @@ mod metadata_tests {
                 schema:
                   type: array
                   items:
-                    $ref: "#/components/schemas/User"
-        "##
+                    type: object
+                    description: Test user type for JSON responses.
+                    required:
+                    - id
+                    - name
+                    - email
+                    properties:
+                      email:
+                        type: string
+                      id:
+                        type: integer
+                        format: int32
+                        minimum: 0
+                      name:
+                        type: string
+        "#
         );
     }
 
@@ -2301,7 +2336,7 @@ mod sequential_response_tests {
         serde_saphyr::to_string(content).expect("should serialize to YAML")
     }
 
-    async fn fetch_ndjson_users(version: OpenApiVersion) -> String {
+    async fn fetch_ndjson_users() -> String {
         let mock_server = MockServer::start().await;
         mount_stream(
             &mock_server,
@@ -2310,7 +2345,7 @@ mod sequential_response_tests {
             NDJSON_BODY,
         )
         .await;
-        let mut client = client_with_version(&mock_server, version).await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
 
         let users = client
             .get("/users/export")
@@ -2327,7 +2362,7 @@ mod sequential_response_tests {
 
     #[tokio::test]
     async fn should_document_ndjson_item_schema() {
-        let content = fetch_ndjson_users(OpenApiVersion::Version32).await;
+        let content = fetch_ndjson_users().await;
 
         assert_snapshot!(content, @r##"
         application/x-ndjson:
@@ -2340,21 +2375,6 @@ mod sequential_response_tests {
                 {"id":1,"name":"Alice","email":"alice@example.com"}
                 {"id":2,"name":"Bob","email":"bob@example.com"}
         "##);
-    }
-
-    #[tokio::test]
-    async fn should_drop_item_schema_in_older_output() {
-        let content = fetch_ndjson_users(OpenApiVersion::Version31).await;
-
-        assert_snapshot!(content, @r#"
-        application/x-ndjson:
-          examples:
-            first-items:
-              summary: First items of the stream
-              value: |
-                {"id":1,"name":"Alice","email":"alice@example.com"}
-                {"id":2,"name":"Bob","email":"bob@example.com"}
-        "#);
     }
 
     #[tokio::test]
@@ -2396,10 +2416,10 @@ mod sequential_response_tests {
         "##);
     }
 
-    async fn fetch_user_events(version: OpenApiVersion) -> (Vec<SseEvent<User>>, String) {
+    async fn fetch_user_events() -> (Vec<SseEvent<User>>, String) {
         let mock_server = MockServer::start().await;
         mount_stream(&mock_server, "/users/events", "text/event-stream", SSE_BODY).await;
-        let mut client = client_with_version(&mock_server, version).await;
+        let mut client = client_with_version(&mock_server, OpenApiVersion::Version32).await;
 
         let events = client
             .get("/users/events")
@@ -2416,7 +2436,7 @@ mod sequential_response_tests {
 
     #[tokio::test]
     async fn should_parse_and_document_sse_response() {
-        let (events, content) = fetch_user_events(OpenApiVersion::Version32).await;
+        let (events, content) = fetch_user_events().await;
 
         insta::assert_debug_snapshot!(events, @r#"
         [
@@ -2443,7 +2463,7 @@ mod sequential_response_tests {
                 },
                 id: None,
                 retry: Some(
-                    5000,
+                    5s,
                 ),
             },
         ]
@@ -2480,28 +2500,6 @@ mod sequential_response_tests {
                 retry: 5000
                 data: {"id":2,"name":"Bob","email":"bob@example.com"}
         "##);
-    }
-
-    #[tokio::test]
-    async fn should_drop_sse_item_schema_in_older_output() {
-        let (events, content) = fetch_user_events(OpenApiVersion::Version31).await;
-
-        assert_eq!(events.len(), 2);
-        assert_snapshot!(content, @r#"
-        text/event-stream:
-          examples:
-            first-items:
-              summary: First items of the stream
-              value: |+
-                : stream start
-                event: created
-                id: 1
-                data: {"id":1,"name":"Alice",
-                data: "email":"alice@example.com"}
-
-                retry: 5000
-                data: {"id":2,"name":"Bob","email":"bob@example.com"}
-        "#);
     }
 
     fn five_users(render: impl Fn(u32) -> String) -> String {
@@ -2948,13 +2946,8 @@ mod querystring_tests {
     }
 
     #[tokio::test]
-    async fn should_reject_query_parameters_combined_with_querystring() {
+    async fn should_reject_querystring_after_query_parameters() {
         let mock_server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
-            .expect(0)
-            .mount(&mock_server)
-            .await;
         let mut client = client_for_mock(&mock_server).await;
 
         let error = client
@@ -2966,12 +2959,80 @@ mod querystring_tests {
                 limit: None,
                 offset: None,
             })
+            .expect_err("query and querystring should conflict");
+
+        assert!(matches!(error, ApiClientError::ConflictingQueryParameters));
+        assert!(client.collected_openapi().await.paths.paths.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_reject_query_parameters_after_querystring() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(0)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        let error = client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&UserFilter {
+                search: "alice".to_string(),
+                limit: None,
+                offset: None,
+            })
             .expect("should encode querystring")
+            .with_query(CallQuery::new().add_param("page", 1))
             .await
             .expect_err("query and querystring should conflict");
 
         assert!(matches!(error, ApiClientError::ConflictingQueryParameters));
         assert!(client.collected_openapi().await.paths.paths.is_empty());
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+    struct OptionalFilter {
+        search: Option<String>,
+        limit: Option<u32>,
+    }
+
+    #[tokio::test]
+    async fn should_send_no_query_for_querystring_without_fields() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/users"))
+            .and(|request: &wiremock::Request| request.url.query().is_none())
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+        let mut client = client_for_mock(&mock_server).await;
+
+        client
+            .get("/users")
+            .expect("should create call")
+            .with_querystring(&OptionalFilter {
+                search: None,
+                limit: None,
+            })
+            .expect("should encode querystring")
+            .await
+            .expect("should succeed")
+            .as_json::<Vec<User>>()
+            .await
+            .expect("should deserialize");
+
+        assert_snapshot!(parameters_yaml(&mut client, "/users").await, @r##"
+        - name: OptionalFilter
+          in: querystring
+          required: false
+          content:
+            application/x-www-form-urlencoded:
+              schema:
+                $ref: "#/components/schemas/OptionalFilter"
+        "##);
     }
 
     #[tokio::test]
@@ -3101,7 +3162,7 @@ mod querystring_tests {
             .components
             .map(|components| components.schemas.into_keys().collect::<Vec<_>>())
             .unwrap_or_default();
-        assert_eq!(schema_names, ["PageFilter", "User", "UserFilter"]);
+        assert_eq!(schema_names, ["PageFilter", "UserFilter"]);
     }
 
     #[tokio::test]

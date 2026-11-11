@@ -457,7 +457,7 @@ impl CallResult {
         T: DeserializeOwned + ToSchema + 'static,
     {
         let kind = self.content_type.as_ref().and_then(sequential_kind);
-        let Some(kind @ (SequentialKind::JsonLines | SequentialKind::JsonSeq)) = kind else {
+        let Some(SequentialKind::Json(kind)) = kind else {
             return Err(self.unexpected_output_type(JSON_SEQUENCE_MEDIA_TYPES));
         };
 
@@ -470,10 +470,11 @@ impl CallResult {
     ///
     /// The content type must be `text/event-stream`. Events are parsed following the
     /// HTML event stream rules: comment lines are ignored, multiple `data` lines are joined
-    /// with a line feed, an `id` containing NUL and a non-numeric `retry` are ignored,
+    /// with a line feed, an `id` containing NUL and a non-numeric or out-of-range `retry` are ignored,
     /// and a block without `data` is not dispatched. A block whose `data` is empty,
     /// such as an `event: ping` heartbeat with a bare `data:` line, is skipped because
-    /// it holds no JSON. The `data` of each event is deserialized as JSON into `T`.
+    /// it holds no JSON; a warning is logged when a skipped block sets `event` or `id`.
+    /// The `data` of each event is deserialized as JSON into `T`.
     ///
     /// Each [`SseEvent`] carries the `event`, `id` and `retry` fields of its own block only:
     /// an `id` is not carried over to the next events like the last event ID of a browser.
@@ -489,8 +490,7 @@ impl CallResult {
     /// several calls document the same response status, the last call wins, example included.
     ///
     /// The body is read in full before parsing, so the server must end the stream:
-    /// an endless event stream makes this call hang. An unterminated last event
-    /// (no blank line after it) is discarded with a warning.
+    /// an endless event stream makes this call hang.
     ///
     /// # Errors
     ///
@@ -498,6 +498,8 @@ impl CallResult {
     ///   or if the response has no text body (e.g. a `204 No Content`)
     /// - [`ApiClientError::JsonError`] if an event `data` cannot be deserialized; the path
     ///   starts with the event index, e.g. `[2].data.name`
+    /// - [`ApiClientError::UnterminatedEventStream`] if the stream ends inside an event
+    ///   (no blank line after the last event)
     ///
     /// # Example
     ///

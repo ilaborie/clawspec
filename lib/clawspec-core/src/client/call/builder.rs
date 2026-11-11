@@ -322,9 +322,10 @@ impl ApiCall {
     /// # Errors
     ///
     /// Returns [`ApiClientError::QuerySerializationError`] if the value cannot be encoded,
-    /// or [`ApiClientError::JsonValueError`] if it cannot be converted to the JSON example.
-    /// The request fails with [`ApiClientError::ConflictingQueryParameters`] if the call
-    /// also has query parameters set with [`with_query`](Self::with_query).
+    /// [`ApiClientError::JsonValueError`] if it cannot be converted to the JSON example,
+    /// or [`ApiClientError::ConflictingQueryParameters`] if query parameters are already set
+    /// with [`with_query`](Self::with_query). The request fails with the same error when
+    /// query parameters are set after this call.
     ///
     /// # Examples
     ///
@@ -353,6 +354,9 @@ impl ApiCall {
     where
         T: Serialize + ToSchema + 'static,
     {
+        if !self.query.is_empty() {
+            return Err(ApiClientError::ConflictingQueryParameters);
+        }
         self.querystring = Some(CallQueryString::new(value)?);
         Ok(self)
     }

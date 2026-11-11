@@ -549,9 +549,9 @@ pub mod test_client;
 pub use self::client::{
     ApiCall, ApiClient, ApiClientBuilder, ApiClientError, ApiKeyLocation, Authentication,
     AuthenticationError, CallBody, CallCookies, CallHeaders, CallPath, CallQuery, CallResult,
-    ExpectedStatusCodes, OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows,
-    OAuth2ImplicitFlow, ParamStyle, ParamValue, ParameterValue, RawBody, RawResult, SecureString,
-    SecurityRequirement, SecurityScheme, SseEvent,
+    ExpectedStatusCodes, OAuth2AuthorizationCodeFlow, OAuth2DeviceAuthorizationFlow, OAuth2Flow,
+    OAuth2Flows, OAuth2ImplicitFlow, ParamStyle, ParamValue, ParameterValue, RawBody, RawResult,
+    SecureString, SecurityRequirement, SecurityScheme, SseEvent,
 };
 
 // Re-export external types so users don't need to add these crates to their Cargo.toml.

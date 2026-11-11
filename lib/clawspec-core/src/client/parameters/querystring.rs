@@ -14,7 +14,7 @@ pub(in crate::client) struct CallQueryString {
     name: String,
     encoded: String,
     schema: RefOr<Schema>,
-    pub(in crate::client) schemas: Schemas,
+    schemas: Schemas,
 }
 
 impl CallQueryString {
@@ -36,6 +36,10 @@ impl CallQueryString {
 
     pub(in crate::client) fn encoded(&self) -> &str {
         &self.encoded
+    }
+
+    pub(in crate::client) fn schemas(&self) -> &Schemas {
+        &self.schemas
     }
 
     pub(in crate::client) fn to_parameter(&self) -> Parameter {

@@ -82,6 +82,7 @@ use utoipa::openapi::security::{
 /// let basic = SecurityScheme::basic();
 /// ```
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum SecurityScheme {
     /// HTTP Bearer authentication (RFC 6750).
     ///
@@ -483,11 +484,11 @@ pub enum ApiKeyLocation {
 ///     [("api:access", "API access")],
 /// ));
 /// ```
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct OAuth2Flows {
     /// Authorization Code flow
-    pub authorization_code: Option<OAuth2Flow>,
+    pub authorization_code: Option<OAuth2AuthorizationCodeFlow>,
     /// Client Credentials flow
     pub client_credentials: Option<OAuth2Flow>,
     /// Implicit flow (deprecated in OAuth 2.1)
@@ -502,15 +503,27 @@ pub struct OAuth2Flows {
 }
 
 impl OAuth2Flows {
+    fn empty() -> Self {
+        Self {
+            authorization_code: None,
+            client_credentials: None,
+            implicit: None,
+            password: None,
+            device_authorization: None,
+        }
+    }
+
     /// Creates a new OAuth2Flows with authorization code flow.
     pub fn authorization_code(
         authorization_url: impl Into<String>,
         token_url: impl Into<String>,
         scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
-        Self::default().with_authorization_code(
-            OAuth2Flow::new(token_url, scopes).with_authorization_url(authorization_url),
-        )
+        Self::empty().with_authorization_code(OAuth2AuthorizationCodeFlow::new(
+            authorization_url,
+            token_url,
+            scopes,
+        ))
     }
 
     /// Creates a new OAuth2Flows with client credentials flow.
@@ -518,7 +531,23 @@ impl OAuth2Flows {
         token_url: impl Into<String>,
         scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
-        Self::default().with_client_credentials(OAuth2Flow::new(token_url, scopes))
+        Self::empty().with_client_credentials(OAuth2Flow::new(token_url, scopes))
+    }
+
+    /// Creates a new OAuth2Flows with implicit flow.
+    pub fn implicit(
+        authorization_url: impl Into<String>,
+        scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        Self::empty().with_implicit(OAuth2ImplicitFlow::new(authorization_url, scopes))
+    }
+
+    /// Creates a new OAuth2Flows with password flow.
+    pub fn password(
+        token_url: impl Into<String>,
+        scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        Self::empty().with_password(OAuth2Flow::new(token_url, scopes))
     }
 
     /// Creates a new OAuth2Flows with device authorization flow.
@@ -530,7 +559,7 @@ impl OAuth2Flows {
         token_url: impl Into<String>,
         scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
-        Self::default().with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
+        Self::empty().with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
             device_authorization_url,
             token_url,
             scopes,
@@ -538,7 +567,7 @@ impl OAuth2Flows {
     }
 
     /// Sets the authorization code flow.
-    pub fn with_authorization_code(mut self, flow: OAuth2Flow) -> Self {
+    pub fn with_authorization_code(mut self, flow: OAuth2AuthorizationCodeFlow) -> Self {
         self.authorization_code = Some(flow);
         self
     }
@@ -574,17 +603,13 @@ impl OAuth2Flows {
             let scopes = Scopes::from_iter(flow.scopes.clone());
             let auth_code = if let Some(ref refresh) = flow.refresh_url {
                 AuthorizationCode::with_refresh_url(
-                    flow.authorization_url.as_deref().unwrap_or_default(),
+                    &flow.authorization_url,
                     &flow.token_url,
                     scopes,
                     refresh,
                 )
             } else {
-                AuthorizationCode::new(
-                    flow.authorization_url.as_deref().unwrap_or_default(),
-                    &flow.token_url,
-                    scopes,
-                )
+                AuthorizationCode::new(&flow.authorization_url, &flow.token_url, scopes)
             };
             flows.push(Flow::AuthorizationCode(auth_code));
         }
@@ -640,7 +665,7 @@ impl OAuth2Flows {
 
 /// OAuth2 flow configuration (for flows with token URL).
 ///
-/// Used for the authorization code, client credentials and password flows.
+/// Used for the client credentials and password flows.
 ///
 /// # Example
 ///
@@ -648,14 +673,11 @@ impl OAuth2Flows {
 /// use clawspec_core::OAuth2Flow;
 ///
 /// let flow = OAuth2Flow::new("https://auth.example.com/token", [("read:users", "Read user data")])
-///     .with_authorization_url("https://auth.example.com/authorize")
 ///     .with_refresh_url("https://auth.example.com/refresh");
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct OAuth2Flow {
-    /// Authorization URL (required for authorization_code, not for client_credentials)
-    pub authorization_url: Option<String>,
     /// Token URL
     pub token_url: String,
     /// Refresh URL (optional)
@@ -665,23 +687,65 @@ pub struct OAuth2Flow {
 }
 
 impl OAuth2Flow {
-    /// Creates a new flow without authorization URL.
+    /// Creates a new flow.
     pub fn new(
         token_url: impl Into<String>,
         scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
         Self {
-            authorization_url: None,
             token_url: token_url.into(),
             refresh_url: None,
             scopes: collect_scopes(scopes),
         }
     }
 
-    /// Sets the authorization URL (required for the authorization code flow).
-    pub fn with_authorization_url(mut self, authorization_url: impl Into<String>) -> Self {
-        self.authorization_url = Some(authorization_url.into());
+    /// Sets the refresh URL.
+    pub fn with_refresh_url(mut self, refresh_url: impl Into<String>) -> Self {
+        self.refresh_url = Some(refresh_url.into());
         self
+    }
+}
+
+/// OAuth2 authorization code flow configuration.
+///
+/// # Example
+///
+/// ```rust
+/// use clawspec_core::OAuth2AuthorizationCodeFlow;
+///
+/// let flow = OAuth2AuthorizationCodeFlow::new(
+///     "https://auth.example.com/authorize",
+///     "https://auth.example.com/token",
+///     [("read:users", "Read user data")],
+/// )
+/// .with_refresh_url("https://auth.example.com/refresh");
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct OAuth2AuthorizationCodeFlow {
+    /// Authorization URL
+    pub authorization_url: String,
+    /// Token URL
+    pub token_url: String,
+    /// Refresh URL (optional)
+    pub refresh_url: Option<String>,
+    /// Available scopes
+    pub scopes: IndexMap<String, String>,
+}
+
+impl OAuth2AuthorizationCodeFlow {
+    /// Creates a new authorization code flow.
+    pub fn new(
+        authorization_url: impl Into<String>,
+        token_url: impl Into<String>,
+        scopes: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        Self {
+            authorization_url: authorization_url.into(),
+            token_url: token_url.into(),
+            refresh_url: None,
+            scopes: collect_scopes(scopes),
+        }
     }
 
     /// Sets the refresh URL.
@@ -944,32 +1008,34 @@ mod tests {
 
     #[test]
     fn should_convert_all_oauth2_flows() {
-        let flows = OAuth2Flows::default()
-            .with_authorization_code(
-                OAuth2Flow::new("https://auth.example.com/token", [("read", "Read access")])
-                    .with_authorization_url("https://auth.example.com/authorize")
-                    .with_refresh_url("https://auth.example.com/refresh"),
+        let flows = OAuth2Flows::client_credentials(
+            "https://auth.example.com/token",
+            [("api", "API access")],
+        )
+        .with_authorization_code(
+            OAuth2AuthorizationCodeFlow::new(
+                "https://auth.example.com/authorize",
+                "https://auth.example.com/token",
+                [("read", "Read access")],
             )
-            .with_client_credentials(OAuth2Flow::new(
-                "https://auth.example.com/token",
-                [("api", "API access")],
-            ))
-            .with_implicit(
-                OAuth2ImplicitFlow::new(
-                    "https://auth.example.com/authorize",
-                    [("implicit", "Implicit access")],
-                )
-                .with_refresh_url("https://auth.example.com/refresh"),
+            .with_refresh_url("https://auth.example.com/refresh"),
+        )
+        .with_implicit(
+            OAuth2ImplicitFlow::new(
+                "https://auth.example.com/authorize",
+                [("implicit", "Implicit access")],
             )
-            .with_password(OAuth2Flow::new(
-                "https://auth.example.com/token",
-                [("password", "Password access")],
-            ))
-            .with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
-                "https://auth.example.com/device",
-                "https://auth.example.com/token",
-                [("device", "Device access")],
-            ));
+            .with_refresh_url("https://auth.example.com/refresh"),
+        )
+        .with_password(OAuth2Flow::new(
+            "https://auth.example.com/token",
+            [("password", "Password access")],
+        ))
+        .with_device_authorization(OAuth2DeviceAuthorizationFlow::new(
+            "https://auth.example.com/device",
+            "https://auth.example.com/token",
+            [("device", "Device access")],
+        ));
 
         assert_snapshot!(to_yaml(&SecurityScheme::oauth2(flows)), @"
         type: oauth2

@@ -38,8 +38,8 @@ pub use self::oauth2::{OAuth2Config, OAuth2ConfigBuilder, OAuth2Error, OAuth2Tok
 
 mod security;
 pub use self::security::{
-    ApiKeyLocation, OAuth2DeviceAuthorizationFlow, OAuth2Flow, OAuth2Flows, OAuth2ImplicitFlow,
-    SecurityRequirement, SecurityScheme,
+    ApiKeyLocation, OAuth2AuthorizationCodeFlow, OAuth2DeviceAuthorizationFlow, OAuth2Flow,
+    OAuth2Flows, OAuth2ImplicitFlow, SecurityRequirement, SecurityScheme,
 };
 
 mod call_parameters;
@@ -205,8 +205,12 @@ impl ApiClient {
     /// - Auto-generated tags based on path patterns
     /// - Tags declared with [`ApiClientBuilder::add_tag`], which replace the
     ///   automatic tag with the same name and are kept even when unused
-    /// - Missing `parent` tags, added as plain tags
+    /// - Missing `parent` tags, added as plain tags when the selected OpenAPI version
+    ///   supports tag parents
     /// - Deduplicated and sorted alphabetically
+    ///
+    /// A tag used only by operations that the selected OpenAPI version cannot carry
+    /// (like `QUERY` or custom methods) is not computed, since these operations are dropped.
     ///
     /// # Performance Notes
     ///
@@ -227,7 +231,8 @@ impl ApiClient {
         }
 
         let paths = self.collected_paths().await;
-        let tags = compute_tags(&paths, &self.tags);
+        let add_missing_parents = self.openapi_version != OpenApiVersion::Version31;
+        let tags = compute_tags(&paths, &self.tags, add_missing_parents);
         builder = builder.paths(paths);
 
         // Add components with schemas and security schemes
@@ -394,7 +399,7 @@ impl ApiClient {
     }
 }
 
-fn compute_tags(paths: &Paths, declared: &[Tag]) -> Vec<Tag> {
+fn compute_tags(paths: &Paths, declared: &[Tag], add_missing_parents: bool) -> Vec<Tag> {
     let mut tags = paths
         .paths
         .values()
@@ -403,6 +408,9 @@ fn compute_tags(paths: &Paths, declared: &[Tag]) -> Vec<Tag> {
         .map(|name| (name.clone(), Tag::new(name)))
         .collect::<BTreeMap<_, _>>();
     tags.extend(declared.iter().map(|tag| (tag.name.clone(), tag.clone())));
+    if !add_missing_parents {
+        return tags.into_values().collect();
+    }
     let missing_parents = tags
         .values()
         .filter_map(|tag| tag.parent.as_deref())
@@ -420,6 +428,8 @@ fn compute_tags(paths: &Paths, declared: &[Tag]) -> Vec<Tag> {
 mod tests {
     use utoipa::openapi::path::{HttpMethod, OperationBuilder, PathItem};
     use utoipa::openapi::tag::TagBuilder;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
 
@@ -440,7 +450,7 @@ mod tests {
             .path("/users", tagged_path_item("users"))
             .build();
 
-        let tags = compute_tags(&paths, &[]);
+        let tags = compute_tags(&paths, &[], true);
 
         let names = tags.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>();
         assert_eq!(names, ["cache", "search", "users"]);
@@ -456,7 +466,7 @@ mod tests {
             .description(Some("User management"))
             .build();
 
-        let tags = compute_tags(&paths, std::slice::from_ref(&declared));
+        let tags = compute_tags(&paths, std::slice::from_ref(&declared), true);
 
         assert_eq!(tags, [declared]);
     }
@@ -471,7 +481,7 @@ mod tests {
             .summary(Some("Administration"))
             .build();
 
-        let tags = compute_tags(&paths, std::slice::from_ref(&declared));
+        let tags = compute_tags(&paths, std::slice::from_ref(&declared), true);
 
         assert_eq!(tags, [declared, Tag::new("users")]);
     }
@@ -490,8 +500,89 @@ mod tests {
             .parent(Some("users"))
             .build();
 
-        let tags = compute_tags(&paths, &[declared.clone(), child.clone()]);
+        let tags = compute_tags(&paths, &[declared.clone(), child.clone()], true);
 
         assert_eq!(tags, [Tag::new("accounts"), child, declared]);
+    }
+
+    #[test]
+    fn should_not_add_missing_parent_tags_when_disabled() {
+        let paths = Paths::builder()
+            .path("/users", tagged_path_item("users"))
+            .build();
+        let declared = TagBuilder::new()
+            .name("users")
+            .parent(Some("accounts"))
+            .build();
+
+        let tags = compute_tags(&paths, std::slice::from_ref(&declared), false);
+
+        assert_eq!(tags, [declared]);
+    }
+
+    async fn collected_tag_names(version: OpenApiVersion) -> Vec<String> {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&mock_server)
+            .await;
+        Mock::given(method("QUERY"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&mock_server)
+            .await;
+        let uri = mock_server.uri().parse::<Uri>().expect("valid URI");
+        let mut client = ApiClient::builder()
+            .with_host(uri.host().expect("should have host"))
+            .with_port(uri.port_u16().expect("should have port"))
+            .with_openapi_version(version)
+            .add_tag(
+                TagBuilder::new()
+                    .name("users")
+                    .parent(Some("accounts"))
+                    .build(),
+            )
+            .build()
+            .expect("should build client");
+
+        client
+            .get("/users")
+            .expect("should create GET call")
+            .with_tag("users")
+            .await
+            .expect("GET should succeed")
+            .as_empty()
+            .await
+            .expect("should be empty");
+        client
+            .query("/users")
+            .expect("should create QUERY call")
+            .with_tag("search")
+            .await
+            .expect("QUERY should succeed")
+            .as_empty()
+            .await
+            .expect("should be empty");
+
+        let openapi = client.collected_openapi().await;
+        openapi
+            .tags
+            .into_iter()
+            .flatten()
+            .map(|tag| tag.name)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn should_compute_tags_of_query_operations_and_missing_parents() {
+        let names = collected_tag_names(OpenApiVersion::Version32).await;
+
+        assert_eq!(names, ["accounts", "search", "users"]);
+    }
+
+    #[tokio::test]
+    async fn should_skip_tags_of_dropped_operations_and_missing_parents_in_version_31() {
+        let names = collected_tag_names(OpenApiVersion::Version31).await;
+
+        assert_eq!(names, ["users"]);
     }
 }

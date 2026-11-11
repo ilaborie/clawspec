@@ -1,8 +1,11 @@
-//! Compatibility pass that strips data the older OpenAPI output cannot carry.
+//! Compatibility pass that converts, or drops with a warning, the data the older OpenAPI output cannot carry.
+//!
+//! It converts `querystring` parameters to `query` parameters, folds a tag `summary` into its
+//! `description`, and downgrades security schemes.
 
 use std::collections::BTreeMap;
 
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use utoipa::openapi::example::Example;
 use utoipa::openapi::path::{Operation, Parameter, ParameterIn, ParameterStyle, PathItem};
 use utoipa::openapi::request_body::RequestBody;
@@ -81,14 +84,26 @@ pub(in crate::client) fn downgrade_to_31(openapi: &mut OpenApi) {
         }
         let dropped_schemes = drop_oauth2_schemes_without_flow(&mut components.security_schemes);
         if !dropped_schemes.is_empty() {
-            drop_security_requirements(&mut openapi.security, &dropped_schemes, "security");
+            if drop_security_requirements(&mut openapi.security, &dropped_schemes, "security") {
+                warn!(
+                    location = "security",
+                    "every global security requirement referenced a dropped security scheme, the API no longer declares a global security"
+                );
+            }
             for (path, path_item) in &mut openapi.paths.paths {
                 for (method, operation) in iter_operations_mut(path_item) {
-                    drop_security_requirements(
+                    let location = format!("paths.{path}.{method}.security");
+                    if drop_security_requirements(
                         &mut operation.security,
                         &dropped_schemes,
-                        &format!("paths.{path}.{method}.security"),
-                    );
+                        &location,
+                    ) {
+                        warn!(
+                            %location,
+                            operation_id = operation.operation_id.as_deref().unwrap_or_default(),
+                            "every security requirement of the operation referenced a dropped security scheme, the operation now inherits the global security"
+                        );
+                    }
                 }
             }
         }
@@ -118,12 +133,15 @@ fn drop_security_requirements(
     requirements: &mut Option<Vec<SecurityRequirement>>,
     dropped_schemes: &[String],
     location: &str,
-) {
+) -> bool {
     let Some(list) = requirements.as_mut() else {
-        return;
+        return false;
     };
+    if list.is_empty() {
+        return false;
+    }
     list.retain(|requirement| {
-        let references_dropped = requirement_scheme_names(requirement)
+        let references_dropped = requirement_scheme_names(requirement, location)
             .iter()
             .any(|name| dropped_schemes.contains(name));
         if references_dropped {
@@ -133,13 +151,22 @@ fn drop_security_requirements(
     });
     if list.is_empty() {
         *requirements = None;
+        return true;
     }
+    false
 }
 
-fn requirement_scheme_names(requirement: &SecurityRequirement) -> Vec<String> {
+fn requirement_scheme_names(requirement: &SecurityRequirement, location: &str) -> Vec<String> {
     match serde_json::to_value(requirement) {
         Ok(serde_json::Value::Object(map)) => map.into_iter().map(|(name, _)| name).collect(),
-        _ => Vec::new(),
+        Ok(value) => {
+            error!(%location, %value, "unexpected security requirement shape, keeping the requirement");
+            Vec::new()
+        }
+        Err(err) => {
+            error!(%location, %err, "cannot read the security requirement, keeping the requirement");
+            Vec::new()
+        }
     }
 }
 
@@ -308,7 +335,7 @@ fn drop_cookie_style(parameter: &mut Parameter, location: &str) {
     if parameter.style != Some(ParameterStyle::Cookie) {
         return;
     }
-    debug!(%location, "dropping cookie style and explode, using the default cookie serialization");
+    warn!(%location, "dropping cookie style and explode, using the default cookie serialization");
     parameter.style = None;
     parameter.explode = None;
 }
@@ -693,6 +720,69 @@ mod tests {
               openIdConnectUrl: https://auth.example.com/.well-known/openid
         security:
         - {}
+        "#);
+    }
+
+    #[test]
+    fn should_keep_public_operations_and_inherit_global_security_when_only_scheme_is_dropped() {
+        let device_only = OAuth2::new([Flow::DeviceAuthorization(DeviceAuthorization::new(
+            "https://auth.example.com/device",
+            "https://auth.example.com/token",
+            Scopes::new(),
+        ))]);
+        let secured = |requirements: Vec<SecurityRequirement>| {
+            OperationBuilder::new()
+                .securities(Some(requirements))
+                .build()
+        };
+        let mut openapi = openapi(
+            PathsBuilder::new()
+                .path(
+                    "/device",
+                    PathItem::new(
+                        HttpMethod::Get,
+                        secured(vec![SecurityRequirement::new("device", ["read"])]),
+                    ),
+                )
+                .path("/public", PathItem::new(HttpMethod::Get, secured(vec![])))
+                .build(),
+        );
+        openapi.security = Some(vec![SecurityRequirement::new(
+            "bearer",
+            Vec::<String>::new(),
+        )]);
+        openapi.components = Some(
+            ComponentsBuilder::new()
+                .security_scheme(
+                    "bearer",
+                    SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer)),
+                )
+                .security_scheme("device", SecurityScheme::OAuth2(device_only))
+                .build(),
+        );
+
+        downgrade_to_31(&mut openapi);
+
+        assert_snapshot!(to_yaml(&openapi), @r#"
+        openapi: "3.1.0"
+        info:
+          title: test
+          version: "1.0.0"
+        paths:
+          /device:
+            get:
+              responses: {}
+          /public:
+            get:
+              responses: {}
+              security: []
+        components:
+          securitySchemes:
+            bearer:
+              type: http
+              scheme: bearer
+        security:
+        - bearer: []
         "#);
     }
 

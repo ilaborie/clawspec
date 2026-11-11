@@ -59,7 +59,7 @@ impl CallParameters {
         let mut schemas = self.query.schemas.clone();
 
         if let Some(ref querystring) = self.querystring {
-            schemas.merge(querystring.schemas.clone());
+            schemas.merge(querystring.schemas().clone());
         }
 
         if let Some(ref headers) = self.headers {
