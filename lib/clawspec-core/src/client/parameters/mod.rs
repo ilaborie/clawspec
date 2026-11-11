@@ -22,6 +22,9 @@ pub(in crate::client) use self::path::PathResolved;
 mod query;
 pub use self::query::CallQuery;
 
+mod querystring;
+pub(in crate::client) use self::querystring::CallQueryString;
+
 mod headers;
 pub use self::headers::CallHeaders;
 

@@ -59,6 +59,7 @@ impl CalledOperation {
         let builder = Operation::builder()
             .operation_id(Some(&metadata.operation_id))
             .parameters(Some(all_parameters))
+            .summary(metadata.summary)
             .description(final_description)
             .tags(final_tags);
 
@@ -113,33 +114,20 @@ impl CalledOperation {
     pub(in crate::client) fn add_response(&mut self, call_result: CallResult) {
         self.result = Some(call_result);
     }
-
-    /// Gets the tags associated with this operation.
-    pub(in crate::client) fn tags(&self) -> Option<&Vec<String>> {
-        self.operation.tags.as_ref()
-    }
 }
 
-/// Merges two OpenAPI operations for the same endpoint, combining their metadata.
-///
-/// This function implements the core merge logic for when multiple test calls
-/// target the same HTTP method and path. It ensures that all information from
-/// both operations is preserved while avoiding conflicts.
+/// Merges the operations recorded by several calls to the same method and path.
 ///
 /// # Merge Strategy
 ///
-/// - **Operation ID**: Must match between operations (validated)
+/// - **Operation ID**: Must match between operations, on a conflict the current operation is kept
 /// - **Tags**: Combined, sorted, and deduplicated
-/// - **Description**: First non-empty description wins
-/// - **Parameters**: Merged by name (new parameters added, existing preserved)
-/// - **Request Body**: Content types merged (new content types added)
-/// - **Responses**: Status codes merged (new status codes added)
-/// - **Deprecated**: Either operation can mark as deprecated
-///
-/// # Performance Notes
-///
-/// This function performs minimal cloning by delegating to optimized merge functions
-/// for each OpenAPI component type.
+/// - **Summary**, **Description** and **External docs**: first value set wins
+/// - **Parameters**: Merged by identity, first call wins (see [`merge_parameters`])
+/// - **Request Body**: Content types merged, the new call wins on the same content type
+/// - **Responses**: Merged by status, the new call wins on the same status
+/// - **Deprecated**: First value set wins
+/// - **Security**: The new call's requirements replace the current ones when set
 ///
 /// # Arguments
 ///
@@ -149,36 +137,37 @@ impl CalledOperation {
 ///
 /// # Returns
 ///
-/// `Some(Operation)` with merged data, or `None` if there's a conflict
-pub(super) fn merge_operation(
-    id: &str,
-    current: Option<Operation>,
-    new: Operation,
-) -> Option<Operation> {
+/// The merged operation, or the current operation unchanged if the operation ids conflict
+pub(super) fn merge_operation(id: &str, current: Option<Operation>, new: Operation) -> Operation {
     let Some(current) = current else {
-        return Some(new);
+        return new;
     };
 
     let current_id = current.operation_id.as_deref().unwrap_or_default();
     if current_id != id {
-        error!("conflicting operation id {id} with {current_id}");
-        return None;
+        error!(
+            kept = %current_id,
+            ignored = %id,
+            "conflicting operation ids for the same path and method, keeping the first operation"
+        );
+        return current;
     }
 
     let mut operation = Operation::builder()
         .tags(merge_tags(current.tags, new.tags))
+        .summary(current.summary.or(new.summary))
         .description(current.description.or(new.description))
         .operation_id(Some(id))
-        // external_docs
         .deprecated(current.deprecated.or(new.deprecated))
         .securities(merge_security(current.security, new.security))
         // TODO servers - https://github.com/ilaborie/clawspec/issues/23
         // extension
         .responses(merge_responses(current.responses, new.responses))
         .build();
-    operation.parameters = merge_parameters(current.parameters, new.parameters);
+    operation.external_docs = current.external_docs.or(new.external_docs);
+    operation.parameters = merge_parameters(id, current.parameters, new.parameters);
     operation.request_body = merge_request_body(current.request_body, new.request_body);
-    Some(operation)
+    operation
 }
 
 /// Merges two OpenAPI request bodies, combining their content types and metadata.
@@ -298,9 +287,17 @@ fn merge_security(
 /// - **Parameter Identity**: An inline parameter is identified by its location (`in`)
 ///   and its name, so a path `id` and a query `id` are two parameters.
 ///   A `$ref` parameter is identified by its `$ref` path
-/// - **Collision**: When both lists hold the same parameter, the new one wins
-/// - **Parameter Order**: The new parameters first, then the current parameters
-///   that are not in the new list
+/// - **Existing Parameters**: The first call wins, a new parameter with the same identity is ignored
+/// - **New Parameters**: Appended after the current ones if not already present
+/// - **Querystring**: The first inline `querystring` parameter is kept, every other inline
+///   `querystring` and inline `query` parameter is dropped with a warning.
+///   `$ref` parameters are kept
+///
+/// # Arguments
+///
+/// * `operation_id` - The operation ID, used in the warnings
+/// * `current` - The existing parameter list (None if first call)
+/// * `new` - The new parameter list to merge in
 ///
 /// # Returns
 ///
@@ -314,18 +311,17 @@ fn merge_security(
 /// // Result: GET /users supports limit, offset, and sort parameters
 /// ```
 fn merge_parameters(
+    operation_id: &str,
     current: Option<Vec<RefOr<Parameter>>>,
     new: Option<Vec<RefOr<Parameter>>>,
 ) -> Option<Vec<RefOr<Parameter>>> {
     let mut result = IndexMap::new();
-    for param in new.unwrap_or_default() {
-        result.insert(ParameterKey::of(&param), param);
-    }
-    for param in current.unwrap_or_default() {
+    for param in current.into_iter().chain(new).flatten() {
         result.entry(ParameterKey::of(&param)).or_insert(param);
     }
 
-    let result = result.into_values().collect();
+    let mut result = result.into_values().collect::<Vec<_>>();
+    keep_querystring_over_query(operation_id, &mut result);
     Some(result)
 }
 
@@ -348,6 +344,39 @@ impl ParameterKey {
             RefOr::Ref(reference) => Self::Ref(reference.ref_location.clone()),
         }
     }
+}
+
+fn keep_querystring_over_query(operation_id: &str, parameters: &mut Vec<RefOr<Parameter>>) {
+    let Some(kept) = parameters.iter().find_map(|param| match param {
+        RefOr::T(param) if param.parameter_in == ParameterIn::QueryString => {
+            Some(param.name.clone())
+        }
+        _ => None,
+    }) else {
+        return;
+    };
+
+    let mut querystring_kept = false;
+    parameters.retain(|param| {
+        let RefOr::T(param) = param else {
+            return true;
+        };
+        match param.parameter_in {
+            ParameterIn::QueryString if querystring_kept => {
+                warn!(%operation_id, %kept, dropped = %param.name, "dropping extra querystring parameter, an operation has at most one");
+                false
+            }
+            ParameterIn::QueryString => {
+                querystring_kept = true;
+                true
+            }
+            ParameterIn::Query => {
+                warn!(%operation_id, %kept, dropped = %param.name, "dropping query parameter, the operation uses a querystring parameter");
+                false
+            }
+            ParameterIn::Path | ParameterIn::Header | ParameterIn::Cookie => true,
+        }
+    });
 }
 
 fn merge_responses(
@@ -480,6 +509,13 @@ pub(super) fn generate_description(method: &http::Method, path: &str) -> Option<
                 format!("Delete {resource}")
             }
         }
+        _ if method.as_str().eq_ignore_ascii_case("QUERY") => {
+            if has_id {
+                format!("Query {} by ID", singularize(resource))
+            } else {
+                format!("Query {resource}")
+            }
+        }
         _ => return None,
     };
 
@@ -565,6 +601,7 @@ pub(super) fn singularize(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use utoipa::openapi::external_docs::ExternalDocs;
     use utoipa::openapi::path::ParameterBuilder;
     use utoipa::openapi::request_body::RequestBodyBuilder;
     use utoipa::openapi::{ContentBuilder, Ref, Required};
@@ -718,16 +755,17 @@ mod tests {
         ];
         let new = vec![parameter("id", ParameterIn::Header)];
 
-        let merged = merge_parameters(Some(current), Some(new)).expect("should have parameters");
+        let merged = merge_parameters("list-users", Some(current), Some(new))
+            .expect("should have parameters");
 
         assert_eq!(
             parameter_identities(&merged),
-            [r#""header":id"#, r#""path":id"#, r#""query":id"#]
+            [r#""path":id"#, r#""query":id"#, r#""header":id"#]
         );
     }
 
     #[test]
-    fn should_let_new_parameter_win_on_same_identity() {
+    fn should_let_first_parameter_win_on_same_identity() {
         let current = vec![RefOr::T(
             ParameterBuilder::new()
                 .name("id")
@@ -743,12 +781,13 @@ mod tests {
                 .build(),
         )];
 
-        let merged = merge_parameters(Some(current), Some(new)).expect("should have parameters");
+        let merged = merge_parameters("list-users", Some(current), Some(new))
+            .expect("should have parameters");
 
         let [RefOr::T(param)] = merged.as_slice() else {
             panic!("expected a single inline parameter, got {merged:?}");
         };
-        assert_eq!(param.description.as_deref(), Some("new"));
+        assert_eq!(param.description.as_deref(), Some("current"));
     }
 
     #[test]
@@ -759,11 +798,75 @@ mod tests {
         ];
         let new = vec![RefOr::Ref(Ref::new("#/components/parameters/Limit"))];
 
-        let merged = merge_parameters(Some(current), Some(new)).expect("should have parameters");
+        let merged = merge_parameters("list-users", Some(current), Some(new))
+            .expect("should have parameters");
 
         assert_eq!(
             parameter_identities(&merged),
             ["#/components/parameters/Limit", r#""query":Limit"#]
+        );
+    }
+
+    fn operation(summary: Option<&str>, external_docs: Option<&str>) -> Operation {
+        let mut operation = Operation::builder()
+            .operation_id(Some("list-users"))
+            .summary(summary)
+            .build();
+        operation.external_docs = external_docs.map(ExternalDocs::new);
+        operation
+    }
+
+    #[test]
+    fn should_keep_first_summary_and_external_docs_when_merging() {
+        let current = operation(Some("List users"), Some("https://docs.example.com/users"));
+        let new = operation(Some("Other"), Some("https://docs.example.com/other"));
+
+        let merged = merge_operation("list-users", Some(current), new);
+
+        assert_eq!(merged.summary.as_deref(), Some("List users"));
+        assert_eq!(
+            merged.external_docs.map(|docs| docs.url),
+            Some("https://docs.example.com/users".to_string())
+        );
+    }
+
+    #[test]
+    fn should_take_new_summary_and_external_docs_when_missing() {
+        let current = operation(None, None);
+        let new = operation(Some("List users"), Some("https://docs.example.com/users"));
+
+        let merged = merge_operation("list-users", Some(current), new);
+
+        assert_eq!(merged.summary.as_deref(), Some("List users"));
+        assert_eq!(
+            merged.external_docs.map(|docs| docs.url),
+            Some("https://docs.example.com/users".to_string())
+        );
+    }
+
+    #[test]
+    fn should_keep_first_querystring_and_drop_query_parameters_when_merging() {
+        let merged = merge_parameters(
+            "list-users",
+            Some(vec![
+                parameter("limit", ParameterIn::Query),
+                parameter("X-Trace", ParameterIn::Header),
+                parameter("Filter", ParameterIn::QueryString),
+            ]),
+            Some(vec![
+                parameter("offset", ParameterIn::Query),
+                parameter("Other", ParameterIn::QueryString),
+                parameter("session", ParameterIn::Cookie),
+            ]),
+        );
+
+        assert_eq!(
+            parameter_identities(&merged.expect("should have parameters")),
+            [
+                r#""header":X-Trace"#,
+                r#""querystring":Filter"#,
+                r#""cookie":session"#
+            ]
         );
     }
 }

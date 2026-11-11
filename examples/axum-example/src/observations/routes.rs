@@ -1,21 +1,35 @@
 use axum::extract::{FromRequest, Path, Query, Request, State};
 use axum::http::{StatusCode, header};
-use axum::response::IntoResponse;
+use axum::response::sse::{Event, Sse};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
+use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 
-use super::domain::{LngLat, ObservationId, PartialObservation, PatchObservation};
+use super::domain::{
+    LngLat, ObservationEvent, ObservationId, ObservationNames, PartialObservation,
+    PatchObservation, SearchObservations,
+};
 use super::repository::ObservationRepository;
 use crate::AppState;
+use crate::errors::RepositoryError;
 use crate::extractors::{ExtractorError, JsonStream, MultipartUpload};
 
 pub(crate) fn observation_router() -> Router<AppState> {
     Router::new()
-        .route("/", get(list_observations).post(create_observation))
+        .route(
+            "/",
+            get(list_observations)
+                .post(create_observation)
+                .fallback(search_observations),
+        )
+        .route("/names", get(list_observation_names))
+        .route("/export", get(export_observations))
+        .route("/events", get(observation_events))
         .route("/import", post(import_observations))
         .route("/upload", post(upload_observations))
         .route(
@@ -27,7 +41,7 @@ pub(crate) fn observation_router() -> Router<AppState> {
         )
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(default)]
 pub struct ListOption {
     pub offset: usize,
@@ -134,6 +148,72 @@ async fn list_observations(
             "observations": observations
         }))
     })
+}
+
+async fn list_observation_names(
+    State(repo): State<ObservationRepository>,
+    Query(ListOption { offset, limit }): Query<ListOption>,
+) -> impl IntoResponse {
+    let limit = limit.min(100);
+    repo.list(offset, limit).await.map(|observations| {
+        Json(ObservationNames {
+            names: observations
+                .into_iter()
+                .map(|observation| observation.data.name)
+                .collect(),
+        })
+    })
+}
+
+async fn search_observations(
+    State(repo): State<ObservationRepository>,
+    request: Request,
+) -> Response {
+    if request.method().as_str() != "QUERY" {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let criteria = match Json::<SearchObservations>::from_request(request, &()).await {
+        Ok(Json(criteria)) => criteria,
+        Err(rejection) => return rejection.into_response(),
+    };
+    repo.list(0, usize::MAX)
+        .await
+        .map(|observations| {
+            let observations = observations
+                .into_iter()
+                .filter(|observation| criteria.matches(&observation.data))
+                .collect::<Vec<_>>();
+            Json(json!({ "observations": observations }))
+        })
+        .into_response()
+}
+
+async fn export_observations(
+    State(repo): State<ObservationRepository>,
+) -> Result<Response, RepositoryError> {
+    let observations = repo.list(0, usize::MAX).await?;
+    let mut body = String::new();
+    for observation in &observations {
+        body.push_str(&serde_json::to_string(observation)?);
+        body.push('\n');
+    }
+    Ok(([(header::CONTENT_TYPE, "application/x-ndjson")], body).into_response())
+}
+
+async fn observation_events(
+    State(repo): State<ObservationRepository>,
+) -> Result<Response, RepositoryError> {
+    let observations = repo.list(0, usize::MAX).await?;
+    let events = observations.into_iter().map(|observation| {
+        Event::default()
+            .event("observation")
+            .id(observation.id.to_string())
+            .json_data(ObservationEvent {
+                observation_id: observation.id,
+                name: observation.data.name,
+            })
+    });
+    Ok(Sse::new(stream::iter(events)).into_response())
 }
 
 async fn create_observation(

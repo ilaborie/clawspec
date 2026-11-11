@@ -14,6 +14,7 @@ info:
 servers:
   - url: "https://api.birdwatch.example.com/api"
     description: Production server
+    name: production
 paths:
   /api/observations:
     post:
@@ -102,7 +103,16 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: JWT token obtained from /auth/login endpoint
+    legacyApiKey:
+      type: apiKey
+      in: header
+      name: X-Legacy-Key
+      description: "Legacy API key, use apiKey instead"
+      deprecated: true
 security:
   - bearerAuth: []
 tags:
   - name: observations
+    summary: Observations
+    description: "Create, read, update and delete bird observations"
+    kind: nav

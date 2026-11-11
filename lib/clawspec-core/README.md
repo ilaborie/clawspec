@@ -20,6 +20,7 @@ Clawspec automatically generates OpenAPI documentation by observing HTTP client 
 - 🔐 **Authentication Support** - Bearer, Basic, and API Key authentication
 - 🍪 **Cookie Support** - Full cookie parameter handling and documentation
 - 📋 **Parameter Styles** - Complete OpenAPI parameter style support
+- 📡 **Streaming Responses** - JSON Lines, NDJSON, JSON text sequences, and server-sent events (finite streams)
 
 ## Quick Start
 
@@ -27,7 +28,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-clawspec-core = "0.4"
+clawspec-core = "0.5"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -82,7 +83,7 @@ Clawspec provides optional feature flags:
 | `oauth2` | OAuth2 authentication support |
 
 ```toml
-clawspec-core = { version = "0.4", features = ["redaction"] }
+clawspec-core = { version = "0.5", features = ["redaction"] }
 ```
 
 ### Test Server Example with TestClient
@@ -299,6 +300,27 @@ let response = client
     .with_cookies(cookies)
     .await?;
 ```
+
+Cookies are sent in one `Cookie` header, with array values comma-joined whatever the `ParamValue` style, and documented with `style: cookie` and `explode: false`.
+
+### Whole Query String
+
+Describe the whole query string with one type. It is form-encoded and documented as a single `querystring` parameter:
+
+```rust
+#[derive(Serialize, ToSchema)]
+struct ListOptions {
+    search: Option<String>,
+    limit: Option<u32>,
+}
+
+let response = client
+    .get("/users")?
+    .with_querystring(&ListOptions { search: Some("alice".into()), limit: Some(10) })?
+    .await?;
+```
+
+A call cannot combine `with_query` and `with_querystring`.
 
 ## Integration Examples
 

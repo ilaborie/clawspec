@@ -154,6 +154,8 @@
 //! # struct UpdateUser { name: String }
 //! # #[derive(Serialize, ToSchema)]
 //! # struct PatchUser { name: Option<String> }
+//! # #[derive(Serialize, ToSchema)]
+//! # struct UserSearch { name: String }
 //! # #[derive(Deserialize, ToSchema)]
 //! # struct User { id: u64 }
 //!
@@ -181,6 +183,13 @@
 //!     .await?
 //!     .as_empty()
 //!     .await?;
+//!
+//! // QUERY - Safe search with criteria in the body
+//! let found: Vec<User> = client.query("/users")?
+//!     .json(&UserSearch { name: "Bob".to_string() })?
+//!     .await?
+//!     .as_json()
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -190,7 +199,9 @@
 //! - Use `.json(&data)?` to send JSON request bodies
 //! - [`CallPath`][crate::CallPath] handles path parameters like `/users/{id}`
 //! - [`CallQuery`][crate::CallQuery] handles query parameters
-//! - All HTTP methods are available: `get`, `post`, `put`, `patch`, `delete`
+//! - All HTTP methods are available: `get`, `post`, `put`, `patch`, `delete`, `query`
+//! - Use [`ApiClient::call`][crate::ApiClient::call] for any other method; a custom method
+//!   is documented under the path item `additionalOperations` with its name in uppercase
 //!
 //! Next: [Chapter 3: Response Handling][super::chapter_3] - Learn about different
 //! response handling strategies.

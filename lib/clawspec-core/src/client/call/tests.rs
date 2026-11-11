@@ -52,6 +52,7 @@ fn test_operation_metadata_creation() {
     let metadata = OperationMetadata {
         operation_id: "test-operation".to_string(),
         tags: Some(vec!["users".to_string(), "admin".to_string()]),
+        summary: Some("Test operation".to_string()),
         description: Some("Test operation description".to_string()),
         #[cfg(feature = "redaction")]
         response_description: Some("Test response description".to_string()),
@@ -382,7 +383,12 @@ fn test_build_url_simple_path() {
     let path = CallPath::from("/users");
     let query = CallQuery::default();
 
-    let url = ApiCall::build_url(&base_uri, &path, &query).expect("should build URL");
+    let url = ApiCall::build_url(
+        &base_uri,
+        &path,
+        &CallParameters::with_all(query, None, None),
+    )
+    .expect("should build URL");
     // The actual implementation results in double slash due to URI parsing
     assert_eq!(url.to_string(), "http://localhost:8080/users");
 }
@@ -395,7 +401,12 @@ fn test_build_url_with_query() {
         .add_param("page", ParamValue::new(1))
         .add_param("limit", ParamValue::new(10));
 
-    let url = ApiCall::build_url(&base_uri, &path, &query).expect("should build URL");
+    let url = ApiCall::build_url(
+        &base_uri,
+        &path,
+        &CallParameters::with_all(query, None, None),
+    )
+    .expect("should build URL");
     // Query order might vary, so check both possibilities
     let url_str = url.to_string();
     assert!(url_str.starts_with("http://localhost:8080/users?"));
@@ -409,7 +420,12 @@ fn test_build_url_with_path_params() {
     let path = CallPath::from("/users/{id}").add_param("id", ParamValue::new(123));
     let query = CallQuery::default();
 
-    let url = ApiCall::build_url(&base_uri, &path, &query).expect("should build URL");
+    let url = ApiCall::build_url(
+        &base_uri,
+        &path,
+        &CallParameters::with_all(query, None, None),
+    )
+    .expect("should build URL");
     assert_eq!(url.to_string(), "http://localhost:8080/users/123");
 }
 
