@@ -951,59 +951,77 @@ mod tests {
     #[test]
     fn test_is_inlined_type_reads_standard_containers_from_type_path() {
         let inlined = [
-            type_name::<Vec<Named>>(),
-            type_name::<std::collections::HashMap<String, Named>>(),
-            type_name::<indexmap::IndexMap<String, Named>>(),
-            type_name::<std::collections::BTreeSet<Named>>(),
-            type_name::<Cow<'static, Leaf>>(),
-            type_name::<std::sync::Arc<Named>>(),
-            type_name::<[Named; 2]>(),
-            type_name::<&mut [Named]>(),
-            type_name::<Option<String>>(),
-            type_name::<&str>(),
-            type_name::<(i32, String)>(),
-            type_name::<crate::ParamValue<i32>>(),
-            type_name::<user_types::Box>(),
-            type_name::<crate::ParamValue<Leaf>>(),
-            type_name::<serde_json::Value>(),
+            ("Vec<Named>", type_name::<Vec<Named>>()),
+            (
+                "std::collections::HashMap<String, Named>",
+                type_name::<std::collections::HashMap<String, Named>>(),
+            ),
+            (
+                "indexmap::IndexMap<String, Named>",
+                type_name::<indexmap::IndexMap<String, Named>>(),
+            ),
+            (
+                "std::collections::BTreeSet<Named>",
+                type_name::<std::collections::BTreeSet<Named>>(),
+            ),
+            ("Cow<'static, Leaf>", type_name::<Cow<'static, Leaf>>()),
+            (
+                "std::sync::Arc<Named>",
+                type_name::<std::sync::Arc<Named>>(),
+            ),
+            ("[Named; 2]", type_name::<[Named; 2]>()),
+            ("&mut [Named]", type_name::<&mut [Named]>()),
+            ("Option<String>", type_name::<Option<String>>()),
+            ("&str", type_name::<&str>()),
+            ("(i32, String)", type_name::<(i32, String)>()),
+            (
+                "crate::ParamValue<i32>",
+                type_name::<crate::ParamValue<i32>>(),
+            ),
+            ("user_types::Box", type_name::<user_types::Box>()),
+            (
+                "crate::ParamValue<Leaf>",
+                type_name::<crate::ParamValue<Leaf>>(),
+            ),
+            ("serde_json::Value", type_name::<serde_json::Value>()),
         ]
-        .map(|type_path| (type_path, is_inlined_type(type_path)));
+        .map(|(label, type_path)| (label, is_inlined_type(type_path)));
         insta::assert_debug_snapshot!(inlined, @r#"
         [
             (
-                "alloc::vec::Vec<clawspec_core::client::openapi::schema::tests::Named>",
+                "Vec<Named>",
                 true,
             ),
             (
-                "std::collections::hash::map::HashMap<alloc::string::String, clawspec_core::client::openapi::schema::tests::Named>",
+                "std::collections::HashMap<String, Named>",
                 true,
             ),
             (
-                "indexmap::map::IndexMap<alloc::string::String, clawspec_core::client::openapi::schema::tests::Named>",
+                "indexmap::IndexMap<String, Named>",
                 true,
             ),
             (
-                "alloc::collections::btree::set::BTreeSet<clawspec_core::client::openapi::schema::tests::Named>",
+                "std::collections::BTreeSet<Named>",
                 true,
             ),
             (
-                "alloc::borrow::Cow<'_, clawspec_core::client::openapi::schema::tests::Leaf>",
+                "Cow<'static, Leaf>",
                 true,
             ),
             (
-                "alloc::sync::Arc<clawspec_core::client::openapi::schema::tests::Named>",
+                "std::sync::Arc<Named>",
                 true,
             ),
             (
-                "[clawspec_core::client::openapi::schema::tests::Named; 2]",
+                "[Named; 2]",
                 true,
             ),
             (
-                "&mut [clawspec_core::client::openapi::schema::tests::Named]",
+                "&mut [Named]",
                 true,
             ),
             (
-                "core::option::Option<alloc::string::String>",
+                "Option<String>",
                 true,
             ),
             (
@@ -1011,23 +1029,23 @@ mod tests {
                 true,
             ),
             (
-                "(i32, alloc::string::String)",
+                "(i32, String)",
                 true,
             ),
             (
-                "clawspec_core::client::parameters::param::ParamValue<i32>",
+                "crate::ParamValue<i32>",
                 true,
             ),
             (
-                "clawspec_core::client::openapi::schema::tests::user_types::Box",
+                "user_types::Box",
                 false,
             ),
             (
-                "clawspec_core::client::parameters::param::ParamValue<clawspec_core::client::openapi::schema::tests::Leaf>",
+                "crate::ParamValue<Leaf>",
                 false,
             ),
             (
-                "serde_json::value::Value",
+                "serde_json::Value",
                 false,
             ),
         ]
