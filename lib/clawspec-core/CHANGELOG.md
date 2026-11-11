@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.5.0...clawspec-core-v0.6.0) - 2026-11-11
+
+### Added
+
+- *(clawspec-core)* [**breaking**] capture OpenAPI 3.2 additions ([#173](https://github.com/ilaborie/clawspec/pull/173))
+
 ## [0.5.0](https://github.com/ilaborie/clawspec/compare/clawspec-core-v0.4.4...clawspec-core-v0.5.0) - 2026-10-02
 
 ### Added
