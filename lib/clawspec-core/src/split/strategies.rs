@@ -125,8 +125,8 @@ impl SplitSchemasByTag {
         schema_to_tags
     }
 
-    /// Collects schema references from a parameter schema and its content, used by a
-    /// `querystring` parameter.
+    /// Collects schema references from a parameter's `schema` and from its `content`
+    /// (set by a `querystring` parameter).
     fn collect_parameter_refs(
         &self,
         parameter: &Parameter,
@@ -161,7 +161,8 @@ impl SplitSchemasByTag {
         }
     }
 
-    /// Collects schema references from a schema, including references nested in inline schemas.
+    /// Collects schema references from a schema, walking inline object properties,
+    /// `contentSchema`, `additionalProperties`, array `items`, and `oneOf`/`allOf`/`anyOf`.
     fn collect_schema_refs(
         &self,
         schema: &RefOr<Schema>,

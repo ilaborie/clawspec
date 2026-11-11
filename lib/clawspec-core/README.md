@@ -28,7 +28,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-clawspec-core = "0.4"
+clawspec-core = "0.5"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -83,7 +83,7 @@ Clawspec provides optional feature flags:
 | `oauth2` | OAuth2 authentication support |
 
 ```toml
-clawspec-core = { version = "0.4", features = ["redaction"] }
+clawspec-core = { version = "0.5", features = ["redaction"] }
 ```
 
 ### Test Server Example with TestClient

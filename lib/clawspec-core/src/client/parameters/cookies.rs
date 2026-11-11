@@ -167,14 +167,14 @@ impl CallCookies {
     /// According to the OpenAPI Specification, cookies are parameters with `in: cookie`.
     /// This method generates the Parameter objects for the generated document.
     ///
-    /// # OpenAPI Specification
+    /// # Generated parameter
     ///
-    /// From the OpenAPI specification:
-    /// - Parameter location: `in: cookie`
-    /// - Cookies are typically optional parameters
-    /// - Style `cookie` with `explode: false`: values are sent as `name=value` pairs joined
-    ///   by `; ` in one `Cookie` header, without percent-encoding, arrays comma-joined
-    ///   (the style of a [`ParamValue`] is ignored for cookies)
+    /// Each cookie is emitted with `in: cookie`, `required: false`, `style: cookie`
+    /// and `explode: false`.
+    ///
+    /// Clawspec sends the cookies as `name=value` pairs joined by `; ` in one `Cookie`
+    /// header, without percent-encoding. Arrays are comma-joined, and the style of a
+    /// [`ParamValue`] is ignored with a warning.
     pub(in crate::client) fn to_parameters(&self) -> impl Iterator<Item = Parameter> + '_ {
         self.cookies.iter().map(|(name, resolved)| {
             ParameterBuilder::new()
